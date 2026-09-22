@@ -94,3 +94,16 @@ def test_technical_chinese_allows_long_english_names():
     summary = 'Morphotonics 获得新融资，将其显示技术扩展至数据中心。'
     assert cards.chinese_translation(summary)
     assert not cards.chinese_translation('中文 ' + 'This is an untranslated English introduction. ' * 3)
+
+
+@pytest.mark.asyncio
+async def test_previous_source_version_restores_without_another_model_call(db,entry,monkeypatch):
+    core.discover([entry])
+    await translate(entry,monkeypatch)
+    before = cards.attach(entry,1)['card']
+    changed = {**entry,'content':'<p>A temporarily shorter RSS excerpt.</p>'}
+    cards.enqueue([changed])
+    assert cards.attach(changed,1)['card']['status'] == 'pending'
+    cards.enqueue([entry])
+    assert cards.attach(entry,1)['card'] == before
+    assert (await translate(entry,monkeypatch))[0] == []

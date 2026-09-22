@@ -72,6 +72,8 @@ def parse_product_page(raw, final_url):
 
 
 async def enrich_product_entry(client, entry, backend_url, headers):
+    from prepared_content import apply as apply_prepared, remember
+    entry = apply_prepared(entry)
     original = entry.get('content') or ''
     if not is_product_entry(entry):
         raise ValueError('unsupported_product_source')
@@ -128,6 +130,7 @@ async def enrich_product_entry(client, entry, backend_url, headers):
     fresh = await client.get(backend_url + '/v1/entries/' + str(entry['id']), headers=headers, timeout=15)
     fresh.raise_for_status()
     content = fresh.json().get('content') or html
+    remember(entry, content, 'product_page')
     return {'content': content, 'cover_url': first_image_src(content) if images else None, 'cover_source': 'product_screenshot' if images else None, 'content_source': 'product_page', 'updated': True}
 
 

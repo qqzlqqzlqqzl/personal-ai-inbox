@@ -46,6 +46,12 @@ def sql(query, database='postgres'):
     return run([str(ROOT/'runtime/pg/usr/lib/postgresql/16/bin/psql'), '-h','127.0.0.1','-p','55432',
                 '-U','newsowner','-d',database,'-At','-v','ON_ERROR_STOP=1'], env=env, input=query)
 
+def preserve_runtime_config(old, values):
+    # Reinitialization must not erase proxy routing or rotate media signatures.
+    merged = {**old, **values}
+    merged['MEDIA_PROXY_PRIVATE_KEY'] = old.get('MEDIA_PROXY_PRIVATE_KEY') or secrets.token_urlsafe(36)
+    return merged
+
 def initialize():
     read_secret('arkKey.txt')
     dbpass = read_secret('database.password')
@@ -61,6 +67,7 @@ def initialize():
                   CREATE_ADMIN='1',RUN_MIGRATIONS='1',BASE_URL='http://127.0.0.1:8092/mf',LISTEN_ADDR='127.0.0.1:8091',
                   WORKER_POOL_SIZE='2',DATABASE_MAX_CONNS='5',DATABASE_MIN_CONNS='1',POLLING_FREQUENCY='30',
                   FETCHER_ALLOW_PRIVATE_NETWORKS='1',MEDIA_PROXY_MODE='all',LOG_LEVEL='warning')
+    values = preserve_runtime_config(old, values)
     write_env('miniflux.env', values)
     ai = read_env('ai.env'); ai['ARK_API_KEY'] = read_secret('arkKey.txt'); write_env('ai.env', ai)
     run(['systemctl','--user','daemon-reload'])

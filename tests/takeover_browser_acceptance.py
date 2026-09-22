@@ -46,23 +46,50 @@ with client() as api:
             for view in ['/all','/today',f'/category/{category}','/feed/40']:
                 page.goto(APP+view,wait_until='domcontentloaded')
                 page.locator('.article-entry').first.wait_for(timeout=45000)
-                for attempt in range(8):
-                    titles=page.locator('.article-entry-title').all_inner_texts()[:8]
-                    summaries=page.locator('.grid-card-summary,.card-preview').all_inner_texts()[:8]
-                    if titles and all(re.search(r'[\u3400-\u9fff]',t) for t in titles) and summaries and all(re.search(r'[\u3400-\u9fff]',s) for s in summaries):
-                        break
-                    page.wait_for_timeout(10000);page.reload(wait_until='domcontentloaded')
-                    page.locator('.article-entry').first.wait_for(timeout=30000)
-                check('chinese_view_'+view,bool(titles) and all(re.search(r'[\u3400-\u9fff]',t) for t in titles) and bool(summaries) and all(re.search(r'[\u3400-\u9fff]',s) for s in summaries),{'titles':titles,'summaries':summaries})
+                visible = page.locator('.article-entry').evaluate_all("""nodes => nodes.slice(0,24).map(n=>({
+                    title:n.querySelector('.article-entry-title')?.textContent?.trim()||'',
+                    summary:n.querySelector('.grid-card-summary,.card-preview')?.textContent?.trim()||'',
+                    pending:n.querySelector('.card-language-status')?.textContent?.trim()||''
+                }))""")
+                ready = [x for x in visible if not x['pending']]
+                waiting = [x for x in visible if x['pending']]
+                check('completed_cards_chinese_'+view, bool(ready) and all(
+                    re.search(r'[\u3400-\u9fff]',x['title']) and re.search(r'[\u3400-\u9fff]',x['summary'])
+                    for x in ready), {'completed':len(ready),'pending':len(waiting),'titles':[x['title'] for x in ready[:8]]})
+                check('pending_translation_explicit_'+view, all(
+                    any(word in x['pending'] for word in ['翻译','中文卡片']) for x in waiting),
+                    {'count':len(waiting),'labels':list(set(x['pending'] for x in waiting))})
                 page.screenshot(path=str(OUT/('takeover-'+view.strip('/').replace('/','-')+'.png')),full_page=False)
-            covers=page.locator('.grid-card-cover')
-            for index in range(min(8,covers.count())):
-                image=covers.nth(index);image.scroll_into_view_if_needed()
+            # Check the exact reported products, not only surviving img nodes.
+            for eid in IDS:
+                page.goto(APP+'/feed/40?all-entries=1',wait_until='domcontentloaded')
+                # Direct source read may hide already-read items; the detail must still show its own real images.
+                page.goto(APP+'/feed/40/entry/'+str(eid),wait_until='domcontentloaded')
+                page.locator('.article-body').wait_for(timeout=30000)
+                image=page.locator('.article-body img').first
+                check('product_'+str(eid)+'_own_image_exists',image.count()==1)
+                image.scroll_into_view_if_needed()
+                page.wait_for_function("""()=>{const x=document.querySelector('.article-body img');
+                    return x?.complete&&x.naturalWidth>100&&!x.currentSrc.startsWith('data:');}""",timeout=45000)
+                image.evaluate('async x=>{await x.decode();}')
+                check('product_'+str(eid)+'_image_decodes',image.evaluate('(x)=>x.naturalWidth')>100)
+            api.put('/v1/entries',json={'entry_ids':IDS,'status':'unread'}).raise_for_status()
+            page.goto(APP+'/feed/40',wait_until='domcontentloaded')
+            page.locator('.article-entry').first.wait_for(timeout=45000)
+            entries=page.locator('.article-entry')
+            visible_ids=entries.evaluate_all('nodes=>nodes.slice(0,8).map(n=>n.getAttribute("data-entry-id"))')
+            check('product_list_has_eight_test_cards',len(visible_ids)==8)
+            check('reported_products_are_the_verified_cover_cards',set(map(int,visible_ids))==set(IDS),visible_ids)
+            for eid in visible_ids:
+                card=page.locator('[data-entry-id="'+eid+'"]')
+                card.scroll_into_view_if_needed()
+                image=card.locator('.grid-card-cover').first
                 expect(image).to_be_visible(timeout=30000)
-                page.wait_for_function('(i)=>{const x=document.querySelectorAll(".grid-card-cover")[i];return x?.complete&&x.naturalWidth>100&&!x.currentSrc.startsWith("data:")}',arg=index,timeout=45000)
-            check('product_feed_real_covers',covers.count()>=8,{'count':covers.count()})
-            page.locator('.article-entry').first.scroll_into_view_if_needed()
-            page.wait_for_timeout(400)
+                expect(image).to_have_js_property('complete',True,timeout=30000)
+                image.evaluate('async x=>{await x.decode();}')
+                check('product_card_'+eid+'_cover_decodes',image.evaluate('(x)=>x.naturalWidth')>100)
+            entries.first.scroll_into_view_if_needed()
+            page.wait_for_timeout(500)
             page.screenshot(path=str(OUT/'takeover-product-covers-loaded.png'),full_page=False)
             before=cached_snapshot(IDS)
             page.reload(wait_until='domcontentloaded');page.locator('.article-entry').first.wait_for(timeout=45000)
@@ -96,8 +123,8 @@ with client() as api:
         result['error']=type(exc).__name__+': '+str(exc)[:700]
     finally:
         # Opening a detail can auto-mark read. Restore only the test's touched entry.
-        original=originals[2892]
-        api.put('/v1/entries',json={'entry_ids':[2892],'status':original['status'],'starred':original['starred']}).raise_for_status()
+        for eid, original in originals.items():
+            api.put('/v1/entries',json={'entry_ids':[eid],'status':original['status'],'starred':original['starred']}).raise_for_status()
         result['test_mutations_restored']=True
 result['passed']=not result.get('error') and all(c['passed'] for c in result['checks'])
 REPORT.write_text(json.dumps(result,ensure_ascii=False,indent=2))

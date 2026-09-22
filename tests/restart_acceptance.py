@@ -14,6 +14,7 @@ def systemctl(*args):
 with client() as c:
     baseline=c.get('/v1/entries?limit=1').json();entry=baseline['entries'][0];eid=entry['id']
     before=len(c.get('/v1/feeds').json())
+    cover_before={i:c.get(f'/v1/entries/{i}').json()['ai']['cover_url'] for i in (2900,2897,2880,2871)}
     c.put('/v1/entries',json={'entry_ids':[eid],'status':'read','starred':True}).raise_for_status()
 try:
     systemctl('stop','ai-news-web','ai-news-miniflux','ai-news-rsshub')
@@ -31,8 +32,16 @@ try:
         report['feeds_preserved']=len(c.get('/v1/feeds').json())==before
         report['entries_preserved']=c.get('/v1/entries?limit=1').json()['total']>=baseline['total']
         report['ai_status_available']=c.get('/v1/ai/status').status_code==200
+        media=[]
+        for i,url in cover_before.items():
+            current=c.get(f'/v1/entries/{i}').json()['ai']['cover_url']
+            r=httpx.get('https://106.53.40.6'+url if url.startswith('/') else url,timeout=25,trust_env=False)
+            media.append({'entry_id':i,'url_stable':current==url,'http':r.status_code,
+                          'image':r.headers.get('content-type','').startswith('image/')})
+        report['cover_checks']=media
+        report['media_signatures_survived']=all(x['url_stable'] and x['http']==200 and x['image'] for x in media)
     report['services']={name:systemctl('is-active',name) for name in NAMES}
-    report['passed']=all(report[k] for k in ['read_and_star_survived','feeds_preserved','entries_preserved','ai_status_available']) and all(v=='active' for v in report['services'].values())
+    report['passed']=all(report[k] for k in ['read_and_star_survived','feeds_preserved','entries_preserved','ai_status_available','media_signatures_survived']) and all(v=='active' for v in report['services'].values())
 except Exception as exc:
     report.update(passed=False,error=type(exc).__name__+': '+str(exc))
 finally:

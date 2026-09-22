@@ -76,4 +76,7 @@ async def repair_entry(client, entry, backend_url, headers, raw=None):
     r.raise_for_status()
     r = await client.get(backend_url+f"/v1/entries/{entry['id']}", headers=headers, timeout=15)
     r.raise_for_status()
-    return {'content': r.json().get('content') or html, 'repaired': count}
+    content = r.json().get('content') or html
+    from prepared_content import remember
+    remember(entry, content, 'body_images_repaired')
+    return {'content': content, 'repaired': count}

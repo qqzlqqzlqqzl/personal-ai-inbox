@@ -3,6 +3,10 @@ import httpx
 import pytest
 import product_source as product
 
+@pytest.fixture(autouse=True)
+def isolated_prepared_store(db):
+    return db
+
 URL = 'https://www.producthunt.com/products/example'
 IMG = 'https://ph-files.imgix.net/example-screen.png?w=1000'
 
@@ -29,7 +33,7 @@ def test_description_is_text_not_markup():
 
 @pytest.mark.asyncio
 async def test_enrichment_idempotent_preserves_rss_and_escapes(monkeypatch):
-    entry = {'id': 7, 'url': URL, 'title': 'Example', 'content': '<p>Original RSS</p>'}
+    entry = {'id': 7, 'user_id':1, 'url': URL, 'title': 'Example', 'content': '<p>Original RSS</p>'}
     writes = []
     def upstream(req):
         if req.method == 'PUT':
@@ -64,7 +68,7 @@ def test_mobile_application_is_a_supported_product():
 
 @pytest.mark.asyncio
 async def test_missing_screenshots_retry_without_nesting_original_rss(monkeypatch):
-    entry = {'id': 8, 'url': URL, 'title': 'Example', 'content': '<p>Original RSS preserved</p>'}
+    entry = {'id': 8, 'user_id':1, 'url': URL, 'title': 'Example', 'content': '<p>Original RSS preserved</p>'}
     writes = []
     image_ok = False
     def upstream(req):

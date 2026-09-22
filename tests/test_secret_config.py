@@ -48,3 +48,14 @@ class SecretConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_reinitialization_preserves_proxy_and_stable_media_key():
+    from initialize_secrets import preserve_runtime_config
+    old = {'HTTPS_PROXY':'http://127.0.0.1:17890','MEDIA_PROXY_PRIVATE_KEY':'unit-test-stable-key'}
+    new = preserve_runtime_config(old,{'MEDIA_PROXY_MODE':'all'})
+    assert new['HTTPS_PROXY']==old['HTTPS_PROXY']
+    assert new['MEDIA_PROXY_PRIVATE_KEY']==old['MEDIA_PROXY_PRIVATE_KEY']
+    first=preserve_runtime_config({}, {})
+    assert len(first['MEDIA_PROXY_PRIVATE_KEY']) >= 32
+    assert preserve_runtime_config(first,{})['MEDIA_PROXY_PRIVATE_KEY']==first['MEDIA_PROXY_PRIVATE_KEY']

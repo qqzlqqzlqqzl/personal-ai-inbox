@@ -24,6 +24,18 @@ def migrate():
           next_try REAL DEFAULT 0,priority INTEGER DEFAULT 0,model TEXT,error TEXT,
           updated_at REAL,translated_at REAL)''')
         db.execute('CREATE INDEX IF NOT EXISTS card_translation_queue ON card_translations(status,next_try,priority)')
+        db.execute("""CREATE TABLE IF NOT EXISTS card_translation_versions (
+          entry_id INTEGER,user_id INTEGER,source_hash TEXT,original_title TEXT,
+          title_zh TEXT,summary_zh TEXT,source_kind TEXT,model TEXT,translated_at REAL,
+          PRIMARY KEY(entry_id,user_id,source_hash))""")
+        db.execute("""INSERT OR IGNORE INTO card_translation_versions
+          SELECT entry_id,user_id,source_hash,original_title,title_zh,summary_zh,source_kind,model,translated_at
+          FROM card_translations WHERE status='done' AND title_zh IS NOT NULL AND summary_zh IS NOT NULL""")
+
+def cache_version(db, row):
+    db.execute("""INSERT OR REPLACE INTO card_translation_versions VALUES (?,?,?,?,?,?,?,?,?)""",
+               tuple(row[k] for k in ('entry_id','user_id','source_hash','original_title','title_zh',
+                                      'summary_zh','source_kind','model','translated_at')))
 
 def is_chinese(text):
     cjk = len(re.findall(r'[\u3400-\u9fff]', text))
@@ -48,6 +60,8 @@ def source_card(entry, model):
     return title, excerpt, kind, fingerprint
 
 def enqueue(entries, priority=0):
+    from prepared_content import apply as apply_prepared
+    entries = [apply_prepared(e) for e in entries]
     cfg = core.settings()
     model = cfg['model']
     now = time.time()
@@ -56,8 +70,19 @@ def enqueue(entries, priority=0):
             if 'id' not in entry or 'user_id' not in entry or entry.get('content_deferred'):
                 continue
             title, excerpt, kind, digest = source_card(entry, model)
-            old = db.execute('SELECT source_hash FROM card_translations WHERE entry_id=?', (entry['id'],)).fetchone()
-            if old and old[0] == digest:
+            old = db.execute('SELECT * FROM card_translations WHERE entry_id=?', (entry['id'],)).fetchone()
+            if old and old['status'] == 'done':
+                cache_version(db, old)
+            version = db.execute('''SELECT * FROM card_translation_versions
+              WHERE entry_id=? AND user_id=? AND source_hash=?''', (entry['id'],entry['user_id'],digest)).fetchone()
+            if version and (not old or old['source_hash'] != digest or old['status'] != 'done'):
+                db.execute('''INSERT OR REPLACE INTO card_translations
+                  (entry_id,user_id,source_hash,original_title,excerpt,source_kind,status,priority,model,updated_at,title_zh,summary_zh,translated_at)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (entry['id'],entry['user_id'],digest,title,excerpt,kind,'done',priority,model,now,
+                   version['title_zh'],version['summary_zh'],version['translated_at']))
+                continue
+            if old and old['source_hash'] == digest:
                 if priority:
                     db.execute('UPDATE card_translations SET priority=MAX(priority,?) WHERE entry_id=?', (priority,entry['id']))
                 continue
@@ -126,7 +151,7 @@ async def translate_once(client=None):
         return {'processed':0,'waiting_model':True}
     payload = json.dumps({'items':[{'id':r['entry_id'],'title':r['original_title'],'excerpt':r['excerpt'],
                                   'source_kind':r['source_kind']} for r in rows]},ensure_ascii=False)
-    config = {**cfg,'prompt':PROMPT,'max_output_tokens':2200}
+    config = {**cfg,'prompt':PROMPT,'max_output_tokens':min(2200,400*len(rows))}
     usage = core.reserve_budget(rows[0]['entry_id'],payload,config,purpose='translation')
     if usage is None:
         with core.connect() as db:
@@ -164,6 +189,7 @@ async def translate_once(client=None):
                 db.execute('''UPDATE card_translations SET status='done',title_zh=?,summary_zh=?,
                   error=NULL,next_try=0,translated_at=?,updated_at=? WHERE entry_id=? AND source_hash=?''',
                   (title,summary,time.time(),time.time(),row['entry_id'],row['source_hash']))
+                cache_version(db,{**row,'title_zh':title,'summary_zh':summary,'translated_at':time.time()})
         core.event('cards_translated',detail=f'{len(rows)} cards; {tokens} tokens')
         log.info('ai-news translation_done count=%s tokens=%s duration_ms=%.1f',len(rows),tokens,(time.perf_counter()-started)*1000)
         return {'processed':len(rows),'tokens':tokens}

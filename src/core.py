@@ -170,6 +170,8 @@ def update(entry_id, **fields):
 
 
 def decorate(entry, user_id):
+    from prepared_content import apply as apply_prepared
+    entry = apply_prepared(entry)
     from card_translation import attach
     with connect() as c:
         r = c.execute(
@@ -303,6 +305,8 @@ def migrate():
 
     from card_translation import migrate as migrate_cards
     migrate_cards()
+    from prepared_content import migrate as migrate_prepared
+    migrate_prepared()
 
 def canonical_url(url):
     from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
