@@ -58,6 +58,11 @@ async def main():
     if args.feed:
         where.append("feed_id IN (" + ",".join("?" for _ in args.feed) + ")")
         values.extend(args.feed)
+    if args.retry_report:
+        report = json.loads((core.ROOT / args.retry_report).read_text())
+        retry_ids = sorted({e["entry_id"] for e in report["entries"] if e["result"] == "failed"})
+        where.append("entry_id IN (SELECT value FROM json_each(?))")
+        values.append(json.dumps(retry_ids))
     with core.connect() as c:
         rows = c.execute(
             "SELECT entry_id,feed_id FROM analyses WHERE "
@@ -65,10 +70,6 @@ async def main():
             + " ORDER BY published_at DESC,entry_id DESC LIMIT ?",
             (*values, max(1, min(args.limit, 5000))),
         ).fetchall()
-    if args.retry_report:
-        report = json.loads((core.ROOT / args.retry_report).read_text())
-        retry_ids = {e["entry_id"] for e in report["entries"] if e["result"] == "failed"}
-        rows = [row for row in rows if row["entry_id"] in retry_ids]
     token = read_env("ai.env")["MINIFLUX_API_KEY"]
     sem = asyncio.Semaphore(max(1, min(args.concurrency, 8)))
     started = time.perf_counter()
@@ -91,7 +92,7 @@ async def main():
                 progress = {"requested":len(rows), "processed":processed, "complete":False,
                             "updated":results.count("updated"), "no_cover":results.count("no_cover"),
                             "failed":results.count("failed"), "seconds":round(time.perf_counter()-started,2),
-                            "ai_requests":0}
+                            "ai_requests":0, "extracted_only":args.extracted_only}
                 (core.ROOT / args.report).write_text(json.dumps(progress, indent=2))
                 print(json.dumps(progress), flush=True)
     summary = {
@@ -103,6 +104,7 @@ async def main():
         "failed": results.count("failed"),
         "seconds": round(time.perf_counter() - started, 2),
         "ai_requests": 0,
+        "extracted_only": args.extracted_only,
     }
     report = {**summary, "at": time.time(), "entries": [{"entry_id": row["entry_id"], "result": result} for row, result in zip(rows, results)]}
     (core.ROOT / args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2))

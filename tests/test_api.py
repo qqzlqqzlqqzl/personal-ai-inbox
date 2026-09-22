@@ -291,3 +291,23 @@ async def test_unauthorized_list_never_uses_worker_token(browser_api, monkeypatc
     response = await browser_api.get("/mf/v1/entries?ai_view=recommended", headers=headers)
     assert response.status_code == 401
     assert all(r.url.path.endswith("/v1/me") and "x-auth-token" not in r.headers for r in calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("encoding, compressed", [("gzip", True), ("gzip;q=0, identity", False), ("identity", False)])
+async def test_gzip_negotiation_static_and_dynamic(browser_api, monkeypatch, db, encoding, compressed):
+    import gzip
+    monkeypatch.setattr(api, "ROOT", db)
+    assets = db / "upstream/reactflux/build/assets"
+    assets.mkdir(parents=True)
+    payload = b"const greeting = 'hello';" * 100
+    (assets / "test.js").write_bytes(payload)
+    (assets / "test.js.gz").write_bytes(gzip.compress(payload))
+    r = await browser_api.get("/inbox/assets/test.js", headers={"Accept-Encoding": encoding})
+    assert r.status_code == 200
+    assert r.content == payload
+    assert (r.headers.get("content-encoding") == "gzip") is compressed
+    r = await browser_api.get("/mf/v1/ai/settings", headers={"Accept-Encoding": encoding, "X-Auth-Token": "test-session"})
+    assert r.status_code == 200
+    assert len(r.content) > 512
+    assert (r.headers.get("content-encoding") == "gzip") is compressed

@@ -7,6 +7,8 @@ import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response, FileResponse, HTMLResponse
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.middleware.gzip import IdentityResponder
+from starlette.datastructures import Headers
 from core import (
     ROOT,
     init_db,
@@ -53,7 +55,6 @@ app = FastAPI(
     openapi_url=None,
     lifespan=lifespan,
 )
-app.add_middleware(GZipMiddleware, minimum_size=512, compresslevel=5)
 access_log = logging.getLogger("uvicorn.error")
 
 
@@ -66,6 +67,23 @@ def accepts_gzip_encoding(value):
             except ValueError:
                 return False
     return False
+
+
+class NegotiatedGZipMiddleware(GZipMiddleware):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and not accepts_gzip_encoding(
+            Headers(scope=scope).get("accept-encoding", "")
+        ):
+            responder = IdentityResponder(
+                self.app, self.minimum_size,
+                exclude_content_types=self.exclude_content_types,
+            )
+            await responder(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+app.add_middleware(NegotiatedGZipMiddleware, minimum_size=512, compresslevel=5)
 
 
 def auth_headers(request):

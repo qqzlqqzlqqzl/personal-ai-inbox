@@ -1,0 +1,20 @@
+{
+  "at": 1790082805.0601976,
+  "handle": "OpenAI",
+  "adapter_configured": false,
+  "adapter": "unconfigured",
+  "network_reachable": false,
+  "posts_returned": false,
+  "post_count": 0,
+  "route": "/twitter/user/OpenAI",
+  "experimental": true,
+  "route_http": 503,
+  "network_error": "ConnectTimeout",
+  "message": "X 适配器未配置。可接第三方服务以免提供 X 账号 Token；尚未取得帖子。 服务器直连 X 不通；直接抓取需要可用出站代理。",
+  "third_party_candidate": {
+    "provider": "twitterapi.io",
+    "http": 403,
+    "authenticated": false,
+    "posts_verified": false
+  }
+}

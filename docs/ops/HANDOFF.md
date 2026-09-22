@@ -51,6 +51,8 @@ Nginx 配置副本及备份位置见 DELIVERY。仅复用现有 HTTPS server，8
 
 ## 验收入口
 
+本轮分测点性能、登录、浏览器和未闭环事项见 [调试验收记录](DEBUGGING-ACCEPTANCE.md)；不要把历史交接数据当本轮实测。
+
 ```sh
 cd /home/ubuntu/ai-news
 PYTHONPATH=src runtime/venv/bin/pytest -q tests/test_core.py tests/test_worker.py tests/test_api.py tests/test_secret_config.py tests/test_publish.py

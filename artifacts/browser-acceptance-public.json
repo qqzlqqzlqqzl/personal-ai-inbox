@@ -1,5 +1,5 @@
 {
-  "at": 1790071925.318253,
+  "at": 1790085164.6266158,
   "base_url": "https://106.53.40.6",
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
@@ -22,6 +22,43 @@
       "name": "dedicated_login_no_generic_help",
       "passed": true,
       "detail": null
+    },
+    {
+      "name": "service_worker_no_store",
+      "passed": true,
+      "detail": "no-cache, no-store, must-revalidate"
+    },
+    {
+      "name": "pwa_manifest_brand",
+      "passed": true,
+      "detail": {
+        "name": "个人信息箱",
+        "short_name": "信息箱",
+        "description": "个人 AI 信息收集与阅读",
+        "start_url": "/inbox/",
+        "display": "fullscreen",
+        "background_color": "#ffffff",
+        "theme_color": "#1F2327",
+        "lang": "en",
+        "scope": "/inbox/",
+        "icons": [
+          {
+            "src": "favicon.ico",
+            "sizes": "64x64 32x32 24x24 16x16",
+            "type": "image/x-icon"
+          },
+          {
+            "src": "logo192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+          },
+          {
+            "src": "logo512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+          }
+        ]
+      }
     },
     {
       "name": "desktop_login",
@@ -143,7 +180,7 @@
       "passed": true,
       "detail": {
         "status": 200,
-        "url": "https://106.53.40.6/news/i/?rid=6ab254caa8ffd"
+        "url": "https://106.53.40.6/news/i/?rid=6ab2884e22bef"
       }
     },
     {
