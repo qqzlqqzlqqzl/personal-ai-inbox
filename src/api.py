@@ -505,16 +505,15 @@ async def deployment():
     )
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
+@app.api_route("/inbox", methods=["GET", "HEAD"])
 async def home():
     from fastapi.responses import RedirectResponse
 
-    if (await health())["services"]["reader"]:
-        return RedirectResponse("/all")
-    return await deployment()
+    return RedirectResponse("/inbox/", status_code=308)
 
 
-@app.get("/{path:path}")
+@app.api_route("/inbox/{path:path}", methods=["GET", "HEAD"])
 async def frontend(path: str):
     webroot = (ROOT / "upstream/reactflux/build").resolve()
     if any(part.startswith(".") for part in Path(path).parts):

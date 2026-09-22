@@ -66,7 +66,7 @@ runtime/venv/bin/python src/backup.py --verify-latest
 
 ## 6. 网络与社交适配
 
-服务器出站代理与电脑访问网站的入站隧道是两件事。前者解决原站抓取，后者解决浏览器能否访问回环服务。SSH 私有转发示例见 README；首次连接必须验证主机指纹。不要上传 SSH 密码、Ark Key 或浏览器 Cookie 来排查普通页面问题。
+服务器出站代理与电脑访问网站的入站隧道是两件事。前者解决原站抓取，后者解决浏览器能否访问回环服务。日常浏览器直接使用 `https://106.53.40.6/inbox/`，无需入站隧道；SSH 仅作维护/故障备用，转发示例见 LOCAL_ACCESS.md；首次连接必须验证主机指纹。不要上传 SSH 密码、Ark Key 或浏览器 Cookie 来排查普通页面问题。
 
 RSSHub 参数放在私有 `.private/rsshub.env`；只根据固定上游版本的官方文档配置，再重启 `ai-news-rsshub`。不要把参数值输出到日志。X 常需账号 Token，Instagram 需对应授权；Telegram 公共网页源不代表私有群组访问权限。网络恢复后执行：
 

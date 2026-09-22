@@ -1,25 +1,23 @@
-# 电脑浏览器的最后一段私有通道
+# HTTPS 入口与维护备用通道
 
-## 已确认的事实
+## 日常访问
 
-Linux 上的 `http://127.0.0.1:8092` 已通过真实浏览器验收。Windows 上同地址的直接 HTTP 检查返回 `WinError 10061 / ConnectionRefused`，即本机没有建立到该服务的转发。Windows 的 MCP 在线不等于这条浏览器通道已存在。
+直接打开 **https://106.53.40.6/inbox/**。用户名 `reader`；实际密码保存在服务器 `.private/miniflux.env`，只由维护者自行查看，不输出到聊天、Git、日志或截图。
 
-自动使用 Windows 现有 SSH 凭据建立通道的调用被安全检查拦截，未继续改用其他方式读取或传出凭据。应用、数据库、模型和 GitHub 均已正常，不需要重新生成 Ark Key 或重新部署。
+公网 HTTPS 已通过完整浏览器验收，包括两个独立桌面/移动会话的登录、正文图片、已读/收藏、AI 设置和工具同步。Windows 本机也已验证 HTTPS 200。移动测试为 Chromium 390×844 模拟布局，未进行物理手机实机验收。
 
-## 由本机维护者 / 本地 Codex 完成
+应用继续只监听服务器 `127.0.0.1:8092`。复用现有 Nginx 443 和 IP TLS 证书；HTTP 80 保持原策略，`http://106.53.40.6/inbox/` 返回 426，请使用 HTTPS。
 
-利用已有 SSH 授权，只建立 **Windows 回环 8092 → Linux 回环 8092** 的端口转发。核对服务器主机指纹，使用已有的可信 known_hosts，不启用忽略验证。不要开放新的公网监听端口，不修改旧应用。
+## SSH tunnel：维护或故障备用
 
-原生 OpenSSH 示例：
+日常无需 SSH 隧道。需要维护时，核对服务器主机指纹，使用原有可信 known_hosts 与已有授权，在自己的终端建立回环转发：
 
 ```sh
-ssh -N -L 127.0.0.1:8092:127.0.0.1:8092 ubuntu@106.53.40.6
+ssh -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -N -L 127.0.0.1:8092:127.0.0.1:8092 ubuntu@106.53.40.6
 ```
 
-如凭据或 known_hosts 放在自定义位置，按本机原有 SSH 配置指定；不要把密码直接写进命令参数或聊天。运行转发后，在 Windows 请求 `http://127.0.0.1:8092/healthz` 应为 HTTP 200，再打开 `http://127.0.0.1:8092` 登录。
+随后在运行转发的电脑打开 `http://127.0.0.1:8092/inbox/`；`/healthz`、`/readyz`、`/deployment` 是网关回环维护接口，不经本次 Nginx 配置公开。
 
-用户名 `reader`；实际密码在服务器 `.private/miniflux.env` 中。只在维护者自己的终端查看，不能打印到 AI 工具返回、Git、共享日志或截图。
+不要把 8092 改为 `0.0.0.0`，不要新增云安全组端口，不要忽略 SSH 主机校验。电脑的回环地址不是手机地址；手机日常使用公网 HTTPS 入口。
 
-## 手机
-
-手机浏览器布局已在 390×844 的独立移动 Chromium 会话中通过。手机实际访问还需要私有 VPN / 私有反向代理等可达入口；电脑的 `127.0.0.1` 不是手机地址。本文件不宣称手机实机已经连通。
+证据：[公网浏览器验收](../../artifacts/browser-acceptance-public.json)、[HTTP 与服务检查](../../artifacts/public-https.json)。

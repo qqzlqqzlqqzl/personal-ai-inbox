@@ -155,3 +155,26 @@ async def test_metadata_only_sources_are_not_advertised_as_fulltext(
     )
     assert r.status_code == 200
     assert [x["analysis_supported"] for x in r.json()] == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_frontend_is_scoped(browser_api, tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "ROOT", tmp_path)
+    web = tmp_path / "upstream/reactflux/build"
+    (web / "assets").mkdir(parents=True)
+    (web / "index.html").write_text("scoped frontend")
+    (web / "assets/new.js").write_text("javascript")
+    for path in ["/", "/inbox"]:
+        r = await browser_api.get(path)
+        assert r.status_code == 308 and r.headers["location"] == "/inbox/"
+    for path in ["/inbox/", "/inbox/login", "/inbox/all/entry/1"]:
+        r = await browser_api.get(path)
+        assert r.status_code == 200 and r.text == "scoped frontend"
+        assert (await browser_api.head(path)).status_code == 200
+    assert (await browser_api.get("/inbox/assets/new.js")).text == "javascript"
+    for path in ["/login", "/all", "/sw.js", "/news/", "/unknown", "/assets/new.js",
+                 "/inbox/.private/ai.env", "/inbox/.git/config", "/inbox/assets/missing.js",
+                 "/inbox/%2e%2e/src/api.py"]:
+        assert (await browser_api.get(path)).status_code == 404
+    assert (await browser_api.get("/mf/v1/ai/settings")).status_code == 401
+    assert (await browser_api.get("/healthz")).status_code == 200

@@ -1,6 +1,6 @@
 """Real two-session browser acceptance. No mock backend; test mutations are restored."""
 
-import sys, json, time
+import sys, json, time, os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -9,11 +9,14 @@ from ops_common import client, local_admin
 from browser_env import launch
 
 ROOT = Path("/home/ubuntu/ai-news")
-BASE = "http://127.0.0.1:8092"
+BASE = os.environ.get("AI_NEWS_WEB_BASE", "http://127.0.0.1:8092").rstrip("/")
+APP = BASE + "/inbox"
+PUBLIC = BASE.startswith("https://")
 OUT = ROOT / "artifacts/screenshots"
 OUT.mkdir(parents=True, exist_ok=True)
 report = {
     "at": time.time(),
+    "base_url": BASE,
     "mode": "live Chromium, independent desktop and mobile contexts",
     "checks": [],
 }
@@ -27,7 +30,7 @@ def check(name, value, detail=None):
 
 
 def login(page):
-    page.goto(BASE + "/login", wait_until="domcontentloaded")
+    page.goto(APP + "/login", wait_until="domcontentloaded")
     username, password = local_admin()
     page.locator("#server_input").fill(BASE + "/mf")
     page.locator("#username_input").fill(username)
@@ -44,6 +47,7 @@ def panel(page):
 
 
 with client() as api:
+    api.base_url = BASE + "/mf/"
     config = api.get("/v1/ai/settings").json()
     tools = api.get("/v1/ai/tools").json()
     candidates = api.get("/v1/entries?ai_view=recommended&ai_min=6&limit=30").json()[
@@ -77,7 +81,7 @@ with client() as api:
             b = mobile.new_page()
             a.on("pageerror", lambda e: errors.append("desktop: " + str(e)))
             b.on("pageerror", lambda e: errors.append("mobile: " + str(e)))
-            a.goto(BASE + "/login", wait_until="domcontentloaded")
+            a.goto(APP + "/login", wait_until="domcontentloaded")
             a.locator("#username_input").wait_for(timeout=15000)
             a.screenshot(path=str(OUT / "login.png"), full_page=True)
             login(a)
@@ -97,7 +101,7 @@ with client() as api:
                 "document.documentElement.scrollWidth > innerWidth + 2"
             )
             check("mobile_no_horizontal_overflow", not overflow)
-            a.goto(BASE + f"/all/entry/{eid}", wait_until="domcontentloaded")
+            a.goto(APP + f"/all/entry/{eid}", wait_until="domcontentloaded")
             a.locator(".article-body").wait_for(timeout=30000)
             a.wait_for_timeout(800)
             a.on(
@@ -127,14 +131,14 @@ with client() as api:
             )
             check("desktop_read_persisted", current["status"] == "read")
             check("desktop_star_persisted", current["starred"] is True)
-            b.goto(BASE + "/history", wait_until="domcontentloaded")
+            b.goto(APP + "/history", wait_until="domcontentloaded")
             expect(
                 b.locator(".card-title,.grid-card-title")
                 .filter(has_text=target["title"])
                 .first
             ).to_be_visible(timeout=30000)
             check("read_visible_in_independent_session_history", True)
-            b.goto(BASE + f"/all/entry/{eid}", wait_until="domcontentloaded")
+            b.goto(APP + f"/all/entry/{eid}", wait_until="domcontentloaded")
             expect(b.get_by_role("button", name="取消收藏", exact=True)).to_be_visible(
                 timeout=30000
             )
@@ -215,11 +219,26 @@ with client() as api:
             ).to_be_visible(timeout=10000)
             check("tools_cross_device", True)
             b.get_by_role("button", name="关闭", exact=True).click()
-            a.goto(BASE + "/deployment", wait_until="domcontentloaded")
-            check(
-                "service_worker_does_not_hijack_status",
-                a.locator("h1").inner_text().find("部署状态") >= 0,
-            )
+            registration = a.evaluate("""async () => {
+                const reg = await navigator.serviceWorker.ready;
+                return {scope: reg.scope, script: reg.active?.scriptURL};
+            }""")
+            check("service_worker_scoped_to_inbox", registration == {
+                "scope": APP + "/", "script": APP + "/sw.js"
+            }, registration)
+            all_scopes = a.evaluate("async () => (await navigator.serviceWorker.getRegistrations()).map(r => r.scope)")
+            check("no_root_service_worker", all(s == APP + "/" for s in all_scopes), all_scopes)
+            if PUBLIC:
+                response = a.goto(BASE + "/news/", wait_until="domcontentloaded")
+                check("freshrss_after_inbox", response.ok and "/news/" in a.url and
+                      "FreshRSS" in a.content(), {"status": response.status, "url": a.url})
+                check("freshrss_not_controlled_by_inbox", a.evaluate("navigator.serviceWorker.controller === null"))
+                response = a.goto(BASE + "/deployment", wait_until="domcontentloaded")
+                check("unpublished_status_remains_404", response.status == 404)
+            else:
+                a.goto(BASE + "/deployment", wait_until="domcontentloaded")
+                check("service_worker_does_not_hijack_status", "部署状态" in a.locator("h1").inner_text())
+            check("outside_inbox_not_controlled", a.evaluate("navigator.serviceWorker.controller === null"))
             check("no_fatal_javascript_errors", not errors, errors)
             browser.close()
     except Exception as exc:
@@ -239,7 +258,7 @@ with client() as api:
 report["passed"] = not report.get("error") and all(
     x["passed"] for x in report["checks"]
 )
-(ROOT / "artifacts/browser-acceptance.json").write_text(
+(ROOT / ("artifacts/browser-acceptance-public.json" if PUBLIC else "artifacts/browser-acceptance.json")).write_text(
     json.dumps(report, ensure_ascii=False, indent=2)
 )
 print(json.dumps(report, ensure_ascii=False))

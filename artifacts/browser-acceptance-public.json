@@ -1,6 +1,6 @@
 {
-  "at": 1790070351.6397104,
-  "base_url": "http://127.0.0.1:8092",
+  "at": 1790070443.3082705,
+  "base_url": "https://106.53.40.6",
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
     {
@@ -107,19 +107,32 @@
       "name": "service_worker_scoped_to_inbox",
       "passed": true,
       "detail": {
-        "scope": "http://127.0.0.1:8092/inbox/",
-        "script": "http://127.0.0.1:8092/inbox/sw.js"
+        "scope": "https://106.53.40.6/inbox/",
+        "script": "https://106.53.40.6/inbox/sw.js"
       }
     },
     {
       "name": "no_root_service_worker",
       "passed": true,
       "detail": [
-        "http://127.0.0.1:8092/inbox/"
+        "https://106.53.40.6/inbox/"
       ]
     },
     {
-      "name": "service_worker_does_not_hijack_status",
+      "name": "freshrss_after_inbox",
+      "passed": true,
+      "detail": {
+        "status": 200,
+        "url": "https://106.53.40.6/news/i/?rid=6ab24efc46262"
+      }
+    },
+    {
+      "name": "freshrss_not_controlled_by_inbox",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "unpublished_status_remains_404",
       "passed": true,
       "detail": null
     },

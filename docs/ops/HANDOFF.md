@@ -8,6 +8,12 @@
 
 ReactFlux 的覆盖源在 `patches/`。`src/patch_frontend.py` 应用初始补丁，`src/polish_frontend.py` 修复中文登录、标识、PWA 回退和控制台细节；`src/build_frontend.py` 统一完成补丁、离线构建及分阶段发布。上游源码保留于 `upstream/reactflux`，不提交其依赖或构建目录。
 
+## 公网入口与构建边界
+
+日常入口 `https://106.53.40.6/inbox/`，无需隧道。`src/build_frontend.py` 固定 `VITE_BASE_PATH=/inbox/`，publish 验证时剥掉此 URL 前缀；资源实际仍在 `build/assets/`。Login 使用 `import.meta.env.BASE_URL`。不要改回根路径 PWA；`/mf/` 始终是根路径 API。
+
+Nginx 配置副本及备份位置见 DELIVERY。仅复用现有 HTTPS server，8092 保持回环。重建后必须检查 Service Worker scope、使用 Inbox 后的 FreshRSS 和现有 API。构建暂存目录保留用于回溯，不自动删除；按维护者的回收策略处理。
+
 ## 运行与配置
 
 - 生产 Python 依赖：`requirements.lock.txt`；测试依赖：`requirements.dev.lock.txt`。
@@ -33,7 +39,8 @@ ReactFlux 的覆盖源在 `patches/`。`src/patch_frontend.py` 应用初始补�
 cd /home/ubuntu/ai-news
 PYTHONPATH=src runtime/venv/bin/pytest -q tests/test_core.py tests/test_worker.py tests/test_api.py tests/test_secret_config.py tests/test_publish.py
 runtime/venv/bin/python tests/live_acceptance.py
-runtime/venv/bin/python tests/browser_acceptance.py
+AI_NEWS_WEB_BASE=http://127.0.0.1:8092 runtime/venv/bin/python tests/browser_acceptance.py
+AI_NEWS_WEB_BASE=https://106.53.40.6 runtime/venv/bin/python tests/browser_acceptance.py
 runtime/venv/bin/python src/backup.py
 runtime/venv/bin/python src/backup.py --verify-latest
 runtime/venv/bin/python src/audit_secrets.py

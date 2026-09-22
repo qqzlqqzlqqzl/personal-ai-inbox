@@ -18,17 +18,13 @@
 
 </details>
 
-## 私有入口
+## 访问入口
 
-运行目录：`/home/ubuntu/ai-news`。网页仅监听服务器 `127.0.0.1:8092`，没有开放新的公网端口。
+日常直接打开 **https://106.53.40.6/inbox/**，无需 SSH 隧道。运行目录 `/home/ubuntu/ai-news`；应用仍只监听 `127.0.0.1:8092`，通过现有 Nginx 443 和 IP TLS 证书提供 HTTPS，没有开放新端口。
 
-通过自己的 SSH 隧道或私有反向代理访问。使用 SSH 时，在电脑终端建立转发：
+ReactFlux 的构建 base、PWA manifest 与 Service Worker scope 均为 `/inbox/`；Miniflux API 保持 `/mf/`。`/news/` FreshRSS 与 `/api/` 小程序后端继续使用原路由。
 
-```sh
-ssh -N -L 127.0.0.1:8092:127.0.0.1:8092 ubuntu@106.53.40.6
-```
-
-转发建立后，在**运行转发的那台电脑**打开 `http://127.0.0.1:8092`。SSH 主机指纹必须先核对；隧道不会让手机自动访问电脑的回环地址，手机需要自己的私有访问通道。MCP 的终端连接也不等于浏览器访问隧道。
+SSH tunnel 仅用于维护或公网故障备用。示例与主机校验要求见 [访问与备用通道](docs/ops/LOCAL_ACCESS.md)。
 
 用户名为 `reader`。实际管理员密码位于服务器 `.private/miniflux.env`，不是早期 `.private/access.json`；只在自己的终端查看，不上传聊天或 GitHub。
 
@@ -37,7 +33,7 @@ ssh -N -L 127.0.0.1:8092:127.0.0.1:8092 ubuntu@106.53.40.6
 - [交付状态与实测边界](docs/ops/DELIVERY.md)
 - [逐项验收 Checklist](docs/ops/ACCEPTANCE-CHECKLIST.md)
 - [运维、更新、备份与恢复 SOP](docs/ops/SOP.md)
-- [电脑私有访问通道](docs/ops/LOCAL_ACCESS.md)
+- [HTTPS 访问与备用通道](docs/ops/LOCAL_ACCESS.md)
 - [重新构建与接手说明](docs/ops/HANDOFF.md)
 - [自动化测试结果](artifacts/unit-tests.xml) · [真实接口与数据验收](artifacts/live-acceptance.json) · [真实浏览器验收](artifacts/browser-acceptance.json) · [隔离恢复验证](artifacts/restore-test.json)
 
@@ -48,7 +44,7 @@ ssh -N -L 127.0.0.1:8092:127.0.0.1:8092 ubuntu@106.53.40.6
 3. 三个 arXiv 摘要源保留在候选目录，但没有默认导入为论文全文；PDF 全文、视频理解、评论和完整讨论串不属于已验收能力。
 4. 评分是模型判断，不保证事实正确；`evidence` 校验只确认引文存在于实际输入，不证明作者陈述真实。保留配图也不意味着文本模型理解了图片。
 5. 每日数据库备份保留最近 14 份，当前仍在同一台服务器。**GitHub 不是文章数据库的异地备份**；私有配置应另行安全保存。
-6. 手机测试是 390×844 的独立 Chromium 移动会话，不是物理手机实机；本次未建立 Windows 到该站的浏览器隧道。
+6. 手机测试是 390×844 的独立 Chromium 移动会话，不是物理手机实机；Windows 已验证公网 HTTPS 返回 200；日常使用不需要隧道。
 
 ## 开源组成
 

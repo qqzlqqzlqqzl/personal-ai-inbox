@@ -22,7 +22,8 @@
 | OPS-01 | PG独立恢复与SQLite完整性 | 通过 | [restore-test.json](../../artifacts/restore-test.json) |
 | OPS-02 | 独立运行时、暂存构建与旧资源保留 | 通过；当前实例 | [frontend-build.json](../../artifacts/frontend-build.json) |
 | GIT-01 | 源码/历史凭据扫描与私有仓库留档 | 扫描通过；最终SHA见提交历史 | [secret-audit.json](../../artifacts/secret-audit.json) |
-| ACCESS-01 | Windows浏览器私有通道 | 未建立：本机8092拒绝连接 | [private-access.json](../../artifacts/private-access.json) |
+| ACCESS-01 | SSH 私有通道 | 日常无需；仅维护/故障备用 | [访问说明](LOCAL_ACCESS.md) |
+| PUBLIC-01 | 公网 HTTPS 入口 | 通过：26 项公网浏览器验收；SW 仅 /inbox/ | [公网浏览器](../../artifacts/browser-acceptance-public.json) · [HTTP/服务](../../artifacts/public-https.json) |
 
 ## 复验原则
 
@@ -31,3 +32,5 @@
 - 未进行物理手机网络测试或全新VPS从零重装，不将配置说明等同于实测。
 - X/Instagram/Facebook未具备完整授权与验证；Telegram本次实测失败仍保留原样。
 - 基础安全回归和凭据扫描不等于第三方安全审计。
+
+公网入口为 `https://106.53.40.6/inbox/`。本轮隔离回归 47 项、本机浏览器 24 项、公网浏览器 26 项全部通过；8092 仍只监听回环。历史重启与恢复证据未在本轮重复执行。

@@ -10,9 +10,11 @@ WEB = ROOT / "upstream/reactflux"
 def replace(path, old, new):
     p = WEB / path
     s = p.read_text()
+    if new in s:
+        return
     if old in s:
-        p.write_text(s.replace(old, new))
-    elif new not in s:
+        p.write_text(s.replace(old, new, 1))
+    else:
         raise RuntimeError("Missing patch anchor: " + path)
 
 
@@ -30,6 +32,23 @@ with tarfile.open(ROOT / "runtime/reactflux.tar.gz") as archive:
         if not original.exists():
             original.parent.mkdir(parents=True, exist_ok=True)
             original.write_bytes(archive.extractfile(prefix + "/" + name).read())
+# Collapse duplicate copies introduced by older non-idempotent overlays.
+config = WEB / "vite.config.js"
+lines = config.read_text().splitlines(True)
+seen_denylist = False
+clean = []
+for line in lines:
+    if "navigateFallbackDenylist:" in line:
+        if seen_denylist:
+            continue
+        seen_denylist = True
+    clean.append(line)
+config.write_text("".join(clean))
+replace(
+    "src/pages/Login.jsx",
+    'history.replaceState(history.state, "", "/login")',
+    'history.replaceState(history.state, "", `${import.meta.env.BASE_URL}login`)',
+)
 replace(
     "vite.config.js",
     "        cleanupOutdatedCaches: true,",

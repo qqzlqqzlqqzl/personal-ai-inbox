@@ -41,3 +41,29 @@ def test_missing_index_rejected(tmp_path):
     stage.mkdir()
     with pytest.raises(ValueError):
         publish(stage, tmp_path / "live")
+
+
+def test_publish_scoped_assets(tmp_path):
+    stage, live = tmp_path / "stage", tmp_path / "build"
+    fixture_build(stage)
+    (stage / "index.html").write_text('<script src="/inbox/assets/new.js"></script>')
+    assert publish(stage, live, "/inbox/") == 3
+    assert (live / "assets/new.js").read_text() == "new build"
+    assert not (live / "inbox").exists()
+
+
+def test_scoped_missing_asset_cannot_replace_live(tmp_path):
+    stage, live = tmp_path / "stage", tmp_path / "build"
+    fixture_build(stage)
+    (stage / "index.html").write_text('<script src="/inbox/assets/missing.js"></script>')
+    live.mkdir()
+    (live / "index.html").write_text("working")
+    with pytest.raises(ValueError):
+        publish(stage, live, "/inbox/")
+    assert (live / "index.html").read_text() == "working"
+
+
+@pytest.mark.parametrize("base", ["inbox/", "/inbox", "/../", "/inbox/../"])
+def test_invalid_base_rejected(tmp_path, base):
+    with pytest.raises(ValueError):
+        publish(tmp_path, tmp_path / "live", base)
