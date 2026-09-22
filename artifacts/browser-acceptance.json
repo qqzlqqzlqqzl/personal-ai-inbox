@@ -1,0 +1,113 @@
+{
+  "at": 1790065563.7072785,
+  "mode": "live Chromium, independent desktop and mobile contexts",
+  "checks": [
+    {
+      "name": "desktop_login",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "mobile_login",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "real_ai_cards",
+      "passed": true,
+      "detail": {
+        "visible_cards": 12
+      }
+    },
+    {
+      "name": "card_reason",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "mobile_no_horizontal_overflow",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "desktop_read_persisted",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "desktop_star_persisted",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "read_visible_in_independent_session_history",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "star_visible_in_independent_session",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "original_link",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_article_readable",
+      "passed": true,
+      "detail": {
+        "body_chars": 17224,
+        "entry_id": 1344
+      }
+    },
+    {
+      "name": "real_article_image_loaded",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "ai_evidence_in_detail",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "deep_link_reload",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "preferences_cross_device",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "source_catalog_live_status",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "tool_shortcuts_not_empty",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "tools_cross_device",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "service_worker_does_not_hijack_status",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "no_fatal_javascript_errors",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "test_mutations_restored": true,
+  "passed": true
+}

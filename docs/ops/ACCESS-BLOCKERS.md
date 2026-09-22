@@ -1,3 +1,5 @@
+> 历史记录，已于 2026-09-22 更新状态：Codex 已完成 Secret 初始化与 Miniflux 配置（117e677），四个核心服务正常，Ark 已有真实分析结果。GitHub 私有仓库与服务器专用部署密钥已可用。Windows 源码副本已不再是交付要求。以下保留当时问题，不代表当前运行状态。最终状态见 ACCEPTANCE-CHECKLIST.md 与 DELIVERY.md。
+
 > 2026-09-22 更新：用户授权的新实例初始化已完成；Miniflux、Worker token、Ark 真实请求及健康检查均通过。以下保留为早期执行记录，当前状态以 [SOP](SOP.md) 为准。
 
 # 访问及初始化阻塞记录

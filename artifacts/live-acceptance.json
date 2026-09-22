@@ -1,0 +1,202 @@
+{
+  "at": 1790065561.9504294,
+  "kind": "live production HTTP and persisted data",
+  "checks": [
+    {
+      "name": "all_services_ready",
+      "passed": true,
+      "detail": {
+        "services": {
+          "gateway": true,
+          "reader": true,
+          "rsshub": true
+        },
+        "ready": true,
+        "model_configured": true,
+        "reader_worker_configured": true
+      }
+    },
+    {
+      "name": "unauthorized_/mf/v1/entries",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "unauthorized_/mf/v1/ai/settings",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "unauthorized_/mf/v1/ai/status",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "not_served_/.private/ai.env",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "not_served_/.git/config",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "not_served_/does-not-exist.js",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "broad_real_sources",
+      "passed": true,
+      "detail": {
+        "feeds": 56,
+        "entries": 2853
+      }
+    },
+    {
+      "name": "opml_export_matches_sources",
+      "passed": true,
+      "detail": 56
+    },
+    {
+      "name": "live_ranking_score",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_threshold_score",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_ranking_technical",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_threshold_technical",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_ranking_business",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_threshold_business",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "pagination_no_duplicates",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "bad_entry_id_/v1/ai/retry",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "bad_entry_id_/v1/ai/feedback",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "real_ark_multiple_sources",
+      "passed": true,
+      "detail": {
+        "analyzed": 38,
+        "distinct_sources": 29
+      }
+    },
+    {
+      "name": "every_success_has_input_evidence",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "original_input_lengths_recorded",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "real_images_preserved",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "no_error_misrepresented_as_done",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "counts": {
+    "ai_error": 3,
+    "done": 38,
+    "fetch_error": 78,
+    "fetching": 1,
+    "insufficient_content": 44,
+    "pending": 2689
+  },
+  "usage": [
+    {
+      "day": "2026-09-22",
+      "calls": 42,
+      "tokens": 137536
+    }
+  ],
+  "model_names": [
+    "deepseek-v4-flash-ga-260731"
+  ],
+  "samples": [
+    {
+      "entry_id": 493,
+      "title": "Improving synthesis prediction of small molecules at scale with RetroChimera",
+      "url": "https://www.microsoft.com/en-us/research/blog/improving-synthesis-prediction-of-small-molecules-at-scale-with-retrochimera/",
+      "input_chars": 7308,
+      "image_count": 4,
+      "content_source": "original_url",
+      "model": "deepseek-v4-flash-ga-260731"
+    },
+    {
+      "entry_id": 1342,
+      "title": "How Benchling secured multi-tenant AI agents with Amazon Bedrock AgentCore",
+      "url": "https://aws.amazon.com/blogs/machine-learning/how-benchling-secured-multi-tenant-ai-agents-with-amazon-bedrock-agentcore/",
+      "input_chars": 20199,
+      "image_count": 4,
+      "content_source": "original_url",
+      "model": "deepseek-v4-flash-ga-260731"
+    },
+    {
+      "entry_id": 1344,
+      "title": "How BMW Group detects cost anomalies across 14,000 cloud accounts",
+      "url": "https://aws.amazon.com/blogs/machine-learning/how-bmw-group-detects-cost-anomalies-across-14000-cloud-accounts/",
+      "input_chars": 16737,
+      "image_count": 7,
+      "content_source": "original_url",
+      "model": "deepseek-v4-flash-ga-260731"
+    },
+    {
+      "entry_id": 1345,
+      "title": "xAI’s Grok 4.6 is now available in Amazon Bedrock",
+      "url": "https://aws.amazon.com/blogs/machine-learning/xais-grok-4-6-is-now-available-in-amazon-bedrock/",
+      "input_chars": 21293,
+      "image_count": 6,
+      "content_source": "original_url",
+      "model": "deepseek-v4-flash-ga-260731"
+    },
+    {
+      "entry_id": 1454,
+      "title": "How to Evaluate AI Agents From Tool Calls to Task Completion",
+      "url": "https://developer.nvidia.com/blog/how-to-evaluate-ai-agents-from-tool-calls-to-task-completion/",
+      "input_chars": 16054,
+      "image_count": 7,
+      "content_source": "original_url",
+      "model": "deepseek-v4-flash-ga-260731"
+    }
+  ],
+  "passed": true
+}

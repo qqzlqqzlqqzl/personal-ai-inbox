@@ -24,7 +24,7 @@ export default function AiPanel({ onClose }) {
       setConfig(c); setStatus(s); setSources(f); setTools(t); setToolText(JSON.stringify(t, null, 2))
     } catch (e) { if (alive.current) setMessage(e.message) }
   }
-  useEffect(() => { dialog.current?.showModal(); load(); return () => { alive.current = false } }, [])
+  useEffect(() => { alive.current = true; dialog.current?.showModal(); load(); return () => { alive.current = false } }, [])
   const run = async (action) => {
     setBusy(true); setMessage("")
     try { await action() } catch (e) { setMessage(e.message) } finally { if (alive.current) setBusy(false) }
@@ -41,7 +41,7 @@ export default function AiPanel({ onClose }) {
       try {
         let category = categories.find(c => c.title === source.category)
         if (!category) { category = await apiClient.post("/v1/categories", { title: source.category }); categories.push(category) }
-        await apiClient.post("/v1/ai/subscribe", { url: source.url, category_id: category.id, crawler: true })
+        await apiClient.post("/v1/ai/subscribe", { url: source.url, category_id: category.id, crawler: false })
         added++
       } catch { failed++ }
       setMessage(`已添加 ${added}，失败或已存在 ${failed} / ${items.length}`)
@@ -76,10 +76,11 @@ export default function AiPanel({ onClose }) {
     {tab === "sources" && <section>
       <p>先广泛收录，再按实际阅读价值裁剪。以下“可用”只表示本次成功解析订阅 XML，不代表每篇原文都能抓到。</p>
       <input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} />
-      <button disabled={busy} onClick={()=>add(filtered.filter(s=>s.status==="ok"))}>添加当前可用来源</button>
-      <p className="ai-notice">社交账号尚未授权：X 通常需要 TWITTER_AUTH_TOKEN；Instagram 需相应账号或 Cookie；Telegram 公开频道可尝试网页路由。Facebook 未经本实例验证。不要把这些入口当成已经接通。</p>
+      <button disabled={busy} onClick={()=>add(filtered.filter(s=>s.status==="ok" && !s.subscribed))}>添加当前可用来源</button>
+      <p className="ai-notice">社交平台接入：X 通常需要 TWITTER_AUTH_TOKEN；Instagram 需相应账号或 Cookie；Telegram 公开频道可尝试网页路由。Facebook 未经本实例验证。不要把这些入口当成已经接通。</p>
+      {status?.social_probe && <p className="ai-notice">最近 Telegram 公共路由实测：{status.social_probe.passed ? "成功" : "未通过，需检查服务器出站网络"}（HTTP {status.social_probe.http || "无响应"}）。这与 RSSHub 服务本身是否在线是两项不同检查。</p>}
       <form onSubmit={e=>{e.preventDefault();const url=new FormData(e.currentTarget).get("feed");add([{url,category:"手动来源"}])}}><label>自定义 RSS / RSSHub 地址<input required name="feed" type="url" placeholder="http://127.0.0.1:1200/telegram/channel/频道名" /></label><button disabled={busy}>添加订阅</button></form>
-      <div className="ai-source-list">{filtered.map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.status==="ok" ? "订阅可解析" : (s.error || "待验证")}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a></div><button disabled={busy || s.status!=="ok"} onClick={()=>add([s])}>添加</button></div>)}</div>
+      <div className="ai-source-list">{filtered.map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.subscribed ? "已订阅 · " : ""}{s.live_error ? "抓取异常 · " : ""}{s.status==="ok" ? "订阅可解析" : (s.error || "待验证")}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a></div><button disabled={busy || s.status!=="ok" || s.subscribed} onClick={()=>add([s])}>{s.subscribed ? "已添加" : "添加"}</button></div>)}</div>
     </section>}
     {tab === "tools" && <section>
       <p>静态工具与资讯分开。快捷入口保存在服务器，不仅是当前浏览器。</p>

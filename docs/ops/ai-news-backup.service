@@ -1,0 +1,7 @@
+[Unit]
+Description=Personal AI Inbox coordinated database backup
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/ai-news
+ExecStart=/home/ubuntu/ai-news/runtime/venv/bin/python /home/ubuntu/ai-news/src/backup.py
+UMask=0077

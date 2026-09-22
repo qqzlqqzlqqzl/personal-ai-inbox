@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0" xmlns:miniflux="https://miniflux.app/opml">
+    <head>
+        <title>Miniflux</title>
+        <dateCreated>Tue, 22 Sep 2026 16:26:02 CST</dateCreated>
+    </head>
+    <body>
+        <outline text="AI 公司与研究">
+            <outline title="AWS Machine Learning" text="AWS Machine Learning" xmlUrl="https://aws.amazon.com/blogs/machine-learning/feed/" htmlUrl="https://aws.amazon.com/blogs/machine-learning/" description="Official Machine Learning Blog of Amazon Web Services" type="rss"></outline>
+            <outline title="BAIR" text="BAIR" xmlUrl="https://bair.berkeley.edu/blog/feed.xml" htmlUrl="http://bair.berkeley.edu/blog/" description="The BAIR Blog" type="rss"></outline>
+            <outline title="Google DeepMind" text="Google DeepMind" xmlUrl="https://deepmind.google/blog/rss.xml" htmlUrl="https://deepmind.google/blog/" description="Read the latest articles and stories from DeepMind and find out more about our latest breakthroughs in cutting-edge AI research." type="rss"></outline>
+            <outline title="Microsoft Research" text="Microsoft Research" xmlUrl="https://www.microsoft.com/en-us/research/feed/" htmlUrl="https://www.microsoft.com/en-us/research/" type="rss"></outline>
+            <outline title="NVIDIA Developer" text="NVIDIA Developer" xmlUrl="https://developer.nvidia.com/blog/feed/" htmlUrl="https://developer.nvidia.com/blog" description="News and tutorials for developers, data scientists, and IT admins" type="rss"></outline>
+            <outline title="OpenAI News" text="OpenAI News" xmlUrl="https://openai.com/news/rss.xml" htmlUrl="https://openai.com/news" description="The OpenAI blog" type="rss"></outline>
+        </outline>
+        <outline text="个人博客">
+            <outline title="Andrej Karpathy" text="Andrej Karpathy" xmlUrl="https://karpathy.github.io/feed.xml" htmlUrl="http://karpathy.github.io/" description="Musings of a Computer Scientist." type="rss"></outline>
+            <outline title="Bartosz Ciechanowski" text="Bartosz Ciechanowski" xmlUrl="https://ciechanow.ski/atom.xml" htmlUrl="https://ciechanow.ski/" description="Recent content on Bartosz Ciechanowski" type="rss"></outline>
+            <outline title="Jeff Geerling" text="Jeff Geerling" xmlUrl="https://www.jeffgeerling.com/blog.xml" htmlUrl="https://www.jeffgeerling.com/" description="Recent content on Jeff Geerling" type="rss"></outline>
+            <outline title="Julia Evans" text="Julia Evans" xmlUrl="https://jvns.ca/atom.xml" htmlUrl="https://jvns.ca" type="rss"></outline>
+            <outline title="Lil&#39;Log" text="Lil&#39;Log" xmlUrl="https://lilianweng.github.io/index.xml" htmlUrl="https://lilianweng.github.io/" description="Recent content on Lil&#39;Log" type="rss"></outline>
+            <outline title="Martin Fowler" text="Martin Fowler" xmlUrl="https://martinfowler.com/feed.atom" htmlUrl="https://martinfowler.com" description="Master feed of news and updates from martinfowler.com" type="rss"></outline>
+            <outline title="Simon Willison" text="Simon Willison" xmlUrl="https://simonwillison.net/atom/everything/" htmlUrl="http://simonwillison.net/" type="rss"></outline>
+        </outline>
+        <outline text="中文技术与资讯">
+            <outline title="InfoQ 中文" text="InfoQ 中文" xmlUrl="https://www.infoq.cn/feed" htmlUrl="https://www.infoq.cn" description="InfoQ 是一个实践驱动的社区资讯站点，致力于促进软件开发领域知识与创新的传播。" type="rss"></outline>
+            <outline title="Solidot" text="Solidot" xmlUrl="https://www.solidot.org/index.rss" htmlUrl="https://www.solidot.org" description="奇客的知识，重要的东西。" type="rss"></outline>
+            <outline title="少数派" text="少数派" xmlUrl="https://sspai.com/feed" htmlUrl="https://sspai.com" description="少数派致力于更好地运用数字产品或科学方法，帮助用户提升工作效率和生活品质" type="rss"></outline>
+            <outline title="开源中国" text="开源中国" xmlUrl="https://www.oschina.net/news/rss" htmlUrl="https://www.oschina.net/news/rss" description="OSCHINA - 中文开源技术交流社区" type="rss"></outline>
+            <outline title="阮一峰科技周刊" text="阮一峰科技周刊" xmlUrl="https://www.ruanyifeng.com/blog/atom.xml" htmlUrl="http://www.ruanyifeng.com/blog/" description="Ruan YiFeng&#39;s Blog" type="rss"></outline>
+        </outline>
+        <outline text="产品与众筹">
+            <outline title="Product Hunt" text="Product Hunt" xmlUrl="https://www.producthunt.com/feed" htmlUrl="https://www.producthunt.com" type="rss"></outline>
+        </outline>
+        <outline text="原有订阅">
+            <outline title="Airing 博客" text="Airing 博客" xmlUrl="https://ursb.me/blog/feed.xml" htmlUrl="https://ursb.me/" description="Airing - INFJ | Blogger | Full-stack engineer | SG" type="rss"></outline>
+            <outline title="Airing 笔记" text="Airing 笔记" xmlUrl="https://ursb.me/notes/feed.xml" htmlUrl="https://ursb.me/" description="思考的痕迹：记录关于前端、数学、设计、哲学和一切让我好奇的事物。" type="rss"></outline>
+            <outline title="Airing 阅读流" text="Airing 阅读流" xmlUrl="https://ursb.me/reading/feed.xml" htmlUrl="https://ursb.me/" description="我每天读过，并愿意留下的东西。" type="rss"></outline>
+            <outline title="Pion1eer" text="Pion1eer" xmlUrl="https://www.ruanx.net/rss/" htmlUrl="https://www.ruanx.net/" description="Be the light of the world." type="rss"></outline>
+            <outline title="吴川斌的博客" text="吴川斌的博客" xmlUrl="https://www.mr-wu.cn/feed/" htmlUrl="https://www.mr-wu.cn" description="一个专注于 智能硬件、嵌入式系统、物联网、电子产品设计美学 的独立博客" type="rss"></outline>
+        </outline>
+        <outline text="大厂工程案例">
+            <outline title="AWS Architecture" text="AWS Architecture" xmlUrl="https://aws.amazon.com/blogs/architecture/feed/" htmlUrl="https://aws.amazon.com/blogs/architecture/" description="Just another Amazon Web Services site" type="rss"></outline>
+            <outline title="AWS Open Source" text="AWS Open Source" xmlUrl="https://aws.amazon.com/blogs/opensource/feed/" htmlUrl="https://aws.amazon.com/blogs/opensource/" type="rss"></outline>
+            <outline title="Cloudflare Blog" text="Cloudflare Blog" xmlUrl="https://blog.cloudflare.com/rss/" htmlUrl="https://blog.cloudflare.com/" description="Technical deep dives, product updates, and insights from the teams that are helping to build a better Internet." type="rss"></outline>
+            <outline title="Dropbox Tech" text="Dropbox Tech" xmlUrl="https://dropbox.tech/feed" htmlUrl="https://dropbox.tech" description="null" type="rss"></outline>
+            <outline title="Engineering at Microsoft" text="Engineering at Microsoft" xmlUrl="https://devblogs.microsoft.com/engineering-at-microsoft/feed/" htmlUrl="https://devblogs.microsoft.com/engineering-at-microsoft/" description="How Microsoft empowers its developers to deliver at massive scale" type="rss"></outline>
+            <outline title="GitHub Engineering" text="GitHub Engineering" xmlUrl="https://github.blog/engineering/feed/" htmlUrl="https://github.blog/engineering/" description="Updates, ideas, and inspiration from GitHub to help developers build and design software." type="rss"></outline>
+            <outline title="Meta Engineering" text="Meta Engineering" xmlUrl="https://engineering.fb.com/feed/" htmlUrl="https://engineering.fb.com/" description="Engineering at Meta Blog" type="rss"></outline>
+            <outline title="Netflix Tech Blog" text="Netflix Tech Blog" xmlUrl="https://netflixtechblog.com/feed" htmlUrl="https://netflixtechblog.com?source=rss----2615bd06b42e---4" description="Learn about Netflix’s world class engineering efforts, company culture, product developments and more. - Medium" type="rss"></outline>
+            <outline title="Slack Engineering" text="Slack Engineering" xmlUrl="https://slack.engineering/feed/" htmlUrl="https://slack.engineering" description="Hear directly from Slack&#39;s engineers about what we build, why and how we build it, and how you can use it." type="rss"></outline>
+        </outline>
+        <outline text="开发与开源">
+            <outline title="GitHub Changelog" text="GitHub Changelog" xmlUrl="https://github.blog/changelog/feed/" htmlUrl="https://github.blog/changelog/" description="Updates, ideas, and inspiration from GitHub to help developers build and design software." type="rss"></outline>
+            <outline title="Go Blog" text="Go Blog" xmlUrl="https://go.dev/blog/feed.atom" htmlUrl="https://go.dev/blog/feed.atom" type="rss"></outline>
+            <outline title="Kubernetes" text="Kubernetes" xmlUrl="https://kubernetes.io/feed.xml" htmlUrl="https://kubernetes.io/" description="The Kubernetes blog is used by the project to communicate new features, community reports, and any news that might be relevant to the Kubernetes community." type="rss"></outline>
+            <outline title="PostgreSQL News" text="PostgreSQL News" xmlUrl="https://www.postgresql.org/news.rss" htmlUrl="https://www.postgresql.org/" description="PostgreSQL news" type="rss"></outline>
+            <outline title="Python Blog" text="Python Blog" xmlUrl="https://blog.python.org/feeds/posts/default" htmlUrl="https://blog.python.org/" description="The official blog of the Python core development team." type="rss"></outline>
+            <outline title="Rust Blog" text="Rust Blog" xmlUrl="https://blog.rust-lang.org/feed.xml" htmlUrl="https://blog.rust-lang.org/" description="Empowering everyone to build reliable and efficient software." type="rss"></outline>
+            <outline title="The Old New Thing" text="The Old New Thing" xmlUrl="https://devblogs.microsoft.com/oldnewthing/feed" htmlUrl="https://devblogs.microsoft.com/oldnewthing" description="Practical development throughout the evolution of Windows." type="rss"></outline>
+            <outline title="WebKit" text="WebKit" xmlUrl="https://webkit.org/blog/feed/" htmlUrl="https://webkit.org" description="Open Source Web Browser Engine" type="rss"></outline>
+        </outline>
+        <outline text="硬件与嵌入式">
+            <outline title="Adafruit Blog" text="Adafruit Blog" xmlUrl="https://blog.adafruit.com/feed/" htmlUrl="https://blog.adafruit.com" description="electronics, open source hardware, hacking and more..." type="rss"></outline>
+            <outline title="Arduino Blog" text="Arduino Blog" xmlUrl="https://blog.arduino.cc/feed/" htmlUrl="https://blog.arduino.cc/" type="rss"></outline>
+            <outline title="CNX Software" text="CNX Software" xmlUrl="https://www.cnx-software.com/feed/" htmlUrl="https://www.cnx-software.com/" description="Reviews, tutorials and the latest news about embedded systems, IoT, open-source hardware, SBC&#39;s, microcontrollers, processors, and more" type="rss"></outline>
+            <outline title="Electronics Lab" text="Electronics Lab" xmlUrl="https://www.electronics-lab.com/feed/" htmlUrl="https://www.electronics-lab.com/" description="Electronics News, Products, Projects, and Online Community" type="rss"></outline>
+            <outline title="Embedded Artistry" text="Embedded Artistry" xmlUrl="https://embeddedartistry.com/blog/feed/" htmlUrl="https://embeddedartistry.com/blog/" description="Building Superior Embedded Systems" type="rss"></outline>
+            <outline title="Espressif Developer Portal" text="Espressif Developer Portal" xmlUrl="https://developer.espressif.com/blog/index.xml" htmlUrl="https://developer.espressif.com/blog/" description="Recent content in Blog on Developer Portal" type="rss"></outline>
+            <outline title="Hackaday" text="Hackaday" xmlUrl="https://hackaday.com/blog/feed/" htmlUrl="https://hackaday.com" description="Fresh hacks every day" type="rss"></outline>
+            <outline title="IEEE Spectrum" text="IEEE Spectrum" xmlUrl="https://spectrum.ieee.org/feeds/feed.rss" htmlUrl="https://spectrum.ieee.org/" description="IEEE Spectrum" type="rss"></outline>
+            <outline title="Latest from Tom&#39;s Hardware" text="Latest from Tom&#39;s Hardware" xmlUrl="https://www.tomshardware.com/feeds.xml" htmlUrl="https://www.tomshardware.com/feeds.xml" description="All the latest content from the Tom&#39;s Hardware team" type="rss"></outline>
+            <outline title="Raspberry Pi" text="Raspberry Pi" xmlUrl="https://www.raspberrypi.com/news/feed/" htmlUrl="https://www.raspberrypi.com/news/" description="From industries large and small, to the kitchen table tinkerer, to the classroom coder, we make computing accessible and affordable for everybody" type="rss"></outline>
+            <outline title="ST Community Blog" text="ST Community Blog" xmlUrl="https://blog.st.com/feed/" htmlUrl="https://blog.st.com" description="Innovation Starts with You" type="rss"></outline>
+        </outline>
+        <outline text="科技媒体与周刊">
+            <outline title="Ars Technica" text="Ars Technica" xmlUrl="https://feeds.arstechnica.com/arstechnica/index" htmlUrl="https://arstechnica.com" description="All Ars Technica stories" type="rss"></outline>
+            <outline title="MIT Technology Review" text="MIT Technology Review" xmlUrl="https://www.technologyreview.com/feed/" htmlUrl="https://www.technologyreview.com" type="rss"></outline>
+            <outline title="TechCrunch" text="TechCrunch" xmlUrl="https://techcrunch.com/feed/" htmlUrl="https://techcrunch.com/" description="Startup and Technology News" type="rss"></outline>
+            <outline title="The Verge" text="The Verge" xmlUrl="https://www.theverge.com/rss/index.xml" htmlUrl="https://www.theverge.com" description="The Verge is about technology and how it makes us feel. Founded in 2011, we offer our audience everything from breaking news to reviews to award-winning features and investigations, on our site, in video, and in podcasts." type="rss"></outline>
+        </outline>
+    </body>
+</opml>

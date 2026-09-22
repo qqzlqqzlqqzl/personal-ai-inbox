@@ -4,6 +4,10 @@ import json, time, datetime, concurrent.futures, xml.etree.ElementTree as ET
 import httpx
 ROOT=Path('/home/ubuntu/ai-news')
 sources={}
+previous=ROOT/'sources.catalog.json'
+if previous.exists():
+ for s in json.loads(previous.read_text()):
+  sources[s['url']]={k:s[k] for k in ['category','name','url']}
 for line in (ROOT/'docs/research/source-candidates.txt').read_text().splitlines():
  category,name,url=line.split('|',2)
  sources[url]={'category':category,'name':name,'url':url}

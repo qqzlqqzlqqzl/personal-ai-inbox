@@ -1,3 +1,26 @@
+--- a/vite.config.js
++++ b/vite.config.js
+@@ -68,6 +68,9 @@
+       },
+       workbox: {
+         cleanupOutdatedCaches: true,
++        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
++        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
++        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
+         globPatterns: [
+           "**/*.html",
+           "styles/*.css",
+--- a/index.html
++++ b/index.html
+@@ -14,7 +14,7 @@
+     <link rel="apple-touch-icon" href="/logo192.png" />
+     <link rel="stylesheet" href="/styles/loading.css" />
+     <link rel="stylesheet" href="/styles/fonts.css" />
+-    <title>ReactFlux</title>
++    <title>个人信息收集箱</title>
+   </head>
+   <body>
+     <noscript>You need to enable JavaScript to run this app.</noscript>
 --- a/src/store/contentState.js
 +++ b/src/store/contentState.js
 @@ -1,4 +1,5 @@
@@ -19,6 +42,17 @@
  
      if (filterString) {
        return total
+--- a/src/store/settingsState.js
++++ b/src/store/settingsState.js
+@@ -9,7 +9,7 @@
+   sanitizeSettings,
+ } from "@/utils/settings-schema"
+ 
+-const defaultSettings = createDefaultSettings(getBrowserLanguage())
++const defaultSettings = createDefaultSettings("zh-CN")
+ 
+ export const settingsState = persistentAtom("settings", defaultSettings, {
+   encode: (settings) => encodeSettings(settings, defaultSettings),
 --- a/src/utils/settings-schema.js
 +++ b/src/utils/settings-schema.js
 @@ -104,7 +104,7 @@
@@ -48,6 +82,15 @@
  
 --- a/src/pages/Login.jsx
 +++ b/src/pages/Login.jsx
+@@ -72,7 +72,7 @@
+ 
+   const [searchParams] = useSearchParams()
+   const [authMethod, setAuthMethod] = useState(() =>
+-    Object.fromEntries(searchParams).username ? "user" : "token",
++    "user",
+   )
+   /* token or user */
+   const location = useLocation()
 @@ -170,7 +170,8 @@
  
    useEffect(() => {
@@ -76,6 +119,17 @@
      ? markAllUserEntriesAsRead()
      : markEntriesAsReadInBatches(getAllEntries)
  
+--- a/src/components/Sidebar/Sidebar.jsx
++++ b/src/components/Sidebar/Sidebar.jsx
+@@ -855,7 +855,7 @@
+                   <Avatar className="avatar" size={32}>
+                     <IconBook aria-hidden="true" style={{ color: "var(--color-bg-1)" }} />
+                   </Avatar>
+-                  <span className="home-brand-title">ReactFlux</span>
++                  <span className="home-brand-title">个人信息箱</span>
+                 </button>
+               </span>
+             </CustomTooltip>
 --- a/src/components/Content/Content.jsx
 +++ b/src/components/Content/Content.jsx
 @@ -7,6 +7,7 @@

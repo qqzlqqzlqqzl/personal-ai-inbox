@@ -3,7 +3,7 @@ from pathlib import Path
 import os, subprocess, shutil
 ROOT=Path('/home/ubuntu/ai-news')
 units=Path.home()/'.config/systemd/user'; units.mkdir(parents=True,exist_ok=True)
-node=shutil.which('node')
+node=str(ROOT/'runtime/node/bin/node')
 if not node: raise RuntimeError('Node.js missing')
 def unit(description,workdir,command,extra=''):
  return f'''[Unit]

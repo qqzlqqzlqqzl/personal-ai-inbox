@@ -1,9 +1,10 @@
 [Unit]
 Description=AI News RSSHub private adapters
 [Service]
+Environment=PATH=/home/ubuntu/ai-news/runtime/node/bin:/usr/bin:/bin
 Type=simple
 WorkingDirectory=/home/ubuntu/ai-news/upstream/rsshub
-ExecStart=/home/ubuntu/personal-news/node/bin/node dist/index.mjs
+ExecStart=/home/ubuntu/ai-news/runtime/node/bin/node dist/index.mjs
 Environment=PYTHONUNBUFFERED=1
 Environment=NODE_ENV=production
 Environment=NODE_OPTIONS=--max-old-space-size=512

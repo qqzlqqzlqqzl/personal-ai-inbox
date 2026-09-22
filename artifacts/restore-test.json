@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "snapshot": "snapshot-20260922T083051Z-f24f33",
+  "restored_counts": {
+    "feeds": 56,
+    "entries": 2853,
+    "users": 1
+  },
+  "sqlite_integrity": "ok",
+  "analysis_states": {
+    "ai_error": 3,
+    "done": 49,
+    "fetch_error": 78,
+    "insufficient_content": 45,
+    "pending": 2678
+  },
+  "production_overwritten": false
+}

@@ -1,0 +1,17 @@
+{
+  "at": 1790065856.2003224,
+  "whole_server_rebooted": false,
+  "read_and_star_survived": true,
+  "feeds_preserved": true,
+  "entries_preserved": true,
+  "ai_status_available": true,
+  "services": {
+    "ai-news-postgres": "active",
+    "ai-news-miniflux": "active",
+    "ai-news-rsshub": "active",
+    "ai-news-web": "active"
+  },
+  "passed": true,
+  "test_flags_restored": true,
+  "seconds": 7.09
+}
