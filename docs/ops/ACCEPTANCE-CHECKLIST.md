@@ -1,26 +1,33 @@
-# 个人 AI 信息收集箱 · 发布验收计划
+# 发布验收 Checklist
 
-本轮从 Codex 的 `117e677` 接续。测试分自动化隔离测试、真实 Linux 集成测试、真实浏览器验收；不得以构建成功代替产品通过，不使用伪造文章充当真实 AI 成果。
+更新时间：2026-09-22 17:26 UTC+8。核心应用验收与外部连接条件分别列出，不把未连通的平台标为成功。
 
-| ID | 测试项 | 通过标准 | 初始状态 |
+| ID | 验收项 | 结果 | 证据 |
 |---|---|---|---|
-| DEP-01 | 四个服务及健康检查 | active、HTTP 200、重启后恢复 | 待验收 |
-| SEC-01 | 网络与鉴权 | 仅回环监听；未授权 API 拒绝；无 Secret 回显 | 待验收 |
-| SEC-02 | 跨站请求、错误输入、代理路径 | 拒绝不安全请求，不返回 traceback/私有文件 | 待验收 |
-| SRC-01 | 来源目录与真实导入 | 原有源+广泛分类；成功/失败计数可核对；重复导入不重复 | 待验收 |
-| SRC-02 | 社交适配 | 至少一个真实公开频道实测；X/IG 等授权缺口显式显示 | 待验收 |
-| ING-01 | 分页与发现 | 超过 200 条仍能完整发现；重跑幂等 | 待验收 |
-| TXT-01 | 原文与图片 | 真实短 RSS 条目提取原文，图片保留，记录输入依据 | 待验收 |
-| TXT-02 | 抓取异常 | 抓取失败不冒充全文，不交给模型编造分析 | 待验收 |
-| AI-01 | 真实 Ark 分析 | 多来源真实正文产生结构化结果；原文证据可核对 | 待验收 |
-| AI-02 | 模型错误与预算 | 非法 JSON/超时/配额受控重试；计费记录不漏；不无限刷 API | 待验收 |
-| AI-03 | 个性化与筛选 | 分数/排序/日期/状态正确，偏好保存在服务器 | 待验收 |
-| UI-01 | 桌面浏览器 | 登录→图文卡片→站内正文→原站链接；无致命 JS 错误 | 待验收 |
-| UI-02 | 手机网页 | 手机尺寸可操作、不横向溢出，卡片/正文/设置可用 | 待验收 |
-| SYNC-01 | 跨会话状态 | 两个独立浏览器会话共享订阅/收藏/已读/AI结果 | 待验收 |
-| UI-03 | 控制台与工具 | 设置/来源健康/重试/快捷入口实际可用，非空壳 | 待验收 |
-| OPS-01 | 备份恢复 | PostgreSQL 与 SQLite 备份，隔离恢复验证，不覆盖生产 | 待验收 |
-| OPS-02 | 更新与交接 | 上游锁定、可复现补丁、操作 SOP、使用入口与限制清楚 | 待验收 |
-| GIT-01 | 私有 GitHub 留档 | Secret 扫描无发现；分阶段提交；远端 SHA 一致 | 待验收 |
+| DEP-01 | 四服务与持久化重启 | 通过 | [restart-acceptance.json](../../artifacts/restart-acceptance.json) |
+| SEC-01 | 回环部署、鉴权与私有路径 | 通过 | [live-acceptance.json](../../artifacts/live-acceptance.json) |
+| SEC-02 | 跨站写入、坏输入与凭据扫描 | 通过 | [unit-tests.xml](../../artifacts/unit-tests.xml) |
+| SRC-01 | 真实来源、导入与 OPML 导出 | 通过 | [live-acceptance.json](../../artifacts/live-acceptance.json) |
+| SRC-02 | 公开 Telegram 平台实际连接 | 未通过：出站网络 | [social-live.json](../../artifacts/social-live.json) |
+| ING-01 | 超过200条发现、幂等及来源公平调度 | 通过 | [unit-tests.xml](../../artifacts/unit-tests.xml) |
+| TXT-01 | 真实原文、输入依据、配图 | 通过 | [live-acceptance.json](../../artifacts/live-acceptance.json) |
+| TXT-02 | 抓取失败和论文摘要不冒充全文 | 通过 | [unit-tests.xml](../../artifacts/unit-tests.xml) |
+| AI-01 | 真实 Ark 多来源分析、逐条证据校验 | 通过 | [live-acceptance.json](../../artifacts/live-acceptance.json) |
+| AI-02 | 用量预算、错误输出与重试 | 通过 | [unit-tests.xml](../../artifacts/unit-tests.xml) |
+| AI-03 | 推荐分/技术/商业/日期筛选 | 通过 | [live-acceptance.json](../../artifacts/live-acceptance.json) |
+| UI-01 | 桌面登录、卡片、正文、原文、深链接 | 通过 | [browser-acceptance.json](../../artifacts/browser-acceptance.json) |
+| UI-02 | 390×844移动会话布局，无横向溢出 | 通过；非物理手机 | [browser-acceptance.json](../../artifacts/browser-acceptance.json) |
+| SYNC-01 | 独立会话的已读、收藏、AI及偏好 | 通过 | [browser-acceptance.json](../../artifacts/browser-acceptance.json) |
+| UI-03 | 控制台、来源目录、服务器工具入口 | 通过 | [browser-acceptance.json](../../artifacts/browser-acceptance.json) |
+| OPS-01 | PG独立恢复与SQLite完整性 | 通过 | [restore-test.json](../../artifacts/restore-test.json) |
+| OPS-02 | 独立运行时、暂存构建与旧资源保留 | 通过；当前实例 | [frontend-build.json](../../artifacts/frontend-build.json) |
+| GIT-01 | 源码/历史凭据扫描与私有仓库留档 | 扫描通过；最终SHA见提交历史 | [secret-audit.json](../../artifacts/secret-audit.json) |
+| ACCESS-01 | Windows浏览器私有通道 | 未建立：本机8092拒绝连接 | [private-access.json](../../artifacts/private-access.json) |
 
-外部条件：X/Instagram/Facebook 的个人授权与 VPN 不在现有凭据中；不能将未授权的平台标成已经订阅成功。手机真实硬件如无法访问，以独立移动浏览器仿真结果说明，不声称实机测试。
+## 复验原则
+
+- 自动化隔离测试、真实接口、真实浏览器、真实恢复分别记录，不互相代替。
+- 本次未重启整台服务器；只重启本项目四个服务。旧服务仍运行。
+- 未进行物理手机网络测试或全新VPS从零重装，不将配置说明等同于实测。
+- X/Instagram/Facebook未具备完整授权与验证；Telegram本次实测失败仍保留原样。
+- 基础安全回归和凭据扫描不等于第三方安全审计。
