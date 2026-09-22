@@ -80,34 +80,150 @@
  
 --- a/src/pages/Login.jsx
 +++ b/src/pages/Login.jsx
-@@ -72,7 +72,7 @@
+@@ -1,20 +1,18 @@
+ import {
+   Alert,
+   Button,
+-  Divider,
+   Form,
+   Input,
+-  Link,
+   Message,
+   Notification,
+   Typography,
+ } from "@arco-design/web-react"
+ import useForm from "@arco-design/web-react/es/Form/useForm"
+-import { IconHome, IconLock, IconUser } from "@arco-design/web-react/icon"
++import { IconLock, IconUser } from "@arco-design/web-react/icon"
+ import { useStore } from "@nanostores/react"
+ import { ofetch } from "ofetch"
+ import { useEffect, useState } from "react"
+-import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router"
++import { Navigate, useLocation, useNavigate } from "react-router"
  
-   const [searchParams] = useSearchParams()
-   const [authMethod, setAuthMethod] = useState(() =>
+ import useLanguage, { polyglotState } from "@/hooks/useLanguage"
+ import useTheme from "@/hooks/useTheme"
+@@ -70,11 +68,7 @@
+   const [loginForm] = useForm()
+   const [loading, setLoading] = useState(false)
+ 
+-  const [searchParams] = useSearchParams()
+-  const [authMethod, setAuthMethod] = useState(() =>
 -    Object.fromEntries(searchParams).username ? "user" : "token",
-+    "user",
-   )
-   /* token or user */
+-  )
+-  /* token or user */
++  const authMethod = "user"
    const location = useLocation()
-@@ -170,7 +170,8 @@
+   const navigate = useNavigate()
+   const compatibilityErrorFromNavigation = location.state?.compatibilityError
+@@ -83,7 +77,6 @@
+   const [compatibilityError, setCompatibilityError] = useState(
+     compatibilityErrorFromNavigation ?? null,
+   )
+-  const redirectedServer = compatibilityErrorFromNavigation?.server
+ 
+   const performHealthCheck = async (auth) => {
+     setLoading(true)
+@@ -170,18 +163,8 @@
  
    useEffect(() => {
      hideSpinner()
 -  }, [])
-+    loginForm.setFieldsValue({ server: globalThis.location.origin + "/mf" })
+-
+-  useEffect(() => {
+-    const url = new URL(globalThis.location.href)
+-    const { server, token, username, password } = Object.fromEntries(url.searchParams)
+-    if (server) {
+-      loginForm.setFieldsValue({ server, token, username, password })
+-      loginForm.submit()
+-    } else if (redirectedServer) {
+-      loginForm.setFieldsValue({ server: redirectedServer })
+-    }
+-  }, [loginForm, polyglot, redirectedServer])
++    loginForm.setFieldsValue({ username: "qqzl" })
 +  }, [loginForm])
  
-   useEffect(() => {
-     const url = new URL(globalThis.location.href)
-@@ -212,7 +213,7 @@
+   const compatibilityAlert =
+     polyglot && compatibilityError ? getCompatibilityAlert(polyglot, compatibilityError) : null
+@@ -195,9 +178,8 @@
+       <div className="page-layout">
+         <div className="form-panel">
+           <div className="login-form">
+-            <Typography.Title heading={3}>
+-              {polyglot.t("login.login_to_your_server")}
+-            </Typography.Title>
++            <Typography.Title heading={3}>个人信息箱</Typography.Title>
++            <Typography.Text disabled>私人 AI 信息收集与阅读</Typography.Text>
+             {compatibilityAlert && (
+               <Alert
+                 className="login-compatibility-alert"
+@@ -212,31 +194,19 @@
                layout="vertical"
                onSubmit={async () => {
                  if (validateAndFormatFormFields(loginForm)) {
 -                  history.replaceState(history.state, "", "/login")
+-                  await handleLogin(loginForm.getFieldsValue())
 +                  history.replaceState(history.state, "", `${import.meta.env.BASE_URL}login`)
-                   await handleLogin(loginForm.getFieldsValue())
++                  const values = loginForm.getFieldsValue()
++                  await handleLogin({
++                    server: globalThis.location.origin + "/mf",
++                    username: values.username,
++                    password: values.password,
++                    token: "",
++                  })
                  } else {
                    Message.error(polyglot.t("login.submit_error"))
+                 }
+               }}
+             >
+-              <Form.Item
+-                field="server"
+-                label={polyglot.t("login.server_label")}
+-                rules={[{ required: true }]}
+-                onKeyDown={(event) => {
+-                  handleEnterKeyToSubmit(event, loginForm)
+-                }}
+-              >
+-                <Input
+-                  autoCapitalize="none"
+-                  autoCorrect="off"
+-                  disabled={loading}
+-                  inputMode="url"
+-                  placeholder={polyglot.t("login.server_placeholder")}
+-                  prefix={<IconHome aria-hidden="true" />}
+-                  spellCheck={false}
+-                />
+-              </Form.Item>
+               {authMethod === "token" && (
+                 <Form.Item
+                   field="token"
+@@ -304,26 +274,6 @@
+             >
+               {polyglot.t("login.login_button")}
+             </Button>
+-            <Divider>{polyglot.t("login.another_login_method")}</Divider>
+-            <Button
+-              long={true}
+-              style={{ marginTop: "20px" }}
+-              type="secondary"
+-              onClick={() => setAuthMethod(authMethod === "token" ? "user" : "token")}
+-            >
+-              {authMethod === "token"
+-                ? polyglot.t("login.another_login_button")
+-                : polyglot.t("login.token_label")}
+-            </Button>
+-            <div className="login-help">
+-              <Typography.Text disabled>{polyglot.t("login.need_help")}</Typography.Text>
+-              <Link
+-                href={"https://miniflux.app/docs/api.html#authentication"}
+-                style={{ fontWeight: "500" }}
+-              >
+-                {polyglot.t("login.miniflux_official_website")}
+-              </Link>
+-            </div>
+           </div>
+         </div>
+         <div className="background" />
 --- a/src/pages/All.jsx
 +++ b/src/pages/All.jsx
 @@ -4,12 +4,13 @@

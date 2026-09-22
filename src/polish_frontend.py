@@ -45,11 +45,6 @@ for line in lines:
     clean.append(line)
 config.write_text("".join(clean))
 replace(
-    "src/pages/Login.jsx",
-    'history.replaceState(history.state, "", "/login")',
-    'history.replaceState(history.state, "", `${import.meta.env.BASE_URL}login`)',
-)
-replace(
     "vite.config.js",
     "        cleanupOutdatedCaches: true,",
     "        cleanupOutdatedCaches: true,\n        navigateFallbackDenylist: [/^\\/mf(?:\\/|$)/, /^\\/(?:healthz|readyz|deployment)(?:\\/|$)/],",
@@ -58,11 +53,6 @@ replace(
     "src/components/Sidebar/Sidebar.jsx",
     '<span className="home-brand-title">ReactFlux</span>',
     '<span className="home-brand-title">个人信息箱</span>',
-)
-replace(
-    "src/pages/Login.jsx",
-    'Object.fromEntries(searchParams).username ? "user" : "token"',
-    '"user"',
 )
 replace(
     "src/store/settingsState.js",

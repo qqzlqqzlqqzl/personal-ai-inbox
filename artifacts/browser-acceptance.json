@@ -1,8 +1,28 @@
 {
-  "at": 1790070351.6397104,
+  "at": 1790071837.361514,
   "base_url": "http://127.0.0.1:8092",
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
+    {
+      "name": "dedicated_login_no_server_selector",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_default_username",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_no_token_input",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_no_generic_help",
+      "passed": true,
+      "detail": null
+    },
     {
       "name": "desktop_login",
       "passed": true,

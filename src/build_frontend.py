@@ -68,6 +68,12 @@ def main():
         env=env,
         timeout=60,
     )
+    subprocess.run(
+        [str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/specialize_login.py")],
+        check=True,
+        env=env,
+        timeout=60,
+    )
     cmd = [
         str(ROOT / "runtime/build-tools/node_modules/.bin/pnpm"),
         "exec",

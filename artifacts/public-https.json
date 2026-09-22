@@ -50,8 +50,8 @@
     "ai-news-rsshub": "active",
     "ai-news-web": "active"
   },
-  "browser_public_checks": 26,
-  "browser_local_checks": 24,
+  "browser_public_checks": 30,
+  "browser_local_checks": 28,
   "unit_tests_passed": 47,
   "nginx_backup": "/etc/nginx/toolbox/backup-inbox-1790070439045551671",
   "manifest": {

@@ -32,8 +32,10 @@ def check(name, value, detail=None):
 def login(page):
     page.goto(APP + "/login", wait_until="domcontentloaded")
     username, password = local_admin()
-    page.locator("#server_input").fill(BASE + "/mf")
-    page.locator("#username_input").fill(username)
+    if username != "qqzl":
+        raise AssertionError("production login username must be qqzl")
+    page.locator("#username_input").wait_for()
+    expect(page.locator("#username_input")).to_have_value("qqzl")
     page.locator("#password_input").fill(password)
     page.get_by_role("button", name="登录", exact=True).click()
     page.wait_for_url("**/all", timeout=30000)
@@ -83,6 +85,10 @@ with client() as api:
             b.on("pageerror", lambda e: errors.append("mobile: " + str(e)))
             a.goto(APP + "/login", wait_until="domcontentloaded")
             a.locator("#username_input").wait_for(timeout=15000)
+            check("dedicated_login_no_server_selector", a.locator("#server_input").count() == 0)
+            check("dedicated_login_default_username", a.locator("#username_input").input_value() == "qqzl")
+            check("dedicated_login_no_token_input", a.locator("#token_input").count() == 0)
+            check("dedicated_login_no_generic_help", a.locator(".login-help").count() == 0)
             a.screenshot(path=str(OUT / "login.png"), full_page=True)
             login(a)
             login(b)

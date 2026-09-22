@@ -26,7 +26,7 @@ ReactFlux 的构建 base、PWA manifest 与 Service Worker scope 均为 `/inbox/
 
 SSH tunnel 仅用于维护或公网故障备用。示例与主机校验要求见 [访问与备用通道](docs/ops/LOCAL_ACCESS.md)。
 
-用户名为 `reader`。实际管理员密码位于服务器 `.private/miniflux.env`，不是早期 `.private/access.json`；只在自己的终端查看，不上传聊天或 GitHub。
+用户名为 `qqzl`。实际管理员密码位于服务器 `.private/miniflux.env`，不是早期 `.private/access.json`；只在自己的终端查看，不上传聊天或 GitHub。
 
 ## 验收与运维
 

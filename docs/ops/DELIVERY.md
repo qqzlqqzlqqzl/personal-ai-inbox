@@ -12,9 +12,9 @@
 | 已存条目 | 2867（含历史库存） |
 | 已完成真实 AI 分析 | 76，来自 48 个来源 |
 | 实测模型 | deepseek-v4-flash-ga-260731 |
-| 自动化隔离回归 | 40 通过，0 失败 |
+| 自动化隔离回归 | 47 通过，0 失败 |
 | 真实接口与存量数据检查 | 23 项通过 |
-| 独立桌面/移动浏览器 | 21 项通过；测试改动已恢复 |
+| 独立桌面/移动浏览器 | 本机 28 项、公网 30 项通过；测试改动已恢复 |
 | 四服务重启 | 通过；已读、收藏和内容保留，耗时 7.07 秒 |
 | 备份恢复 | 独立数据库恢复通过，SQLite integrity_check=ok，生产库未覆盖 |
 | 凭据检查 | 119 个非忽略文件及所有可达 Git 历史检查，0 发现 |
@@ -27,7 +27,7 @@
 
 ## 交付入口
 
-日常直接打开 **https://106.53.40.6/inbox/**，无需 SSH 隧道，用户名 `reader`。密码仅在服务器 `.private/miniflux.env`，不在 GitHub。详见 [HTTPS 与备用通道说明](LOCAL_ACCESS.md)。主界面、正文及手机布局的实际截图在 [screenshots](../../artifacts/screenshots)。
+日常直接打开 **https://106.53.40.6/inbox/**，无需 SSH 隧道，用户名 `qqzl`。密码仅在服务器 `.private/miniflux.env`，不在 GitHub。详见 [HTTPS 与备用通道说明](LOCAL_ACCESS.md)。主界面、正文及手机布局的实际截图在 [screenshots](../../artifacts/screenshots)。
 
 ## 没有伪装成通过的条件
 
@@ -42,7 +42,7 @@
 
 ## PUBLIC-01 公网 HTTPS 交付（2026-09-22 后续验收）
 
-通过。子路径版 ReactFlux 构建、47 项隔离回归、本机 24 项与公网 26 项浏览器验收全部通过，测试改动已恢复。公网浏览器验收运行于服务器 Chromium，经真实公网 HTTPS URL 和 TLS 校验；Windows 另外验证 HTTPS 返回 200，物理手机仍未实测。
+通过。子路径版 ReactFlux 构建、47 项隔离回归、本机 28 项与公网 30 项浏览器验收全部通过；专用登录页固定当前 `/mf` 且默认用户名为 `qqzl`，测试改动已恢复。公网浏览器验收运行于服务器 Chromium，经真实公网 HTTPS URL 和 TLS 校验；Windows 另外验证 HTTPS 返回 200，物理手机仍未实测。
 
 `/inbox` 返回 308 至 `/inbox/`，后者为 200。HTTP 80 保持现有 426 策略。Service Worker scope 为 `https://106.53.40.6/inbox/`，使用 Inbox 后 FreshRSS 登录页面仍正常且没有 Inbox controller。`/mf/` 的认证接口通过真实登录和状态写入验证；未认证 `/mf/v1/me` 为 401。
 

@@ -57,7 +57,7 @@ def initialize():
         raise RuntimeError('Existing database owner mismatch')
     old = read_env('miniflux.env')
     values = dict(DATABASE_URL='postgresql://news_app:'+quote(dbpass,safe='')+'@127.0.0.1:55432/news?sslmode=disable',
-                  ADMIN_USERNAME='reader', ADMIN_PASSWORD=old.get('ADMIN_PASSWORD') or secrets.token_urlsafe(36),
+                  ADMIN_USERNAME='qqzl', ADMIN_PASSWORD=old.get('ADMIN_PASSWORD') or secrets.token_urlsafe(36),
                   CREATE_ADMIN='1',RUN_MIGRATIONS='1',BASE_URL='http://127.0.0.1:8092/mf',LISTEN_ADDR='127.0.0.1:8091',
                   WORKER_POOL_SIZE='2',DATABASE_MAX_CONNS='5',DATABASE_MIN_CONNS='1',POLLING_FREQUENCY='30',
                   FETCHER_ALLOW_PRIVATE_NETWORKS='1',MEDIA_PROXY_MODE='all',LOG_LEVEL='warning')

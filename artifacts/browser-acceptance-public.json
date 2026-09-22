@@ -1,8 +1,28 @@
 {
-  "at": 1790070443.3082705,
+  "at": 1790071925.318253,
   "base_url": "https://106.53.40.6",
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
+    {
+      "name": "dedicated_login_no_server_selector",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_default_username",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_no_token_input",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_no_generic_help",
+      "passed": true,
+      "detail": null
+    },
     {
       "name": "desktop_login",
       "passed": true,
@@ -123,7 +143,7 @@
       "passed": true,
       "detail": {
         "status": 200,
-        "url": "https://106.53.40.6/news/i/?rid=6ab24efc46262"
+        "url": "https://106.53.40.6/news/i/?rid=6ab254caa8ffd"
       }
     },
     {

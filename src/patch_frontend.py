@@ -40,8 +40,6 @@ patch('src/components/Article/ArticleGridCard.jsx','        <div className="grid
 patch('src/components/Article/ArticleCard.jsx','              {previewContent}','              {entry.ai?.state === "done" ? entry.ai.summary : previewContent}')
 patch('src/components/Article/ArticleCard.jsx','      </div>\n    </div>\n  )','      </div>\n      <AiBadge entry={entry} />\n    </div>\n  )')
 patch('src/components/Article/ArticleDetail.jsx','            <Divider />\n          </div>','            <AiBadge entry={activeContent} detailed />\n            <Divider />\n          </div>')
-patch('src/pages/Login.jsx','Object.fromEntries(searchParams).username ? "user" : "token"','"user"')
-patch('src/pages/Login.jsx','    hideSpinner()\n  }, [])','    hideSpinner()\n    loginForm.setFieldsValue({ server: globalThis.location.origin + "/mf" })\n  }, [loginForm])')
 patch('src/utils/settings-schema.js','articleListLayout: enumSetting("column", ARTICLE_LIST_LAYOUTS)','articleListLayout: enumSetting("card", ARTICLE_LIST_LAYOUTS)')
 diffs=[]
 for original in BACK.rglob('*'):
