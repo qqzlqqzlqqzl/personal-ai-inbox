@@ -32,6 +32,8 @@ Nginx 配置副本及备份位置见 DELIVERY。仅复用现有 HTTPS server，8
 
 ## 运行与配置
 
+云服务器 mihomo 已接入 web、RSSHub 与 Miniflux，业务与订阅刷新使用不同 fallback 组；候选节点按固定名称限制为已验证的凌云台湾 06/07 与 Yahaha 节点。私密边界、实测与待补证项见 [PROXY.md](PROXY.md)。X 网络已可达，但授权与帖子内容仍未接通。
+
 - 生产 Python 依赖：`requirements.lock.txt`；测试依赖：`requirements.dev.lock.txt`。
 - Node 已复制为独立 `runtime/node`，生产 RSSHub 不再依赖旧 `personal-news` 的 Node 路径。版本与二进制 hash 在 `upstream.lock.json`。
 - PostgreSQL 是 Ubuntu 包解压后的独立实例，目录 `runtime/pg`，数据 `state/postgres`，端口 55432；不要用系统 PostgreSQL 覆盖它。

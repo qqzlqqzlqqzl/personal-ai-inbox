@@ -1,5 +1,5 @@
 """X connectivity and real timeline preflight; never equate configuration with posts."""
-import asyncio, re, time, xml.etree.ElementTree as ET
+import asyncio, os, re, time, xml.etree.ElementTree as ET
 import httpx
 from initialize_secrets import read_env
 
@@ -18,10 +18,14 @@ async def probe(value):
               "adapter":"third_party" if third else "account" if configured else "unconfigured",
               "network_reachable":False, "posts_returned":False, "post_count":0,
               "route":"/twitter/user/"+name, "experimental":True}
-    async with httpx.AsyncClient(timeout=12,follow_redirects=True,trust_env=False) as c:
+    async with (
+        httpx.AsyncClient(timeout=12, follow_redirects=True, trust_env=False,
+                          proxy=os.environ.get("AI_NEWS_OUTBOUND_PROXY") or None) as external,
+        httpx.AsyncClient(timeout=12, follow_redirects=True, trust_env=False) as c,
+    ):
         async def network():
             try:
-                async with c.stream("GET", "https://x.com/"+name) as r:
+                async with external.stream("GET", "https://x.com/"+name) as r:
                     result.update(network_reachable=True,network_http=r.status_code)
             except httpx.HTTPError as e:
                 result["network_error"]=type(e).__name__
@@ -50,5 +54,5 @@ async def probe(value):
     else:
         result["message"]="适配器已配置，但本次未取得帖子，未创建订阅。"
     if not result["network_reachable"]:
-        result["message"] += " 服务器直连 X 不通；直接抓取需要可用出站代理。"
+        result["message"] += " 服务器到 X 的连接失败；请检查当前出站网络或代理。"
     return result

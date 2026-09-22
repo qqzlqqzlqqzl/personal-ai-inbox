@@ -1,5 +1,6 @@
 """Determine the actual input source; never treat a blog RSS summary as full text."""
 
+import os
 from urllib.parse import urlsplit
 from bs4 import BeautifulSoup
 
@@ -141,6 +142,7 @@ async def _discover_original_cover(entry_url, title="", strict=False):
             follow_redirects=True,
             max_redirects=3,
             trust_env=False,
+            proxy=os.environ.get("AI_NEWS_OUTBOUND_PROXY") or None,
             headers={"User-Agent": "Mozilla/5.0 (compatible; PersonalAIInbox/1.0)"},
         ) as external:
             async with external.stream("GET", entry_url) as response:
@@ -223,7 +225,8 @@ async def add_original_cover(client, entry, html, backend_url, headers):
         import httpx
 
         async with httpx.AsyncClient(
-            timeout=10, follow_redirects=True, max_redirects=3, trust_env=False
+            timeout=10, follow_redirects=True, max_redirects=3, trust_env=False,
+            proxy=os.environ.get("AI_NEWS_OUTBOUND_PROXY") or None,
         ) as external:
             async with external.stream("GET", entry["url"]) as r:
                 if r.status_code != 200:

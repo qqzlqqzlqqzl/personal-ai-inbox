@@ -1,0 +1,12 @@
+[Unit]
+Description=Personal AI Inbox outbound proxy
+After=network-online.target
+Wants=network-online.target
+[Service]
+ExecStart=/home/ubuntu/ai-news/runtime/mihomo/mihomo -d /home/ubuntu/ai-news/.private/mihomo
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+[Install]
+WantedBy=default.target
