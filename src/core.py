@@ -1,5 +1,6 @@
 """Persistent AI metadata. The reader remains Miniflux; this is an add-on."""
 import os, json, sqlite3, time, hashlib
+from contextlib import contextmanager
 from pathlib import Path
 ROOT = Path(os.environ.get('AI_NEWS_ROOT', '/home/ubuntu/ai-news'))
 DB = ROOT / 'state' / 'analysis.sqlite3'
@@ -8,11 +9,14 @@ DEFAULT_SETTINGS = {'enabled': True, 'base_url': 'https://ark.cn-beijing.volces.
  'model': 'deepseek-v4-flash-ga-260731', 'prompt': DEFAULT_PROMPT, 'max_chars': 40000,
  'daily_articles': 80, 'daily_tokens': 500000, 'max_output_tokens': 1500,
  'minimum_score': 6, 'interval_seconds': 90, 'json_mode': True}
+@contextmanager
 def connect():
  DB.parent.mkdir(parents=True, exist_ok=True)
  c = sqlite3.connect(DB, timeout=15); c.row_factory = sqlite3.Row
  c.execute('PRAGMA journal_mode=WAL'); c.execute('PRAGMA busy_timeout=15000')
- return c
+ try:
+  with c: yield c
+ finally: c.close()
 
 def init_db():
  with connect() as c:
@@ -58,12 +62,12 @@ def discover(entries):
  now = time.time()
  with connect() as c:
   for e in entries:
-   u = urlsplit(e['url']); canonical = urlunsplit((u.scheme,u.netloc,u.path,u.query,''))
+   u = urlsplit(e['url']); canonical = canonical_url(e['url'])
    c.execute('''INSERT OR IGNORE INTO analyses(entry_id,user_id,title,url,feed_id,published_at,canonical,updated_at)
     VALUES (?,?,?,?,?,?,?,?)''',(e['id'],e['user_id'],e['title'],e['url'],e['feed_id'],e['published_at'],canonical,now))
 
 def update(entry_id, **fields):
- allowed = {'state','attempts','next_try','content_hash','input_chars','image_count','truncated','model','prompt_hash','result','score','technical_score','business_score','error','tokens','extracted_at','analyzed_at'}
+ allowed = {'state','attempts','next_try','content_hash','input_chars','image_count','truncated','model','prompt_hash','result','score','technical_score','business_score','error','tokens','extracted_at','analyzed_at','source_text','source_chars','content_source','duplicate_of'}
  if not set(fields) <= allowed: raise ValueError('Unknown analysis field')
  fields['updated_at'] = time.time()
  with connect() as c:
@@ -74,7 +78,7 @@ def decorate(entry, user_id):
   r = c.execute('SELECT * FROM analyses WHERE entry_id=? AND user_id=?',(entry['id'],user_id)).fetchone()
  if not r: return {**entry, 'ai': {'state':'pending'}}
  row = dict(r); result = json.loads(row.pop('result') or '{}')
- metadata = {k:row[k] for k in ['state','input_chars','image_count','truncated','model','error','tokens','extracted_at','analyzed_at']}
+ metadata = {k:row[k] for k in ['state','input_chars','image_count','truncated','model','error','tokens','extracted_at','analyzed_at','source_chars','content_source','duplicate_of']}
  return {**entry, 'ai': {**result, **metadata}}
 
 def hash_text(value): return hashlib.sha256(value.encode()).hexdigest()
@@ -100,4 +104,31 @@ def status_summary(user_id):
   counts = dict(c.execute('SELECT state,COUNT(*) FROM analyses WHERE user_id=? GROUP BY state',(user_id,)).fetchall())
   recent = [dict(x) for x in c.execute('SELECT at,kind,entry_id,detail FROM events ORDER BY id DESC LIMIT 20')]
   usage = [dict(x) for x in c.execute('SELECT day,COUNT(*) calls,SUM(COALESCE(actual,reserved)) tokens FROM usage GROUP BY day ORDER BY day DESC LIMIT 7')]
- return {'counts':counts,'events':recent,'usage':usage,'model_configured':bool(os.environ.get('ARK_API_KEY')),'reader_configured':bool(os.environ.get('MINIFLUX_API_KEY'))}
+ return {'counts':counts,'events':recent,'usage':usage,'model_configured':bool(os.environ.get('ARK_API_KEY')),'reader_configured':bool(os.environ.get('MINIFLUX_API_KEY')), 'worker_heartbeat':get_meta('worker_heartbeat'), 'discovered_at':get_meta('discovered_at')}
+
+def migrate():
+ with connect() as c:
+  existing = {r[1] for r in c.execute('PRAGMA table_info(analyses)')}
+  for name, kind in {'source_text':'TEXT','source_chars':'INTEGER','content_source':'TEXT','duplicate_of':'INTEGER'}.items():
+   if name not in existing: c.execute(f'ALTER TABLE analyses ADD COLUMN {name} {kind}')
+
+def canonical_url(url):
+ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+ u = urlsplit(url)
+ query = [(k,v) for k,v in parse_qsl(u.query,keep_blank_values=True)
+          if not k.lower().startswith('utm_') and k.lower() not in {'fbclid','gclid'}]
+ return urlunsplit((u.scheme.lower(),u.netloc.lower(),u.path,urlencode(sorted(query)),''))
+
+def get_meta(name, default=None):
+ with connect() as c:
+  row = c.execute('SELECT value FROM settings WHERE name=?',('meta:'+name,)).fetchone()
+ return json.loads(row[0]) if row else default
+
+def put_meta(name, value):
+ with connect() as c:
+  c.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',('meta:'+name,json.dumps(value,ensure_ascii=False)))
+
+def evidence_matches(quote, text):
+ import unicodedata, re
+ def normalize(s): return re.sub(r'\s+',' ',unicodedata.normalize('NFKC',s)).strip()
+ return len(normalize(quote)) >= 8 and normalize(quote) in normalize(text)

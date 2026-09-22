@@ -5,21 +5,21 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response, FileResponse, HTMLResponse
-from core import ROOT, init_db, init_usage, connect, settings, save_settings, decorate, update, event, status_summary
+from core import ROOT, init_db, init_usage, connect, settings, save_settings, decorate, update, event, status_summary, migrate, get_meta, put_meta
 from worker import run_worker, MF
 
 @asynccontextmanager
 async def lifespan(app):
- init_db(); init_usage()
+ init_db(); init_usage(); migrate()
  with connect() as c: c.execute("UPDATE analyses SET state='pending' WHERE state IN ('fetching','analyzing')")
- app.state.client = httpx.AsyncClient(timeout=80,follow_redirects=False)
+ app.state.client = httpx.AsyncClient(timeout=80,follow_redirects=False,trust_env=False)
  task = asyncio.create_task(run_worker())
  yield
  task.cancel()
  with contextlib.suppress(asyncio.CancelledError): await task
  await app.state.client.aclose()
 
-app = FastAPI(title='Personal AI News add-on',docs_url=None,redoc_url=None,lifespan=lifespan)
+app = FastAPI(title='Personal AI News add-on',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
 
 def auth_headers(request):
  return {k:request.headers[k] for k in ['authorization','x-auth-token'] if k in request.headers}
@@ -34,9 +34,11 @@ async def authorize(request):
 @app.middleware('http')
 async def security_headers(request,call_next):
  origin = request.headers.get('origin')
- if request.method not in ['GET','HEAD','OPTIONS'] and origin and origin != str(request.base_url).rstrip('/'):
+ if request.method not in ['GET','HEAD','OPTIONS'] and (request.headers.get('sec-fetch-site') == 'cross-site' or (origin and origin != str(request.base_url).rstrip('/'))):
   return JSONResponse({'error_message':'Cross-origin writes are not allowed'},status_code=403)
- if int(request.headers.get('content-length','0') or 0) > 2*1024*1024:
+ try: size = int(request.headers.get('content-length','0') or 0)
+ except ValueError: return JSONResponse({'error_message':'Invalid Content-Length'},status_code=400)
+ if size > 2*1024*1024:
   return JSONResponse({'error_message':'Request too large'},status_code=413)
  response = await call_next(request)
  response.headers['X-Content-Type-Options']='nosniff'
@@ -67,7 +69,7 @@ async def put_settings(request:Request):
  if not isinstance(body,dict): raise HTTPException(400,'Expected an object')
  if 'api_key' in body: raise HTTPException(400,'密钥请在服务器受限环境配置中设置，接口不接收或回显密钥')
  try: result = save_settings(body)
- except (ValueError,TypeError): raise HTTPException(400,'设置格式错误，请检查模型地址与预算')
+ except (ValueError,TypeError,OverflowError): raise HTTPException(400,'设置格式错误，请检查模型地址与预算')
  event('settings_saved'); return result
 
 @app.get('/mf/v1/ai/status')
@@ -77,6 +79,7 @@ async def ai_status(request:Request):
 @app.post('/mf/v1/ai/retry')
 async def retry(request:Request):
  uid = await authorize(request); body = await request.json()
+ if not isinstance(body,dict): raise HTTPException(400,'Expected an object')
  with connect() as c:
   if body.get('entry_id'):
    ids = [x[0] for x in c.execute('SELECT entry_id FROM analyses WHERE user_id=? AND entry_id=?',(uid,int(body['entry_id'])))]
@@ -102,7 +105,14 @@ async def ai_entries(request, uid):
    allowed_ids.update(ids); start += len(ids)
    if not ids or start >= data.get('total',0): break
  where = ['user_id=?']; values = [uid]
- if p.get('ai_view') == 'pending': where.append("state<>'done'")
+ # Respect the same date bounds as the native reader.
+ from datetime import datetime, timezone
+ for key, op in [('published_after','>='),('published_before','<='),('after','>='),('before','<=')]:
+  if p.get(key):
+   try: stamp = datetime.fromtimestamp(int(p[key]),timezone.utc).isoformat()
+   except (ValueError,OverflowError,OSError): raise HTTPException(400,'Invalid date filter')
+   where.append(f'julianday(published_at){op}julianday(?)'); values.append(stamp)
+ if p.get('ai_view') == 'pending': where.append("state NOT IN ('done','removed')")
  else: where += ["state='done'",'score>=?']; values.append(minimum)
  if p.get('search'):
   where.append('(title LIKE ? OR result LIKE ?)'); values += ['%'+p['search'][:200]+'%']*2
@@ -135,7 +145,13 @@ async def feedback(request:Request):
 async def catalog(request:Request):
  await authorize(request)
  p = ROOT/'sources.catalog.json'
- return json.loads(p.read_text()) if p.exists() else []
+ rows = json.loads(p.read_text()) if p.exists() else []
+ r = await app.state.client.get(MF+'/v1/feeds',headers=auth_headers(request)); r.raise_for_status()
+ feeds = {x['feed_url']:x for x in r.json()}
+ for item in rows:
+  feed = feeds.get(item['url'],{})
+  item.update(subscribed=bool(feed),feed_id=feed.get('id'),live_error=feed.get('parsing_error_message',''),disabled=feed.get('disabled',False))
+ return rows
 @app.get('/mf/v1/ai/tools')
 async def get_tools(request:Request):
  await authorize(request)
@@ -150,6 +166,7 @@ async def put_tools(request:Request):
  if not isinstance(body,list) or len(body)>100: raise HTTPException(400,'工具列表格式错误')
  result=[]
  for item in body:
+  if not isinstance(item,dict): raise HTTPException(400,'Invalid tool item')
   url=str(item.get('url','')); u=urlparse(url)
   if u.scheme not in ['http','https'] or not u.hostname or u.username or u.password: raise HTTPException(400,'工具链接必须是网页 URL')
   result.append({'name':str(item.get('name',''))[:100],'url':url[:1000]})
@@ -158,10 +175,12 @@ async def put_tools(request:Request):
 
 @app.post('/mf/v1/ai/subscribe')
 async def subscribe(request:Request):
- await authorize(request); body=await request.json(); url=str(body.get('url',''))
+ await authorize(request); body=await request.json()
+ if not isinstance(body,dict) or not isinstance(body.get('category_id'),int): raise HTTPException(400,'Invalid subscription')
+ url=str(body.get('url',''))
  from urllib.parse import urlparse
  if urlparse(url).scheme not in ['http','https']: raise HTTPException(400,'Invalid feed URL')
- response=await app.state.client.post(MF+'/v1/feeds',headers=auth_headers(request),json={'feed_url':url,'category_id':int(body['category_id']),'crawler':bool(body.get('crawler',True))},timeout=70)
+ response=await app.state.client.post(MF+'/v1/feeds',headers=auth_headers(request),json={'feed_url':url,'category_id':int(body['category_id']),'crawler':bool(body.get('crawler',False))},timeout=70)
  return Response(response.content,status_code=response.status_code,media_type='application/json')
 @app.api_route('/mf/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
 async def proxy(path:str,request:Request):
@@ -201,13 +220,19 @@ async def home():
 @app.get('/{path:path}')
 async def frontend(path:str):
  webroot=(ROOT/'upstream/reactflux/build').resolve()
+ if any(part.startswith('.') for part in Path(path).parts): raise HTTPException(404)
  target=(webroot/path).resolve()
  if not target.is_relative_to(webroot): raise HTTPException(404)
  if target.is_file(): return FileResponse(target)
  index=webroot/'index.html'
+ if Path(path).suffix: raise HTTPException(404)
  if index.exists(): return FileResponse(index,headers={'Cache-Control':'no-store'})
  return JSONResponse({'error_message':'Frontend build not available'},status_code=503)
 
 @app.exception_handler(HTTPException)
 async def http_error(request,exc):
  return JSONResponse({'error_message':str(exc.detail)},status_code=exc.status_code)
+
+@app.exception_handler(json.JSONDecodeError)
+async def invalid_json(request,exc):
+ return JSONResponse({'error_message':'请求不是有效 JSON'},status_code=400)

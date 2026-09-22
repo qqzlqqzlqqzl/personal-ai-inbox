@@ -1,0 +1,482 @@
+{
+  "at": 1790060939.1363115,
+  "results": [
+    {
+      "name": "OpenAI News",
+      "url": "https://openai.com/news/rss.xml",
+      "category": "AI 公司与研究",
+      "state": "added",
+      "http": 201,
+      "id": 1
+    },
+    {
+      "name": "Google DeepMind",
+      "url": "https://deepmind.google/blog/rss.xml",
+      "category": "AI 公司与研究",
+      "state": "added",
+      "http": 201,
+      "id": 2
+    },
+    {
+      "name": "Microsoft Research",
+      "url": "https://www.microsoft.com/en-us/research/feed/",
+      "category": "AI 公司与研究",
+      "state": "added",
+      "http": 201,
+      "id": 3
+    },
+    {
+      "name": "AWS Machine Learning",
+      "url": "https://aws.amazon.com/blogs/machine-learning/feed/",
+      "category": "AI 公司与研究",
+      "state": "added",
+      "http": 201,
+      "id": 4
+    },
+    {
+      "name": "NVIDIA Developer",
+      "url": "https://developer.nvidia.com/blog/feed/",
+      "category": "AI 公司与研究",
+      "state": "added",
+      "http": 201,
+      "id": 6
+    },
+    {
+      "name": "BAIR",
+      "url": "https://bair.berkeley.edu/blog/feed.xml",
+      "category": "AI 公司与研究",
+      "state": "added",
+      "http": 201,
+      "id": 5
+    },
+    {
+      "name": "Cloudflare Blog",
+      "url": "https://blog.cloudflare.com/rss/",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 7
+    },
+    {
+      "name": "Meta Engineering",
+      "url": "https://engineering.fb.com/feed/",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 8
+    },
+    {
+      "name": "Netflix Tech Blog",
+      "url": "https://netflixtechblog.com/feed",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 9
+    },
+    {
+      "name": "GitHub Engineering",
+      "url": "https://github.blog/engineering/feed/",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 10
+    },
+    {
+      "name": "AWS Architecture",
+      "url": "https://aws.amazon.com/blogs/architecture/feed/",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 12
+    },
+    {
+      "name": "AWS Open Source",
+      "url": "https://aws.amazon.com/blogs/opensource/feed/",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 11
+    },
+    {
+      "name": "Dropbox Tech",
+      "url": "https://dropbox.tech/feed",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 13
+    },
+    {
+      "name": "Slack Engineering",
+      "url": "https://slack.engineering/feed/",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 14
+    },
+    {
+      "name": "Engineering at Microsoft",
+      "url": "https://devblogs.microsoft.com/engineering-at-microsoft/feed/",
+      "category": "大厂工程案例",
+      "state": "added",
+      "http": 201,
+      "id": 15
+    },
+    {
+      "name": "Rust Blog",
+      "url": "https://blog.rust-lang.org/feed.xml",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 16
+    },
+    {
+      "name": "Go Blog",
+      "url": "https://go.dev/blog/feed.atom",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 17
+    },
+    {
+      "name": "Python Blog",
+      "url": "https://blog.python.org/feeds/posts/default",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 18
+    },
+    {
+      "name": "Kubernetes",
+      "url": "https://kubernetes.io/feed.xml",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 19
+    },
+    {
+      "name": "PostgreSQL News",
+      "url": "https://www.postgresql.org/news.rss",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 20
+    },
+    {
+      "name": "WebKit",
+      "url": "https://webkit.org/blog/feed/",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 21
+    },
+    {
+      "name": "The Old New Thing",
+      "url": "https://devblogs.microsoft.com/oldnewthing/feed/",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 24
+    },
+    {
+      "name": "GitHub Changelog",
+      "url": "https://github.blog/changelog/feed/",
+      "category": "开发与开源",
+      "state": "added",
+      "http": 201,
+      "id": 22
+    },
+    {
+      "name": "Simon Willison",
+      "url": "https://simonwillison.net/atom/everything/",
+      "category": "个人博客",
+      "state": "added",
+      "http": 201,
+      "id": 25
+    },
+    {
+      "name": "Julia Evans",
+      "url": "https://jvns.ca/atom.xml",
+      "category": "个人博客",
+      "state": "added",
+      "http": 201,
+      "id": 23
+    },
+    {
+      "name": "Martin Fowler",
+      "url": "https://martinfowler.com/feed.atom",
+      "category": "个人博客",
+      "state": "added",
+      "http": 201,
+      "id": 26
+    },
+    {
+      "name": "Jeff Geerling",
+      "url": "https://www.jeffgeerling.com/blog.xml",
+      "category": "个人博客",
+      "state": "added",
+      "http": 201,
+      "id": 27
+    },
+    {
+      "name": "Bartosz Ciechanowski",
+      "url": "https://ciechanow.ski/atom.xml",
+      "category": "个人博客",
+      "state": "added",
+      "http": 201,
+      "id": 28
+    },
+    {
+      "name": "Lil'Log",
+      "url": "https://lilianweng.github.io/index.xml",
+      "category": "个人博客",
+      "state": "added",
+      "http": 201,
+      "id": 29
+    },
+    {
+      "name": "Andrej Karpathy",
+      "url": "https://karpathy.github.io/feed.xml",
+      "category": "个人博客",
+      "state": "added",
+      "http": 201,
+      "id": 31
+    },
+    {
+      "name": "Hackaday",
+      "url": "https://hackaday.com/blog/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 30
+    },
+    {
+      "name": "CNX Software",
+      "url": "https://www.cnx-software.com/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 33
+    },
+    {
+      "name": "Raspberry Pi",
+      "url": "https://www.raspberrypi.com/news/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 32
+    },
+    {
+      "name": "Arduino Blog",
+      "url": "https://blog.arduino.cc/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 34
+    },
+    {
+      "name": "Adafruit Blog",
+      "url": "https://blog.adafruit.com/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 36
+    },
+    {
+      "name": "Electronics Lab",
+      "url": "https://www.electronics-lab.com/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 35
+    },
+    {
+      "name": "Embedded Artistry",
+      "url": "https://embeddedartistry.com/blog/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 39
+    },
+    {
+      "name": "ST Community Blog",
+      "url": "https://blog.st.com/feed/",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 37
+    },
+    {
+      "name": "Espressif Developer Portal",
+      "url": "https://developer.espressif.com/blog/index.xml",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 38
+    },
+    {
+      "name": "IEEE Spectrum",
+      "url": "https://spectrum.ieee.org/feeds/feed.rss",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 43
+    },
+    {
+      "name": "Tom's Hardware",
+      "url": "https://www.tomshardware.com/feeds/all",
+      "category": "硬件与嵌入式",
+      "state": "added",
+      "http": 201,
+      "id": 41
+    },
+    {
+      "name": "Product Hunt",
+      "url": "https://www.producthunt.com/feed",
+      "category": "产品与众筹",
+      "state": "added",
+      "http": 201,
+      "id": 40
+    },
+    {
+      "name": "Ars Technica",
+      "url": "https://feeds.arstechnica.com/arstechnica/index",
+      "category": "科技媒体与周刊",
+      "state": "added",
+      "http": 201,
+      "id": 42
+    },
+    {
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "category": "科技媒体与周刊",
+      "state": "added",
+      "http": 201,
+      "id": 44
+    },
+    {
+      "name": "TechCrunch",
+      "url": "https://techcrunch.com/feed/",
+      "category": "科技媒体与周刊",
+      "state": "added",
+      "http": 201,
+      "id": 45
+    },
+    {
+      "name": "MIT Technology Review",
+      "url": "https://www.technologyreview.com/feed/",
+      "category": "科技媒体与周刊",
+      "state": "added",
+      "http": 201,
+      "id": 47
+    },
+    {
+      "name": "少数派",
+      "url": "https://sspai.com/feed",
+      "category": "中文技术与资讯",
+      "state": "added",
+      "http": 201,
+      "id": 46
+    },
+    {
+      "name": "开源中国",
+      "url": "https://www.oschina.net/news/rss",
+      "category": "中文技术与资讯",
+      "state": "added",
+      "http": 201,
+      "id": 48
+    },
+    {
+      "name": "InfoQ 中文",
+      "url": "https://www.infoq.cn/feed",
+      "category": "中文技术与资讯",
+      "state": "added",
+      "http": 201,
+      "id": 49
+    },
+    {
+      "name": "Solidot",
+      "url": "https://www.solidot.org/index.rss",
+      "category": "中文技术与资讯",
+      "state": "added",
+      "http": 201,
+      "id": 50
+    },
+    {
+      "name": "阮一峰科技周刊",
+      "url": "https://www.ruanyifeng.com/blog/atom.xml",
+      "category": "中文技术与资讯",
+      "state": "added",
+      "http": 201,
+      "id": 51
+    },
+    {
+      "name": "Ollama Releases",
+      "url": "https://github.com/ollama/ollama/releases.atom",
+      "category": "开源发布",
+      "state": "failed",
+      "http": 500
+    },
+    {
+      "name": "vLLM Releases",
+      "url": "https://github.com/vllm-project/vllm/releases.atom",
+      "category": "开源发布",
+      "state": "failed",
+      "http": 500
+    },
+    {
+      "name": "Transformers Releases",
+      "url": "https://github.com/huggingface/transformers/releases.atom",
+      "category": "开源发布",
+      "state": "failed",
+      "http": 500
+    },
+    {
+      "name": "llama.cpp Releases",
+      "url": "https://github.com/ggml-org/llama.cpp/releases.atom",
+      "category": "开源发布",
+      "state": "failed",
+      "http": 500
+    },
+    {
+      "name": "吴川斌的博客",
+      "url": "https://www.mr-wu.cn/feed/",
+      "category": "原有订阅",
+      "state": "added",
+      "http": 201,
+      "id": 52
+    },
+    {
+      "name": "Pion1eer",
+      "url": "https://www.ruanx.net/rss/",
+      "category": "原有订阅",
+      "state": "added",
+      "http": 201,
+      "id": 53
+    },
+    {
+      "name": "Airing 博客",
+      "url": "https://ursb.me/blog/feed.xml",
+      "category": "原有订阅",
+      "state": "added",
+      "http": 201,
+      "id": 56
+    },
+    {
+      "name": "Airing 笔记",
+      "url": "https://ursb.me/notes/feed.xml",
+      "category": "原有订阅",
+      "state": "added",
+      "http": 201,
+      "id": 54
+    },
+    {
+      "name": "Airing 阅读流",
+      "url": "https://ursb.me/reading/feed.xml",
+      "category": "原有订阅",
+      "state": "added",
+      "http": 201,
+      "id": 55
+    }
+  ],
+  "paper_metadata_deferred": 3
+}

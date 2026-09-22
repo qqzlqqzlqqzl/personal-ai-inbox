@@ -1,8 +1,8 @@
 """Background original-content extraction and structured AI evaluation."""
 import asyncio, os, json, time, re, logging
 import httpx
-from bs4 import BeautifulSoup
-from core import connect, discover, update, settings, event, hash_text, reserve_budget, close_budget
+from content_input import content_text, is_our_social_feed, model_payload
+from core import connect, discover, update, settings, event, hash_text, reserve_budget, close_budget, get_meta, put_meta, evidence_matches
 MF = 'http://127.0.0.1:8091/mf'
 log = logging.getLogger('ai-news.worker')
 def worker_headers(): return {'X-Auth-Token':os.environ.get('MINIFLUX_API_KEY','')}
@@ -26,69 +26,96 @@ def validate_result(data):
 async def mf_get(client,path,**params):
  r = await client.get(MF+path,headers=worker_headers(),params=params,timeout=70)
  r.raise_for_status(); return r.json()
+async def discover_pending(client):
+ cursor = int(get_meta('entry_cursor',0))
+ count = 0
+ for _ in range(50):
+  data = await mf_get(client,'/v1/entries',limit=100,order='id',direction='asc',after_entry_id=cursor)
+  entries = data.get('entries',[])
+  if not entries: break
+  discover(entries)
+  cursor = max(e['id'] for e in entries)
+  put_meta('entry_cursor',cursor)
+  count += len(entries)
+  if len(entries)<100: break
+ put_meta('discovered_at',time.time())
+ return count
+
 async def process_one(client, row, cfg):
  entry_id = row['entry_id']; phase = 'fetch_error'
  try:
   entry = await mf_get(client,f'/v1/entries/{entry_id}')
-  source = 'original_url'
+  social = is_our_social_feed(entry.get('feed',{}).get('feed_url',''))
+  source = 'social_adapter_post' if social else 'original_url'
   current = entry.get('content','')
-  if not row['extracted_at'] or hash_text(current) != row['content_hash']:
+  if not social and (not row['extracted_at'] or hash_text(current) != row['content_hash']):
    update(entry_id,state='fetching')
    fetched = await mf_get(client,f'/v1/entries/{entry_id}/fetch-content',update_content='true')
    current = fetched.get('content','')
    if not current: raise ValueError('Original extraction returned no content')
-  soup = BeautifulSoup(current,'html.parser')
-  for el in soup(['script','style','noscript']): el.decompose()
-  text = soup.get_text(' ',strip=True)
-  if len(text) < 120: raise ValueError('Original text too short for a reliable evaluation')
-  update(entry_id,content_hash=hash_text(current),input_chars=len(text),image_count=len(soup.find_all('img')),extracted_at=time.time(),error=None)
+  text, images = content_text(current)
+  if len(text) < (8 if social else 120):
+   update(entry_id,state='insufficient_content',error='原文信息过少，不生成价值评分',source_chars=len(text),image_count=images,content_source=source)
+   return
+  used, message = model_payload(entry,text,source,cfg)
+  prompt_hash = hash_text(cfg['prompt']+cfg['model']+cfg['base_url'])
+  update(entry_id,content_hash=hash_text(current),source_chars=len(text),input_chars=len(used),source_text=used,image_count=images,content_source=source,extracted_at=time.time(),truncated=int(len(text)>len(used)),error=None)
   if not os.environ.get('ARK_API_KEY'):
    update(entry_id,state='waiting_model'); return
   phase = 'ai_error'
-  payload_text = text[:cfg['max_chars']]
-  usage_id = reserve_budget(entry_id,payload_text,cfg)
+  with connect() as c:
+   duplicate = c.execute("SELECT * FROM analyses WHERE entry_id<>? AND user_id=? AND state='done' AND source_text=? AND prompt_hash=? ORDER BY analyzed_at DESC LIMIT 1",(entry_id,entry['user_id'],used,prompt_hash)).fetchone()
+  if duplicate:
+   update(entry_id,state='done',result=duplicate['result'],score=duplicate['score'],technical_score=duplicate['technical_score'],business_score=duplicate['business_score'],model=cfg['model'],prompt_hash=prompt_hash,tokens=0,analyzed_at=time.time(),duplicate_of=duplicate['entry_id'])
+   event('analysis_reused',entry_id,'相同正文复用已验证分析'); return
+  usage_id = reserve_budget(entry_id,message,cfg)
   if usage_id is None:
    update(entry_id,state='budget_paused',next_try=time.time()+3600); return
-  update(entry_id,state='analyzing',model=cfg['model'],prompt_hash=hash_text(cfg['prompt']),truncated=int(len(text)>len(payload_text)))
-  message = json.dumps({'title':entry['title'],'url':entry['url'],'content_source':source,'truncated':len(text)>len(payload_text),'content':payload_text},ensure_ascii=False)
+  update(entry_id,state='analyzing',model=cfg['model'],prompt_hash=prompt_hash)
   body = {'model':cfg['model'],'messages':[{'role':'system','content':cfg['prompt']},{'role':'user','content':message}],'max_tokens':cfg['max_output_tokens']}
   if cfg['json_mode']: body['response_format'] = {'type':'json_object'}
   response = await client.post(cfg['base_url'].rstrip('/')+'/chat/completions',json=body,headers={'Authorization':'Bearer '+os.environ['ARK_API_KEY']},timeout=120)
   response.raise_for_status(); raw = response.json()
-  content = raw['choices'][0]['message']['content']
-  content = re.sub(r'^```(?:json)?\s*|\s*```$','',content.strip())
-  result = validate_result(json.loads(content))
-  if result['evidence'] not in text: raise ValueError('Evidence quotation is not present in the original text')
   tokens = int(raw.get('usage',{}).get('total_tokens') or 0)
   if tokens: close_budget(usage_id,tokens)
-  update(entry_id,state='done',result=json.dumps(result,ensure_ascii=False),score=result['score'],technical_score=result['technical_score'],business_score=result['business_score'],tokens=tokens,analyzed_at=time.time(),error=None,attempts=0)
-  event('analysis_done',entry_id,'Original text evaluated; source pictures kept in Miniflux')
+  content = raw['choices'][0]['message'].get('content')
+  if not content: raise ValueError('Model returned empty content')
+  if raw['choices'][0].get('finish_reason') == 'length': raise ValueError('Model output exceeded token limit')
+  content = re.sub(r'^```(?:json)?\s*|\s*```$','',content.strip())
+  result = validate_result(json.loads(content))
+  if not evidence_matches(result['evidence'],used): raise ValueError('Evidence quotation not present in model input')
+  update(entry_id,state='done',result=json.dumps(result,ensure_ascii=False),score=result['score'],technical_score=result['technical_score'],business_score=result['business_score'],tokens=tokens,analyzed_at=time.time(),error=None,attempts=0,next_try=0)
+  event('analysis_done',entry_id,'真实原文/原帖已评价；正文图片保留')
  except asyncio.CancelledError: raise
  except Exception as exc:
   attempts = row['attempts']+1
   detail = type(exc).__name__
-  if isinstance(exc,httpx.HTTPStatusError): detail += ' HTTP '+str(exc.response.status_code)
+  if isinstance(exc,httpx.HTTPStatusError):
+   detail += ' HTTP '+str(exc.response.status_code)
+   if exc.response.status_code==404 and '/v1/entries/' in str(exc.request.url):
+    update(entry_id,state='removed',error='条目已从阅读器移除'); return
   elif isinstance(exc,ValueError): detail += ': '+str(exc)[:150]
   update(entry_id,state=phase,attempts=attempts,next_try=time.time()+min(86400,300*2**min(attempts,8)),error=detail)
   event(phase,entry_id,detail)
 
 async def run_worker():
- async with httpx.AsyncClient(follow_redirects=False) as client:
+ async with httpx.AsyncClient(follow_redirects=False,trust_env=False) as client:
   while True:
+   put_meta('worker_heartbeat',time.time())
    cfg = settings()
-   if not os.environ.get('MINIFLUX_API_KEY') or not cfg['enabled']:
+   if not os.environ.get('MINIFLUX_API_KEY'):
     await asyncio.sleep(30); continue
    try:
-    data = await mf_get(client,'/v1/entries',limit=200,order='published_at',direction='desc')
-    discover(data.get('entries',[]))
-    states = ['pending','fetch_error','ai_error','budget_paused']
-    if os.environ.get('ARK_API_KEY'): states.append('waiting_model')
-    with connect() as c:
-     rows = c.execute('SELECT * FROM analyses WHERE state IN ('+','.join('?' for _ in states)+') AND next_try<=? AND attempts<5 ORDER BY published_at DESC LIMIT 6',(*states,time.time())).fetchall()
-    for row in rows:
-     if not settings()['enabled']: break
-     await process_one(client,row,settings())
+    await discover_pending(client)
+    if cfg['enabled']:
+     states = ['pending','fetch_error','ai_error','budget_paused']
+     if os.environ.get('ARK_API_KEY'): states.append('waiting_model')
+     with connect() as c:
+      rows = c.execute('SELECT a.* FROM analyses a WHERE state IN ('+','.join('?' for _ in states)+') AND next_try<=? AND attempts<5 ORDER BY COALESCE((SELECT MAX(b.analyzed_at) FROM analyses b WHERE b.feed_id=a.feed_id),0), published_at DESC LIMIT 6',(*states,time.time())).fetchall()
+     for row in rows:
+      if not settings()['enabled']: break
+      await process_one(client,row,settings())
+      put_meta('worker_heartbeat',time.time())
    except asyncio.CancelledError: raise
-   except Exception as exc:
-    event('worker_error',detail=type(exc).__name__)
+   except Exception as exc: event('worker_error',detail=type(exc).__name__)
    await asyncio.sleep(cfg['interval_seconds'])
