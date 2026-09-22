@@ -76,9 +76,22 @@ async def enrich_product_entry(client, entry, backend_url, headers):
     if not is_product_entry(entry):
         raise ValueError('unsupported_product_source')
     parsed_original = BeautifulSoup(original, 'html.parser')
+    rss_original = original
     if parsed_original.find(['h2','h3'], string=LABEL):
-        cover = first_image_src(original)
-        return {'content': original, 'cover_url': cover, 'cover_source': 'product_screenshot' if cover else None, 'content_source': 'product_page', 'updated': False}
+        marker = parsed_original.find(['h2','h3'], string='原始 RSS 简介')
+        if marker is None:
+            raise ValueError('enrichment_missing_original_rss_marker')
+        # A previous network failure can leave a valid introduction but no pictures.
+        # Retry the product's own screenshot data without nesting another RSS copy.
+        managed = []
+        for node in parsed_original.contents:
+            if node is marker:
+                break
+            managed.append(str(node))
+        cover = first_image_src(''.join(managed))
+        if cover:
+            return {'content': original, 'cover_url': cover, 'cover_source': 'product_screenshot', 'content_source': 'product_page', 'updated': False}
+        rss_original = ''.join(str(node) for node in marker.next_siblings)
     async with product_client() as external:
         async with external.stream('GET', entry['url']) as response:
             response.raise_for_status()
@@ -107,7 +120,9 @@ async def enrich_product_entry(client, entry, backend_url, headers):
         html += '<p><img src="' + escape(image, quote=True) + '" alt="' + escape(entry['title'] + ' 产品截图', quote=True) + '"></p>'
     if data['website']:
         html += '<p><a href="' + escape(data['website'], quote=True) + '">访问产品官网</a></p>'
-    html += '<p><a href="' + escape(entry['url'], quote=True) + '">查看 Product Hunt 产品页面</a></p><hr><h3>原始 RSS 简介</h3>' + original
+    html += '<p><a href="' + escape(entry['url'], quote=True) + '">查看 Product Hunt 产品页面</a></p><hr><h3>原始 RSS 简介</h3>' + rss_original
+    if html == original:
+        return {'content': original, 'cover_url': None, 'cover_source': None, 'content_source': 'product_page', 'updated': False}
     saved = await client.put(backend_url + '/v1/entries/' + str(entry['id']), headers=headers, json={'content': html}, timeout=15)
     saved.raise_for_status()
     fresh = await client.get(backend_url + '/v1/entries/' + str(entry['id']), headers=headers, timeout=15)

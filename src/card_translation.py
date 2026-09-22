@@ -29,6 +29,13 @@ def is_chinese(text):
     cjk = len(re.findall(r'[\u3400-\u9fff]', text))
     return cjk >= 2 and cjk / max(1, len(re.sub(r'\W','',text))) >= 0.28
 
+def chinese_translation(text):
+    # Technical Chinese often retains long English organization/model names.
+    # Require substantive Chinese, not a token Chinese prefix on English copy.
+    cjk = len(re.findall(r'[\u3400-\u9fff]', text))
+    visible = len(re.sub(r'\W', '', text))
+    return is_chinese(text) or (cjk >= 12 and cjk / max(1, visible) >= 0.20)
+
 def source_card(entry, model):
     soup = BeautifulSoup((entry.get('content') or '')[:50000], 'html.parser')
     for node in soup(['script','style','noscript','code','pre']):
@@ -85,7 +92,17 @@ def validate_items(raw, rows):
         if not isinstance(item,dict) or type(item.get('id')) is not int or item['id'] not in expected or item['id'] in result:
             raise ValueError('unexpected_translation_id')
         title, summary = item.get('title'), item.get('summary')
-        if not isinstance(title,str) or not isinstance(summary,str) or not re.search(r'[\u3400-\u9fff]',title) or not is_chinese(summary):
+        source = next(r for r in rows if r['entry_id'] == item['id'])
+        # Some models preserve a short brand-only name. Add a faithful Chinese
+        # label drawn only from that item's translated introduction, never guessed.
+        if (isinstance(title,str) and isinstance(summary,str) and chinese_translation(summary)
+            and not re.search(r'[\u3400-\u9fff]',title)
+            and title.strip() == source.get('original_title','').strip()
+            and source.get('source_kind') == 'product_page' and len(title) <= 65):
+            label = re.split(r'[。！？；\n]', summary.strip(), maxsplit=1)[0]
+            if len(label)>42: label=label[:42]+'…'
+            title = title.strip() + '｜' + label
+        if not isinstance(title,str) or not isinstance(summary,str) or not re.search(r'[\u3400-\u9fff]',title) or not chinese_translation(summary):
             raise ValueError('translation_not_chinese')
         result[item['id']] = (title.strip()[:180],summary.strip()[:400])
     if set(result) != expected:
@@ -103,6 +120,8 @@ async def translate_once(client=None):
           AND attempts<3 AND next_try<=? ORDER BY priority DESC,entry_id DESC LIMIT ?''',(now,BATCH_SIZE))]
     if not rows:
         return {'processed':0}
+    if rows[0]['attempts'] > 0:
+        rows = rows[:1]  # Retry a bad batch item individually, not its successful neighbors.
     if not os.environ.get('ARK_API_KEY'):
         return {'processed':0,'waiting_model':True}
     payload = json.dumps({'items':[{'id':r['entry_id'],'title':r['original_title'],'excerpt':r['excerpt'],

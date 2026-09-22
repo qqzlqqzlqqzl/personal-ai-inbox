@@ -148,9 +148,7 @@ with client() as api:
             check("desktop_star_persisted", current["starred"] is True)
             b.goto(APP + "/history", wait_until="domcontentloaded")
             expect(
-                b.locator(".card-title,.grid-card-title")
-                .filter(has_text=target["title"])
-                .first
+                b.locator(f'[data-entry-id="{eid}"]').first
             ).to_be_visible(timeout=30000)
             check("read_visible_in_independent_session_history", True)
             b.goto(APP + f"/all/entry/{eid}", wait_until="domcontentloaded")

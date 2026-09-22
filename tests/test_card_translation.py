@@ -81,3 +81,16 @@ def test_rejects_english_disguised_as_completed(entry):
     rows=[{'entry_id':1}]
     with pytest.raises(ValueError):
         cards.validate_items(json.dumps({'items':[{'id':1,'title':'English title','summary':'English summary'}]}),rows)
+
+
+def test_product_brand_only_title_gets_label_from_translated_introduction():
+    rows=[{'entry_id':1,'original_title':'Keet','source_kind':'product_page'}]
+    raw=json.dumps({'items':[{'id':1,'title':'Keet','summary':'通过交互式视频课程学习任何主题。'}]},ensure_ascii=False)
+    result=cards.validate_items(raw,rows)
+    assert result[1][0]=='Keet｜通过交互式视频课程学习任何主题'
+
+
+def test_technical_chinese_allows_long_english_names():
+    summary = 'Morphotonics 获得新融资，将其显示技术扩展至数据中心。'
+    assert cards.chinese_translation(summary)
+    assert not cards.chinese_translation('中文 ' + 'This is an untranslated English introduction. ' * 3)

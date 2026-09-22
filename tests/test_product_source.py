@@ -60,3 +60,30 @@ async def test_external_failure_does_not_overwrite(monkeypatch):
 def test_mobile_application_is_a_supported_product():
     html = page().replace('WebApplication','MobileApplication')
     assert product.parse_product_page(html,URL)['images'] == [IMG]
+
+
+@pytest.mark.asyncio
+async def test_missing_screenshots_retry_without_nesting_original_rss(monkeypatch):
+    entry = {'id': 8, 'url': URL, 'title': 'Example', 'content': '<p>Original RSS preserved</p>'}
+    writes = []
+    image_ok = False
+    def upstream(req):
+        if req.method == 'PUT':
+            writes.append(json.loads(req.content)['content'])
+            entry['content'] = writes[-1]
+        return httpx.Response(200, json=entry)
+    def external(req):
+        if req.url.host == 'www.producthunt.com':
+            return httpx.Response(200, text=page())
+        return httpx.Response(200 if image_ok else 503, content=b'image', headers={'content-type': 'image/png'})
+    monkeypatch.setattr(product, 'product_client', lambda: httpx.AsyncClient(transport=httpx.MockTransport(external)))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as c:
+        first = await product.enrich_product_entry(c, entry, 'http://reader', {})
+        assert first['updated'] and not first['cover_url']
+        image_ok = True
+        second = await product.enrich_product_entry(c, entry, 'http://reader', {})
+        third = await product.enrich_product_entry(c, entry, 'http://reader', {})
+    assert second['cover_url'] == IMG and not third['updated']
+    assert len(writes) == 2
+    assert entry['content'].count('原始 RSS 简介') == 1
+    assert entry['content'].count('Original RSS preserved') == 1
