@@ -149,6 +149,9 @@ with client() as api:
                 len(text) > 500,
                 {"body_chars": len(text), "entry_id": eid},
             )
+            article_images = a.locator(".article-body img")
+            check("real_article_has_image", article_images.count() > 0)
+            article_images.first.scroll_into_view_if_needed()
             a.wait_for_function(
                 "Array.from(document.querySelectorAll('.article-body img')).some(x=>x.complete && x.naturalWidth>100)",
                 timeout=25000,

@@ -1,5 +1,5 @@
 {
-  "at": 1790065563.7072785,
+  "at": 1790068902.781098,
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
     {
@@ -61,6 +61,11 @@
         "body_chars": 17224,
         "entry_id": 1344
       }
+    },
+    {
+      "name": "real_article_has_image",
+      "passed": true,
+      "detail": null
     },
     {
       "name": "real_article_image_loaded",

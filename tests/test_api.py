@@ -125,3 +125,33 @@ async def test_invalid_filter_is_400(browser_api, query):
         "/mf/v1/entries?" + query, headers={"X-Auth-Token": "test-session"}
     )
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_sources_are_not_advertised_as_fulltext(
+    browser_api, db, monkeypatch
+):
+    monkeypatch.setattr(api, "ROOT", db)
+    (db / "sources.catalog.json").write_text(
+        json.dumps(
+            [
+                {
+                    "category": "论文与前沿",
+                    "name": "arXiv",
+                    "url": "https://arxiv.org/rss/cs.AI",
+                    "status": "ok",
+                },
+                {
+                    "category": "技术博客",
+                    "name": "Example",
+                    "url": "https://example.org/feed",
+                    "status": "ok",
+                },
+            ]
+        )
+    )
+    r = await browser_api.get(
+        "/mf/v1/ai/catalog", headers={"X-Auth-Token": "test-session"}
+    )
+    assert r.status_code == 200
+    assert [x["analysis_supported"] for x in r.json()] == [False, True]

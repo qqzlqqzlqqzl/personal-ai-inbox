@@ -125,3 +125,14 @@ async def test_social_original_post_does_not_require_blog_fetch(
     calls, after = await execute(entry, full_html, model_result, monkeypatch)
     assert after["state"] == "done" and after["content_source"] == "social_adapter_post"
     assert not any("/fetch-content" in u for u in calls)
+
+
+@pytest.mark.asyncio
+async def test_paper_abstract_never_claimed_as_full_paper(
+    db, entry, full_html, model_result, monkeypatch
+):
+    entry["url"] = "https://arxiv.org/abs/2609.12345"
+    calls, after = await execute(entry, full_html, model_result, monkeypatch)
+    assert after["state"] == "requires_fulltext_adapter"
+    assert not any("/chat/completions" in url for url in calls)
+    assert not after["result"]

@@ -1,0 +1,11 @@
+{
+  "recorded_at": 1790066686.6045895,
+  "linux_gateway": "http://127.0.0.1:8092",
+  "linux_browser_verified": true,
+  "windows_loopback_http_passed": false,
+  "windows_error": "ConnectionRefused / WinError 10061",
+  "private_tunnel_created": false,
+  "credential_using_ssh_attempt": "blocked by safety check; no alternative credential extraction attempted",
+  "new_public_port_opened": false,
+  "physical_phone_network_tested": false
+}

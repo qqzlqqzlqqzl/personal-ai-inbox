@@ -94,6 +94,16 @@ async def process_one(client, row, cfg):
     phase = "fetch_error"
     try:
         entry = await mf_get(client, f"/v1/entries/{entry_id}")
+        from urllib.parse import urlsplit
+
+        original = urlsplit(entry["url"])
+        if original.hostname in {"arxiv.org", "www.arxiv.org", "export.arxiv.org"}:
+            update(
+                entry_id,
+                state="requires_fulltext_adapter",
+                error="论文原文适配尚未接入，不把摘要页当成论文全文",
+            )
+            return
         social = is_our_social_feed(entry.get("feed", {}).get("feed_url", ""))
         source = "social_adapter_post" if social else "original_url"
         current = entry.get("content", "")

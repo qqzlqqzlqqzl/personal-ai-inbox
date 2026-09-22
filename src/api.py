@@ -332,6 +332,7 @@ async def catalog(request: Request):
     r.raise_for_status()
     feeds = {x["feed_url"]: x for x in r.json()}
     for item in rows:
+        item["analysis_supported"] = item.get("category") != "论文与前沿"
         feed = feeds.get(item["url"], {})
         item.update(
             subscribed=bool(feed),

@@ -1,5 +1,5 @@
 {
-  "at": 1790065561.9504294,
+  "at": 1790069010.5817251,
   "kind": "live production HTTP and persisted data",
   "checks": [
     {
@@ -51,7 +51,7 @@
       "passed": true,
       "detail": {
         "feeds": 56,
-        "entries": 2853
+        "entries": 2867
       }
     },
     {
@@ -108,8 +108,8 @@
       "name": "real_ark_multiple_sources",
       "passed": true,
       "detail": {
-        "analyzed": 38,
-        "distinct_sources": 29
+        "analyzed": 76,
+        "distinct_sources": 48
       }
     },
     {
@@ -134,24 +134,32 @@
     }
   ],
   "counts": {
-    "ai_error": 3,
-    "done": 38,
-    "fetch_error": 78,
-    "fetching": 1,
-    "insufficient_content": 44,
-    "pending": 2689
+    "budget_paused": 113,
+    "done": 76,
+    "fetch_error": 80,
+    "insufficient_content": 50,
+    "pending": 2548
   },
   "usage": [
     {
       "day": "2026-09-22",
-      "calls": 42,
-      "tokens": 137536
+      "calls": 80,
+      "tokens": 334484
     }
   ],
   "model_names": [
     "deepseek-v4-flash-ga-260731"
   ],
   "samples": [
+    {
+      "entry_id": 488,
+      "title": "Introducing Gemini 3.8 Live and 3.8 Live Extended Thinking",
+      "url": "https://deepmind.google/blog/introducing-gemini-3-8-live-and-3-8-live-extended-thinking/",
+      "input_chars": 8121,
+      "image_count": 17,
+      "content_source": "original_url",
+      "model": "deepseek-v4-flash-ga-260731"
+    },
     {
       "entry_id": 493,
       "title": "Improving synthesis prediction of small molecules at scale with RetroChimera",
@@ -171,28 +179,19 @@
       "model": "deepseek-v4-flash-ga-260731"
     },
     {
+      "entry_id": 1343,
+      "title": "Run Positron on Amazon SageMaker AI for data science workflows",
+      "url": "https://aws.amazon.com/blogs/machine-learning/run-positron-on-amazon-sagemaker-ai-for-data-science-workflows/",
+      "input_chars": 15162,
+      "image_count": 18,
+      "content_source": "original_url",
+      "model": "deepseek-v4-flash-ga-260731"
+    },
+    {
       "entry_id": 1344,
       "title": "How BMW Group detects cost anomalies across 14,000 cloud accounts",
       "url": "https://aws.amazon.com/blogs/machine-learning/how-bmw-group-detects-cost-anomalies-across-14000-cloud-accounts/",
       "input_chars": 16737,
-      "image_count": 7,
-      "content_source": "original_url",
-      "model": "deepseek-v4-flash-ga-260731"
-    },
-    {
-      "entry_id": 1345,
-      "title": "xAI’s Grok 4.6 is now available in Amazon Bedrock",
-      "url": "https://aws.amazon.com/blogs/machine-learning/xais-grok-4-6-is-now-available-in-amazon-bedrock/",
-      "input_chars": 21293,
-      "image_count": 6,
-      "content_source": "original_url",
-      "model": "deepseek-v4-flash-ga-260731"
-    },
-    {
-      "entry_id": 1454,
-      "title": "How to Evaluate AI Agents From Tool Calls to Task Completion",
-      "url": "https://developer.nvidia.com/blog/how-to-evaluate-ai-agents-from-tool-calls-to-task-completion/",
-      "input_chars": 16054,
       "image_count": 7,
       "content_source": "original_url",
       "model": "deepseek-v4-flash-ga-260731"

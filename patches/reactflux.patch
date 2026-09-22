@@ -1,9 +1,10 @@
 --- a/vite.config.js
 +++ b/vite.config.js
-@@ -68,6 +68,9 @@
+@@ -68,6 +68,10 @@
        },
        workbox: {
          cleanupOutdatedCaches: true,
++        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
 +        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
 +        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
 +        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],

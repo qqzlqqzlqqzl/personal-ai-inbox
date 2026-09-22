@@ -37,6 +37,7 @@ ssh -N -L 127.0.0.1:8092:127.0.0.1:8092 ubuntu@106.53.40.6
 - [交付状态与实测边界](docs/ops/DELIVERY.md)
 - [逐项验收 Checklist](docs/ops/ACCEPTANCE-CHECKLIST.md)
 - [运维、更新、备份与恢复 SOP](docs/ops/SOP.md)
+- [电脑私有访问通道](docs/ops/LOCAL_ACCESS.md)
 - [重新构建与接手说明](docs/ops/HANDOFF.md)
 - [自动化测试结果](artifacts/unit-tests.xml) · [真实接口与数据验收](artifacts/live-acceptance.json) · [真实浏览器验收](artifacts/browser-acceptance.json) · [隔离恢复验证](artifacts/restore-test.json)
 
@@ -56,3 +57,5 @@ ssh -N -L 127.0.0.1:8092:127.0.0.1:8092 ubuntu@106.53.40.6
 - [RSSHub](https://github.com/DIYgod/RSSHub)：AGPL-3.0，固定 SHA，私有回环监听。
 
 版本与哈希见 `upstream.lock.json`，研究依据见 `docs/research/`。第三方许可证保留于下载的上游源码。应用是单用户部署，不声称支持多租户隔离。源码、文档和测试证据进入本私有仓库；`.private/`、数据库、备份、日志及二进制运行目录不进入 Git。
+
+预算只约束本项目，保持不动的旧 n8n / 其他应用不在此预算内。订阅刷新配置基准为约30分钟，AI队列约90秒一轮，受原站请求和排队影响，不是秒级实时推送。
