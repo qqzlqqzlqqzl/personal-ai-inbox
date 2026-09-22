@@ -1,0 +1,91 @@
+import { useEffect, useRef, useState } from "react"
+import apiClient from "@/apis/ofetch"
+import useAppData from "@/hooks/useAppData"
+import { aiState } from "@/store/aiState"
+import { invalidateArticleList } from "@/store/contentState"
+
+export default function AiPanel({ onClose }) {
+  const dialog = useRef(null)
+  const alive = useRef(true)
+  const [tab, setTab] = useState("settings")
+  const [config, setConfig] = useState(null)
+  const [status, setStatus] = useState(null)
+  const [sources, setSources] = useState([])
+  const [tools, setTools] = useState([])
+  const [toolText, setToolText] = useState("[]")
+  const [message, setMessage] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState("")
+  const { refreshFeedData } = useAppData()
+  const load = async () => {
+    try {
+      const [c, s, f, t] = await Promise.all(["settings", "status", "catalog", "tools"].map(p => apiClient.get(`/v1/ai/${p}`)))
+      if (!alive.current) return
+      setConfig(c); setStatus(s); setSources(f); setTools(t); setToolText(JSON.stringify(t, null, 2))
+    } catch (e) { if (alive.current) setMessage(e.message) }
+  }
+  useEffect(() => { dialog.current?.showModal(); load(); return () => { alive.current = false } }, [])
+  const run = async (action) => {
+    setBusy(true); setMessage("")
+    try { await action() } catch (e) { setMessage(e.message) } finally { if (alive.current) setBusy(false) }
+  }
+  const save = () => run(async () => {
+    await apiClient.put("/v1/ai/settings", config)
+    aiState.setKey("minimum", config.minimum_score); invalidateArticleList(); setMessage("已保存到服务器")
+  })
+  const add = (items) => run(async () => {
+    const categories = await apiClient.get("/v1/categories")
+    let added = 0, failed = 0
+    for (const source of items) {
+      if (!alive.current) break
+      try {
+        let category = categories.find(c => c.title === source.category)
+        if (!category) { category = await apiClient.post("/v1/categories", { title: source.category }); categories.push(category) }
+        await apiClient.post("/v1/ai/subscribe", { url: source.url, category_id: category.id, crawler: true })
+        added++
+      } catch { failed++ }
+      setMessage(`已添加 ${added}，失败或已存在 ${failed} / ${items.length}`)
+    }
+    await refreshFeedData(); invalidateArticleList()
+  })
+  const change = (key, value) => setConfig({ ...config, [key]: value })
+  const filtered = sources.filter(s => `${s.name} ${s.category}`.toLowerCase().includes(search.toLowerCase()))
+  return <dialog className="ai-dialog" ref={dialog} onCancel={onClose} onClose={onClose}>
+    <header><h2>个人 AI 资讯控制台</h2><button aria-label="关闭" onClick={onClose}>×</button></header>
+    <nav>{[["settings","模型与偏好"],["status","处理状态"],["sources","来源目录"],["tools","工具入口"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
+    {message && <p className="ai-message" role="status">{message}</p>}
+    {!config && <p>正在读取服务器配置……</p>}
+    {tab === "settings" && config && <section className="ai-form">
+      <p className="ai-notice">模型密钥{config.api_key_configured ? "已配置，调用结果以处理状态为准" : "尚未配置"}。密钥仅从服务器环境读取，网页不接收或回显密钥。修改接口会改变原文与模型认证的发送目标，只填写可信服务。</p>
+      <label><input type="checkbox" checked={config.enabled} onChange={e=>change("enabled",e.target.checked)} /> 开启后台分析</label>
+      <label>接口地址<input value={config.base_url} onChange={e=>change("base_url",e.target.value)} /></label>
+      <label>模型 ID<input value={config.model} onChange={e=>change("model",e.target.value)} /></label>
+      <label>个人筛选提示词<textarea rows={9} value={config.prompt} onChange={e=>change("prompt",e.target.value)} /></label>
+      <div className="ai-field-grid">{[["daily_articles","每日最多模型请求"],["daily_tokens","每日 Token 预算"],["max_chars","单篇输入字符上限"],["minimum_score","默认最低推荐分"]].map(([key,label])=><label key={key}>{label}<input type="number" value={config[key]} onChange={e=>change(key,Number(e.target.value))}/></label>)}</div>
+      <label><input type="checkbox" checked={config.json_mode} onChange={e=>change("json_mode",e.target.checked)} /> 使用 JSON 响应模式（需模型支持）</label>
+      <button disabled={busy} onClick={save}>保存到服务器</button>
+    </section>}
+    {tab === "status" && status && <section>
+      <p>原文抓取与模型分析分开记录。原文抓取失败不会降级成 RSS 简介分析；模拟数据不进入生产库。</p>
+      <div className="ai-state-grid">{Object.entries(status.counts).map(([key,value])=><div key={key}><strong>{value}</strong><span>{key}</span></div>)}</div>
+      <button disabled={busy} onClick={()=>run(async()=>{const r=await apiClient.post("/v1/ai/retry",{});setMessage(`已重排 ${r.queued} 个失败任务`);await load()})}>重试失败任务</button>
+      <button disabled={busy} onClick={load}>刷新状态</button>
+      <h3>用量记录（UTC 日期）</h3>{status.usage.map(u=><p key={u.day}>{u.day} · {u.calls} 次请求 · {u.tokens} Token（失败请求保留预留预算）</p>)}
+      <h3>近期处理日志</h3>{status.events.map((e,i)=><p className="ai-event" key={i}>{new Date(e.at*1000).toLocaleString()} · {e.kind} · {e.detail}</p>)}
+    </section>}
+    {tab === "sources" && <section>
+      <p>先广泛收录，再按实际阅读价值裁剪。以下“可用”只表示本次成功解析订阅 XML，不代表每篇原文都能抓到。</p>
+      <input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} />
+      <button disabled={busy} onClick={()=>add(filtered.filter(s=>s.status==="ok"))}>添加当前可用来源</button>
+      <p className="ai-notice">社交账号尚未授权：X 通常需要 TWITTER_AUTH_TOKEN；Instagram 需相应账号或 Cookie；Telegram 公开频道可尝试网页路由。Facebook 未经本实例验证。不要把这些入口当成已经接通。</p>
+      <form onSubmit={e=>{e.preventDefault();const url=new FormData(e.currentTarget).get("feed");add([{url,category:"手动来源"}])}}><label>自定义 RSS / RSSHub 地址<input required name="feed" type="url" placeholder="http://127.0.0.1:1200/telegram/channel/频道名" /></label><button disabled={busy}>添加订阅</button></form>
+      <div className="ai-source-list">{filtered.map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.status==="ok" ? "订阅可解析" : (s.error || "待验证")}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a></div><button disabled={busy || s.status!=="ok"} onClick={()=>add([s])}>添加</button></div>)}</div>
+    </section>}
+    {tab === "tools" && <section>
+      <p>静态工具与资讯分开。快捷入口保存在服务器，不仅是当前浏览器。</p>
+      <div className="ai-tools">{tools.map(t=><a key={t.url} href={t.url} target="_blank" rel="noreferrer">{t.name} ↗</a>)}</div>
+      <details><summary>编辑快捷入口（JSON）</summary><textarea aria-label="工具 JSON" rows={10} value={toolText} onChange={e=>setToolText(e.target.value)} /><button disabled={busy} onClick={()=>run(async()=>{await apiClient.put("/v1/ai/tools",JSON.parse(toolText));await load();setMessage("快捷入口已保存到服务器")})}>保存入口</button></details>
+    </section>}
+    <footer>Miniflux + ReactFlux + RSSHub · AI 增强层独立保存分析，不替换原文章。<a href="/deployment" target="_blank" rel="noreferrer">部署状态</a></footer>
+  </dialog>
+}

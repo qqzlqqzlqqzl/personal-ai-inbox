@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>个人 AI 资讯站 · 部署状态</title>
+<style>
+:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:0;background:#111827;color:#e5e7eb;line-height:1.7}main{max-width:880px;margin:8vh auto;padding:28px}h1{font-size:clamp(28px,5vw,42px);line-height:1.25}p{color:#bac5d7}.tag{color:#6ee7b7;font-size:13px;letter-spacing:.13em}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:28px 0}.card,section{background:#1f2937;border:1px solid #374151;border-radius:14px;padding:20px;margin:14px 0}.cards .card{margin:0}h2{font-size:19px}a{color:#93c5fd}code{background:#0b1220;padding:3px 7px;border-radius:4px;overflow-wrap:anywhere}.button{display:inline-block;padding:12px 20px;border:1px solid #60a5fa;border-radius:9px;text-decoration:none;margin-right:12px}.state{font-weight:650}.muted{font-size:13px;color:#9ca3af}
+</style>
+<main><div class="tag">PERSONAL INTELLIGENCE · SELF-HOSTED</div>
+<h1>个人 AI 资讯站<br>真实部署状态</h1>
+<p>这不是资讯演示页。下面显示当前服务的实际检查结果；没有连接的组件不会被标成可用。</p>
+<div class="cards"><div class="card">网页网关<div id="gateway" class="state">检查中</div></div><div class="card">Miniflux 阅读后端<div id="reader" class="state">检查中</div></div><div class="card">RSSHub 来源适配<div id="rsshub" class="state">检查中</div></div></div>
+<section><h2>尚需完成的配置</h2><p id="keys">检查模型与后台连接状态……</p>
+<p>自动初始化阅读器连接密钥被安全检查拦截，因此没有绕过认证或改成公开服务。请在自己的服务器终端参照 <code>/home/ubuntu/ai-news/docs/ops/SOP.md</code> 完成 Miniflux 和 AI 环境配置。不要把密钥粘贴到聊天或 Git。</p>
+<p>Windows 交付目录尚待 Remote Desktop Commander 恢复连接。服务器端代码、选型与日志均位于 <code>/home/ubuntu/ai-news</code>。</p></section>
+<section><h2>已经准备的完整组合</h2><p>Miniflux 管理订阅、收藏与阅读状态；ReactFlux 提供图文阅读；RSSHub 扩展来源；独立增强层保存 AI 摘要、技术与商业评分、推荐理由、处理状态和预算。</p><p>X、Instagram、Facebook 等来源需要各自授权与实际验证。路由存在不代表已经连接成功。</p></section>
+<p><a class="button" href="/login">打开阅读器登录页</a><a class="button" href="/healthz">查看检查 JSON</a></p>
+<p class="muted">仅监听服务器本机。通过自己的 SSH 隧道或私有 VPN 访问，不开放新的公网端口。<span id="checked"></span></p></main>
+<script>
+async function refresh(){try{const r=await fetch('/healthz',{cache:'no-store'});const d=await r.json();for(const k of ['gateway','reader','rsshub'])document.getElementById(k).textContent=d.services[k]?'运行正常':'尚未就绪';document.getElementById('keys').textContent='后台阅读器凭据：'+(d.reader_worker_configured?'已配置':'未配置')+'；模型凭据：'+(d.model_configured?'已配置，仍需真实调用验收':'未配置，未生成任何 AI 结果');document.getElementById('checked').textContent='最后检查：'+new Date().toLocaleString();}catch(e){document.getElementById('gateway').textContent='连接失败';}setTimeout(refresh,10000)}refresh();
+</script></html>

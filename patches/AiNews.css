@@ -1,0 +1,21 @@
+.ai-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 14px;border-bottom:1px solid var(--color-border-2,#dce3ed);flex-shrink:0;font-size:13px}
+.ai-toolbar button,.ai-dialog button,.ai-toolbar select{font:inherit;padding:6px 10px;border:1px solid var(--color-border-2,#dce3ed);border-radius:7px;color:var(--color-text-1,#223);background:var(--color-bg-2,#fff);cursor:pointer}
+.ai-toolbar button[aria-pressed=true],.ai-dialog button[aria-pressed=true]{background:#174a8b;color:white;border-color:#174a8b}
+.ai-modes{display:flex;gap:5px}.ai-settings-button{margin-left:auto}.ai-toolbar label{display:flex;align-items:center;gap:5px}
+.ai-verdict{border-top:1px solid var(--color-border-2,#dce3ed);margin-top:10px;padding-top:9px;font-size:12px;line-height:1.55}
+.ai-scoreline{display:flex;gap:9px;flex-wrap:wrap}.ai-scoreline strong{color:var(--color-text-1,#174a8b)}.ai-scoreline span{color:var(--color-text-2,#456)}
+.ai-reason{margin:6px 0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--color-text-2,#456)}
+.ai-tags{display:flex;flex-wrap:wrap;gap:5px}.ai-tags span{padding:1px 6px;border-radius:5px;background:var(--color-fill-2,#edf2f8);color:var(--color-text-2,#456)}
+.ai-pending{font-size:12px;line-height:1.5;color:var(--color-text-3,#64748b);padding:6px 0}
+.ai-verdict-detail{border:1px solid var(--color-border-2,#dce3ed);padding:16px;border-radius:10px;margin:20px 0;font-size:14px}.ai-verdict-detail .ai-reason{-webkit-line-clamp:initial}.ai-verdict-detail blockquote{font-size:13px;margin:10px 0;padding:8px 14px;border-left:3px solid #94a3b8}
+.ai-dialog{box-sizing:border-box;width:min(920px,calc(100vw - 24px));max-height:88vh;border:1px solid var(--color-border-2,#dce3ed);border-radius:14px;background:var(--color-bg-2,#fff);color:var(--color-text-1,#223);padding:22px;line-height:1.6}
+.ai-dialog::backdrop{background:rgba(15,23,42,.5)}.ai-dialog header{display:flex;align-items:center;justify-content:space-between}.ai-dialog h2{margin:0 0 10px}.ai-dialog header button{font-size:24px;padding:0 10px}
+.ai-dialog nav{display:flex;gap:7px;flex-wrap:wrap;padding:8px 0 16px;border-bottom:1px solid var(--color-border-2,#ddd)}.ai-dialog section{padding-top:12px}.ai-dialog button:disabled{opacity:.5;cursor:wait}
+.ai-form label,.ai-dialog form label{display:flex;flex-direction:column;gap:5px;margin:10px 0}.ai-form label:has(input[type=checkbox]){flex-direction:row;align-items:center}
+.ai-dialog input:not([type=checkbox]),.ai-dialog textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid var(--color-border-2,#ccd);border-radius:7px;font:inherit;background:var(--color-bg-1,#fff);color:inherit}.ai-dialog textarea{resize:vertical;line-height:1.7}
+.ai-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 15px}.ai-notice{padding:12px;border:1px solid #b5c9e1;border-radius:8px;font-size:13px}
+.ai-message{padding:10px;background:var(--color-fill-2,#eef3fa);border-radius:7px;overflow-wrap:anywhere}.ai-event{font-size:12px;border-bottom:1px solid var(--color-border-1,#eee);padding:6px 0;overflow-wrap:anywhere}
+.ai-state-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:18px 0}.ai-state-grid div{padding:10px;border:1px solid var(--color-border-2,#ccd);border-radius:8px}.ai-state-grid strong,.ai-state-grid span{display:block}
+.ai-source-list>div{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--color-border-2,#ddd)}.ai-source-list small{display:block;color:var(--color-text-3,#667)}.ai-source-list a{font-size:12px}
+.ai-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}.ai-tools a{padding:14px;border:1px solid var(--color-border-2,#ccd);border-radius:9px;text-decoration:none}.ai-dialog a{color:var(--color-link,#2563eb)}.ai-dialog footer{padding-top:20px;margin-top:24px;border-top:1px solid var(--color-border-2,#ddd);font-size:12px}
+@media(max-width:600px){.ai-toolbar{padding:8px;gap:6px}.ai-settings-button{margin-left:0}.ai-dialog{padding:14px}.ai-field-grid{grid-template-columns:1fr}.ai-toolbar button{font-size:12px}}

@@ -1,0 +1,159 @@
+--- a/src/store/contentState.js
++++ b/src/store/contentState.js
+@@ -1,4 +1,5 @@
+ import { computed, map } from "nanostores"
++import { aiState, aiFilterEnabled } from "./aiState"
+ 
+ import {
+   dataState,
+@@ -50,10 +51,11 @@
+ export const filteredEntriesState = computed(contentState, (content) => content.entries)
+ 
+ export const dynamicCountState = computed(
+-  [contentState, dataState, unreadTotalState, settingsState, feedsState, visibleFeedsState],
++  [contentState, dataState, unreadTotalState, settingsState, feedsState, visibleFeedsState, aiState],
+   (content, data, unreadTotal, settings, feeds, visibleFeeds) => {
+     const { filterString, infoFrom, total } = content
+     const { showStatus } = settings
++    if (infoFrom === "all" && aiFilterEnabled()) return total
+ 
+     if (filterString) {
+       return total
+--- a/src/utils/settings-schema.js
++++ b/src/utils/settings-schema.js
+@@ -104,7 +104,7 @@
+ }
+ 
+ const SETTINGS_SCHEMA = {
+-  articleListLayout: enumSetting("column", ARTICLE_LIST_LAYOUTS),
++  articleListLayout: enumSetting("card", ARTICLE_LIST_LAYOUTS),
+   articleWidth: numberSetting(75, MIN_ARTICLE_WIDTH, MAX_ARTICLE_WIDTH, { precision: 2 }),
+   checkForUpdates: booleanSetting(false),
+   compactSidebarGroups: booleanSetting(true),
+--- a/src/apis/entries.js
++++ b/src/apis/entries.js
+@@ -1,4 +1,5 @@
+ import apiClient from "./ofetch"
++import { getAiQuery } from "@/store/aiState"
+ 
+ import { contentState } from "@/store/contentState"
+ import { isEntryScopeFullyVisible } from "@/store/dataState"
+@@ -163,6 +164,7 @@
+ 
+   const extraParams = {
+     ...getEntryVisibilityParams(),
++    ...getAiQuery(),
+     ...filterParams,
+   }
+ 
+--- a/src/pages/Login.jsx
++++ b/src/pages/Login.jsx
+@@ -170,7 +170,8 @@
+ 
+   useEffect(() => {
+     hideSpinner()
+-  }, [])
++    loginForm.setFieldsValue({ server: globalThis.location.origin + "/mf" })
++  }, [loginForm])
+ 
+   useEffect(() => {
+     const url = new URL(globalThis.location.href)
+--- a/src/pages/All.jsx
++++ b/src/pages/All.jsx
+@@ -4,12 +4,13 @@
+   markEntriesAsReadInBatches,
+ } from "@/apis"
+ import Content from "@/components/Content/Content"
++import { aiFilterEnabled } from "@/store/aiState"
+ import { isEntryScopeFullyVisible } from "@/store/dataState"
+ 
+-const getEntries = (status, _starred, filterParams) => getAllEntries(status, filterParams)
++const getEntries = (status, starred, filterParams) => getAllEntries(status, { ...filterParams, ...(starred ? { starred: true } : {}) })
+ 
+ const markAllAsRead = () =>
+-  isEntryScopeFullyVisible("global")
++  isEntryScopeFullyVisible("global") && !aiFilterEnabled()
+     ? markAllUserEntriesAsRead()
+     : markEntriesAsReadInBatches(getAllEntries)
+ 
+--- a/src/components/Content/Content.jsx
++++ b/src/components/Content/Content.jsx
+@@ -7,6 +7,7 @@
+ import { useSwipeable } from "react-swipeable"
+ 
+ import FooterPanel from "./FooterPanel"
++import AiToolbar from "@/components/Ai/AiToolbar"
+ 
+ import { getEntry } from "@/apis"
+ import ActionButtons from "@/components/Article/ActionButtons"
+@@ -239,6 +240,7 @@
+           opacity: isBelowMedium && isArticleLoading ? 0 : 1,
+         }}
+       >
++        <AiToolbar source={source} />
+         <SearchAndSortBar fullWidth={isFullWidthLayout} />
+         <ArticleList
+           ref={entryListRef}
+--- a/src/components/Article/ArticleGridCard.jsx
++++ b/src/components/Article/ArticleGridCard.jsx
+@@ -1,3 +1,4 @@
++import AiBadge from "@/components/Ai/AiBadge"
+ import { IconClockCircle, IconStarFill } from "@arco-design/web-react/icon"
+ import { useStore } from "@nanostores/react"
+ import classNames from "classnames"
+@@ -56,7 +57,7 @@
+   const currentCoverState = isCurrentCover ? coverState : getInitialCoverState(entry)
+   const { hasError, isReady, shouldCrop } = currentCoverState
+   const hasCover = Boolean(entry.coverSource) && !hasError
+-  const cardSummary = getCardSummary(previewContent)
++  const cardSummary = getCardSummary(entry.ai?.state === "done" ? entry.ai.summary : previewContent)
+ 
+   const handleCoverLoad = ({ currentTarget }) => {
+     const aspectRatio = getAspectRatio(currentTarget.naturalWidth, currentTarget.naturalHeight)
+@@ -122,6 +123,7 @@
+ 
+         {showCardSummary && cardSummary && <p className="grid-card-summary">{cardSummary}</p>}
+ 
++        <AiBadge entry={entry} />
+         <div className="grid-card-footer">
+           {showEstimatedReadingTime && (
+             <span className="grid-card-reading-time">
+--- a/src/components/Article/ArticleDetail.jsx
++++ b/src/components/Article/ArticleDetail.jsx
+@@ -1,3 +1,4 @@
++import AiBadge from "@/components/Ai/AiBadge"
+ import { Divider, Tag, Typography } from "@arco-design/web-react"
+ import { useStore } from "@nanostores/react"
+ import ReactHtmlParser, { attributesToProps, domToReact } from "html-react-parser"
+@@ -634,6 +635,7 @@
+             <Typography.Text className="article-date">
+               {generateReadingTime(activeContent.reading_time)}
+             </Typography.Text>
++            <AiBadge entry={activeContent} detailed />
+             <Divider />
+           </div>
+           <div
+--- a/src/components/Article/ArticleCard.jsx
++++ b/src/components/Article/ArticleCard.jsx
+@@ -1,3 +1,4 @@
++import AiBadge from "@/components/Ai/AiBadge"
+ import { IconClockCircle, IconStarFill } from "@arco-design/web-react/icon"
+ import { useStore } from "@nanostores/react"
+ import { memo, useState } from "react"
+@@ -164,7 +165,7 @@
+               className="card-preview"
+               style={{ lineClamp: summaryLines, WebkitLineClamp: summaryLines }}
+             >
+-              {previewContent}
++              {entry.ai?.state === "done" ? entry.ai.summary : previewContent}
+             </p>
+           )}
+         </div>
+@@ -180,6 +181,7 @@
+           </div>
+         )}
+       </div>
++      <AiBadge entry={entry} />
+     </div>
+   )
+ }

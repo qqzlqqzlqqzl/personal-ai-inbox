@@ -1,0 +1,68 @@
+AI 公司与研究|OpenAI News|https://openai.com/news/rss.xml
+AI 公司与研究|Google AI|https://blog.google/technology/ai/rss/
+AI 公司与研究|Google DeepMind|https://deepmind.google/blog/rss.xml
+AI 公司与研究|Hugging Face|https://huggingface.co/blog/feed.xml
+AI 公司与研究|Microsoft Research|https://www.microsoft.com/en-us/research/feed/
+AI 公司与研究|AWS Machine Learning|https://aws.amazon.com/blogs/machine-learning/feed/
+AI 公司与研究|NVIDIA Developer|https://developer.nvidia.com/blog/feed/
+AI 公司与研究|BAIR|https://bair.berkeley.edu/blog/feed.xml
+AI 公司与研究|MIT AI News|https://news.mit.edu/rss/topic/artificial-intelligence2
+大厂工程案例|Cloudflare Blog|https://blog.cloudflare.com/rss/
+大厂工程案例|Meta Engineering|https://engineering.fb.com/feed/
+大厂工程案例|Netflix Tech Blog|https://netflixtechblog.com/feed
+大厂工程案例|GitHub Engineering|https://github.blog/engineering/feed/
+大厂工程案例|AWS Architecture|https://aws.amazon.com/blogs/architecture/feed/
+大厂工程案例|AWS Open Source|https://aws.amazon.com/blogs/opensource/feed/
+大厂工程案例|Uber Engineering|https://www.uber.com/blog/engineering/rss/
+大厂工程案例|Dropbox Tech|https://dropbox.tech/feed
+大厂工程案例|Slack Engineering|https://slack.engineering/feed/
+大厂工程案例|Engineering at Microsoft|https://devblogs.microsoft.com/engineering-at-microsoft/feed/
+大厂工程案例|Discord Blog|https://discord.com/blog/rss.xml
+开发与开源|Rust Blog|https://blog.rust-lang.org/feed.xml
+开发与开源|Go Blog|https://go.dev/blog/feed.atom
+开发与开源|Python Blog|https://blog.python.org/feeds/posts/default
+开发与开源|Kubernetes|https://kubernetes.io/feed.xml
+开发与开源|Docker Blog|https://www.docker.com/blog/feed/
+开发与开源|PostgreSQL News|https://www.postgresql.org/news.rss
+开发与开源|WebKit|https://webkit.org/blog/feed/
+开发与开源|The Old New Thing|https://devblogs.microsoft.com/oldnewthing/feed/
+开发与开源|GitHub Changelog|https://github.blog/changelog/feed/
+个人博客|Simon Willison|https://simonwillison.net/atom/everything/
+个人博客|Julia Evans|https://jvns.ca/atom.xml
+个人博客|Martin Fowler|https://martinfowler.com/feed.atom
+个人博客|Jeff Geerling|https://www.jeffgeerling.com/blog.xml
+个人博客|Bartosz Ciechanowski|https://ciechanow.ski/atom.xml
+个人博客|Dan Luu|https://danluu.com/atom.xml
+个人博客|Lil'Log|https://lilianweng.github.io/index.xml
+个人博客|Andrej Karpathy|https://karpathy.github.io/feed.xml
+硬件与嵌入式|Hackaday|https://hackaday.com/blog/feed/
+硬件与嵌入式|CNX Software|https://www.cnx-software.com/feed/
+硬件与嵌入式|Raspberry Pi|https://www.raspberrypi.com/news/feed/
+硬件与嵌入式|Arduino Blog|https://blog.arduino.cc/feed/
+硬件与嵌入式|Adafruit Blog|https://blog.adafruit.com/feed/
+硬件与嵌入式|Electronics Lab|https://www.electronics-lab.com/feed/
+硬件与嵌入式|Embedded Artistry|https://embeddedartistry.com/blog/feed/
+硬件与嵌入式|Zephyr Project|https://www.zephyrproject.org/feed/
+硬件与嵌入式|ST Community Blog|https://blog.st.com/feed/
+硬件与嵌入式|Espressif Developer Portal|https://developer.espressif.com/blog/index.xml
+硬件与嵌入式|IEEE Spectrum|https://spectrum.ieee.org/feeds/feed.rss
+硬件与嵌入式|Tom's Hardware|https://www.tomshardware.com/feeds/all
+产品与众筹|Product Hunt|https://www.producthunt.com/feed
+产品与众筹|Kickstarter Technology|https://www.kickstarter.com/discover/categories/technology.atom
+科技媒体与周刊|Hacker News|https://news.ycombinator.com/rss
+科技媒体与周刊|Ars Technica|https://feeds.arstechnica.com/arstechnica/index
+科技媒体与周刊|The Verge|https://www.theverge.com/rss/index.xml
+科技媒体与周刊|TechCrunch|https://techcrunch.com/feed/
+科技媒体与周刊|MIT Technology Review|https://www.technologyreview.com/feed/
+中文技术与资讯|少数派|https://sspai.com/feed
+中文技术与资讯|开源中国|https://www.oschina.net/news/rss
+中文技术与资讯|InfoQ 中文|https://www.infoq.cn/feed
+中文技术与资讯|Solidot|https://www.solidot.org/index.rss
+中文技术与资讯|阮一峰科技周刊|https://www.ruanyifeng.com/blog/atom.xml
+开源发布|Ollama Releases|https://github.com/ollama/ollama/releases.atom
+开源发布|vLLM Releases|https://github.com/vllm-project/vllm/releases.atom
+开源发布|Transformers Releases|https://github.com/huggingface/transformers/releases.atom
+开源发布|llama.cpp Releases|https://github.com/ggml-org/llama.cpp/releases.atom
+论文与前沿|arXiv AI|https://export.arxiv.org/rss/cs.AI
+论文与前沿|arXiv Robotics|https://export.arxiv.org/rss/cs.RO
+论文与前沿|arXiv Systems and Control|https://export.arxiv.org/rss/eess.SY

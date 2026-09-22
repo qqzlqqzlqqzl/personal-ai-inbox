@@ -1,0 +1,20 @@
+[Unit]
+Description=AI News RSSHub private adapters
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/ai-news/upstream/rsshub
+ExecStart=/home/ubuntu/personal-news/node/bin/node dist/index.mjs
+Environment=PYTHONUNBUFFERED=1
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=512
+Environment=PORT=1200
+Environment=LISTEN_INADDR_ANY=0
+Environment=ENABLE_CLUSTER=0
+Environment=CACHE_TYPE=memory
+EnvironmentFile=-/home/ubuntu/ai-news/.private/rsshub.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+[Install]
+WantedBy=default.target
