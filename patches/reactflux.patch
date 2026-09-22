@@ -1,9 +1,24 @@
 --- a/vite.config.js
 +++ b/vite.config.js
-@@ -68,6 +68,7 @@
+@@ -42,9 +42,9 @@
+         enabled: false,
+       },
+       manifest: {
+-        name: "ReactFlux",
+-        short_name: "ReactFlux",
+-        description: "A Simple but Powerful RSS Reader for Miniflux",
++        name: "个人信息箱",
++        short_name: "信息箱",
++        description: "个人 AI 信息收集与阅读",
+         icons: [
+           {
+             src: "favicon.ico",
+@@ -68,6 +68,9 @@
        },
        workbox: {
          cleanupOutdatedCaches: true,
++        clientsClaim: true,
++        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
 +        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
          globPatterns: [
            "**/*.html",

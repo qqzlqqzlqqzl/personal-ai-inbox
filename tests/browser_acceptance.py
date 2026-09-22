@@ -89,6 +89,15 @@ with client() as api:
             check("dedicated_login_default_username", a.locator("#username_input").input_value() == "qqzl")
             check("dedicated_login_no_token_input", a.locator("#token_input").count() == 0)
             check("dedicated_login_no_generic_help", a.locator(".login-help").count() == 0)
+            sw_response = a.context.request.get(APP + "/sw.js")
+            check(
+                "service_worker_no_store",
+                sw_response.ok and "no-store" in sw_response.headers.get("cache-control", ""),
+                sw_response.headers.get("cache-control"),
+            )
+            manifest_response = a.context.request.get(APP + "/manifest.webmanifest")
+            manifest = manifest_response.json()
+            check("pwa_manifest_brand", manifest.get("name") == "个人信息箱", manifest)
             a.screenshot(path=str(OUT / "login.png"), full_page=True)
             login(a)
             login(b)

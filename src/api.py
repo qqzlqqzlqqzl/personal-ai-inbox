@@ -384,6 +384,25 @@ async def put_tools(request: Request):
     return {"saved": len(result)}
 
 
+@app.api_route("/mf/cache-reset", methods=["GET", "HEAD"], response_class=HTMLResponse)
+async def cache_reset():
+    """Escape an obsolete /inbox/ service worker without touching auth/data."""
+    html = """<!doctype html><meta charset="utf-8">
+<title>正在更新个人信息箱</title>
+<body style="font-family:sans-serif;padding:2rem">正在切换到最新版…</body>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(regs => regs
+      .filter(r => r.scope.endsWith("/inbox/"))
+      .forEach(r => r.unregister()))
+    .catch(() => {});
+}
+setTimeout(() => location.replace("/inbox/?updated=1"), 350);
+</script>"""
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/mf/v1/ai/subscribe")
 async def subscribe(request: Request):
     await authorize(request)
@@ -522,7 +541,10 @@ async def frontend(path: str):
     if not target.is_relative_to(webroot):
         raise HTTPException(404)
     if target.is_file():
-        return FileResponse(target)
+        headers = {}
+        if path in {"sw.js", "registerSW.js", "manifest.webmanifest"}:
+            headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return FileResponse(target, headers=headers)
     index = webroot / "index.html"
     if Path(path).suffix:
         raise HTTPException(404)

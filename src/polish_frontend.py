@@ -47,7 +47,7 @@ config.write_text("".join(clean))
 replace(
     "vite.config.js",
     "        cleanupOutdatedCaches: true,",
-    "        cleanupOutdatedCaches: true,\n        navigateFallbackDenylist: [/^\\/mf(?:\\/|$)/, /^\\/(?:healthz|readyz|deployment)(?:\\/|$)/],",
+    "        cleanupOutdatedCaches: true,\n        clientsClaim: true,\n        navigateFallbackDenylist: [/^\\/mf(?:\\/|$)/, /^\\/(?:healthz|readyz|deployment)(?:\\/|$)/],",
 )
 replace(
     "src/components/Sidebar/Sidebar.jsx",
@@ -60,6 +60,13 @@ replace(
     'createDefaultSettings("zh-CN")',
 )
 replace("index.html", "<title>ReactFlux</title>", "<title>个人信息收集箱</title>")
+replace("vite.config.js", '        name: "ReactFlux",', '        name: "个人信息箱",')
+replace("vite.config.js", '        short_name: "ReactFlux",', '        short_name: "信息箱",')
+replace(
+    "vite.config.js",
+    '        description: "A Simple but Powerful RSS Reader for Miniflux",',
+    '        description: "个人 AI 信息收集与阅读",',
+)
 for name in ["AiBadge.jsx", "AiToolbar.jsx", "AiPanel.jsx", "AiNews.css"]:
     shutil.copy2(ROOT / "patches" / name, WEB / "src/components/Ai" / name)
 shutil.copy2(ROOT / "patches/aiState.js", WEB / "src/store/aiState.js")

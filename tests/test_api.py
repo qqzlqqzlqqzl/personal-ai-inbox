@@ -158,12 +158,23 @@ async def test_metadata_only_sources_are_not_advertised_as_fulltext(
 
 
 @pytest.mark.asyncio
+async def test_cache_reset_is_outside_pwa_scope(browser_api):
+    r = await browser_api.get("/mf/cache-reset")
+    assert r.status_code == 200
+    assert "no-store" in r.headers["cache-control"]
+    assert "serviceWorker.getRegistrations" in r.text
+    assert 'location.replace("/inbox/?updated=1")' in r.text
+
+
+@pytest.mark.asyncio
 async def test_frontend_is_scoped(browser_api, tmp_path, monkeypatch):
     monkeypatch.setattr(api, "ROOT", tmp_path)
     web = tmp_path / "upstream/reactflux/build"
     (web / "assets").mkdir(parents=True)
     (web / "index.html").write_text("scoped frontend")
     (web / "assets/new.js").write_text("javascript")
+    (web / "sw.js").write_text("service worker")
+    (web / "manifest.webmanifest").write_text('{"name":"个人信息箱"}')
     for path in ["/", "/inbox"]:
         r = await browser_api.get(path)
         assert r.status_code == 308 and r.headers["location"] == "/inbox/"
@@ -172,6 +183,10 @@ async def test_frontend_is_scoped(browser_api, tmp_path, monkeypatch):
         assert r.status_code == 200 and r.text == "scoped frontend"
         assert (await browser_api.head(path)).status_code == 200
     assert (await browser_api.get("/inbox/assets/new.js")).text == "javascript"
+    for path in ["/inbox/sw.js", "/inbox/manifest.webmanifest"]:
+        r = await browser_api.get(path)
+        assert r.status_code == 200
+        assert "no-store" in r.headers["cache-control"]
     for path in ["/login", "/all", "/sw.js", "/news/", "/unknown", "/assets/new.js",
                  "/inbox/.private/ai.env", "/inbox/.git/config", "/inbox/assets/missing.js",
                  "/inbox/%2e%2e/src/api.py"]:

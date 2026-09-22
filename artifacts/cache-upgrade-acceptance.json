@@ -1,0 +1,41 @@
+{
+  "at": 1790075146.4832797,
+  "checks": [
+    {
+      "name": "cache_reset_redirects_to_inbox",
+      "passed": true,
+      "detail": "https://106.53.40.6/inbox/login"
+    },
+    {
+      "name": "no_server_selector",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "no_token_input",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "no_api_token_text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "default_username_qqzl",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "sw_no_store",
+      "passed": true,
+      "detail": "no-cache, no-store, must-revalidate"
+    },
+    {
+      "name": "manifest_brand",
+      "passed": true,
+      "detail": "个人信息箱"
+    }
+  ],
+  "passed": true
+}
