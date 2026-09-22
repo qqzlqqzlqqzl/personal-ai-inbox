@@ -20,6 +20,7 @@ DEFAULT_SETTINGS = {
     "minimum_score": 6,
     "interval_seconds": 90,
     "json_mode": True,
+    "translation_enabled": True,
 }
 
 
@@ -73,7 +74,7 @@ def save_settings(value):
     ]:
         if k in clean:
             clean[k] = max(low, min(high, int(clean[k])))
-    for k in ["enabled", "json_mode"]:
+    for k in ["enabled", "json_mode", "translation_enabled"]:
         if k in clean and not isinstance(clean[k], bool):
             raise ValueError(k + " must be boolean")
     for k, limit in [("base_url", 500), ("model", 200), ("prompt", 12000)]:
@@ -125,6 +126,8 @@ def discover(entries):
                 ),
             )
 
+    from card_translation import enqueue
+    enqueue(entries)
 
 def update(entry_id, **fields):
     allowed = {
@@ -151,6 +154,8 @@ def update(entry_id, **fields):
         "duplicate_of",
         "cover_url",
         "cover_source",
+        "preview_checked_at",
+        "preview_error",
     }
     if not set(fields) <= allowed:
         raise ValueError("Unknown analysis field")
@@ -165,13 +170,14 @@ def update(entry_id, **fields):
 
 
 def decorate(entry, user_id):
+    from card_translation import attach
     with connect() as c:
         r = c.execute(
             "SELECT * FROM analyses WHERE entry_id=? AND user_id=?",
             (entry["id"], user_id),
         ).fetchone()
     if not r:
-        return {**entry, "ai": {"state": "pending"}}
+        return attach({**entry, "ai": {"state": "pending"}}, user_id)
     row = dict(r)
     result = json.loads(row.pop("result") or "{}")
     metadata = {
@@ -191,9 +197,11 @@ def decorate(entry, user_id):
             "duplicate_of",
             "cover_url",
             "cover_source",
+            "preview_checked_at",
+            "preview_error",
         ]
     }
-    return {**entry, "ai": {**result, **metadata}}
+    return attach({**entry, "ai": {**result, **metadata}}, user_id)
 
 
 def hash_text(value):
@@ -205,9 +213,11 @@ def init_usage():
         c.execute(
             "CREATE TABLE IF NOT EXISTS usage (id INTEGER PRIMARY KEY, day TEXT, reserved INTEGER, actual INTEGER, entry_id INTEGER)"
         )
+        if "purpose" not in {r[1] for r in c.execute("PRAGMA table_info(usage)")}:
+            c.execute("ALTER TABLE usage ADD COLUMN purpose TEXT NOT NULL DEFAULT 'analysis'")
 
 
-def reserve_budget(entry_id, input_text, config):
+def reserve_budget(entry_id, input_text, config, purpose="analysis"):
     import datetime
 
     day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
@@ -228,8 +238,8 @@ def reserve_budget(entry_id, input_text, config):
         ):
             return None
         return c.execute(
-            "INSERT INTO usage(day,reserved,entry_id) VALUES (?,?,?)",
-            (day, reserved, entry_id),
+            "INSERT INTO usage(day,reserved,entry_id,purpose) VALUES (?,?,?,?)",
+            (day, reserved, entry_id, purpose),
         ).lastrowid
 
 
@@ -241,6 +251,7 @@ def close_budget(usage_id, tokens):
 
 
 def status_summary(user_id):
+    from card_translation import status as translation_status
     with connect() as c:
         counts = dict(
             c.execute(
@@ -262,6 +273,8 @@ def status_summary(user_id):
         ]
     return {
         "counts": counts,
+        "translations": translation_status(user_id),
+        "preview_heartbeat": get_meta("preview_heartbeat"),
         "events": recent,
         "usage": usage,
         "model_configured": bool(os.environ.get("ARK_API_KEY")),
@@ -282,10 +295,14 @@ def migrate():
             "duplicate_of": "INTEGER",
             "cover_url": "TEXT",
             "cover_source": "TEXT",
+            "preview_checked_at": "REAL",
+            "preview_error": "TEXT",
         }.items():
             if name not in existing:
                 c.execute(f"ALTER TABLE analyses ADD COLUMN {name} {kind}")
 
+    from card_translation import migrate as migrate_cards
+    migrate_cards()
 
 def canonical_url(url):
     from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode

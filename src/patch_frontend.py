@@ -38,9 +38,9 @@ for name in ['ArticleGridCard','ArticleCard','ArticleDetail']:
  path='src/components/Article/'+name+'.jsx'; text=(WEB/path).read_text()
  if 'import AiBadge ' not in text:
   backup(path); (WEB/path).write_text('import AiBadge from "@/components/Ai/AiBadge"\n'+text)
-patch('src/components/Article/ArticleGridCard.jsx','const cardSummary = getCardSummary(previewContent)','const cardSummary = getCardSummary(entry.ai?.state === "done" ? entry.ai.summary : previewContent)')
+patch('src/components/Article/ArticleGridCard.jsx','const cardSummary = getCardSummary(previewContent)','const cardSummary = getCardSummary(entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent))')
 patch('src/components/Article/ArticleGridCard.jsx','        <div className="grid-card-footer">','        <AiBadge entry={entry} />\n        <div className="grid-card-footer">')
-patch('src/components/Article/ArticleCard.jsx','              {previewContent}','              {entry.ai?.state === "done" ? entry.ai.summary : previewContent}')
+patch('src/components/Article/ArticleCard.jsx','              {previewContent}','              {entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent)}')
 patch('src/components/Article/ArticleCard.jsx','      </div>\n    </div>\n  )','      </div>\n      <AiBadge entry={entry} />\n    </div>\n  )')
 patch('src/components/Article/ArticleDetail.jsx','            <Divider />\n          </div>','            <AiBadge entry={activeContent} detailed />\n            <Divider />\n          </div>')
 patch('src/utils/entry-presentation.js','  const coverSource =\n    firstImage?.getAttribute("src") ||','  const coverSource =\n    entry.ai?.cover_url ||\n    firstImage?.getAttribute("src") ||')
@@ -51,6 +51,10 @@ patch('src/store/contentState.js','  articleListSnapshotRevision: 0,','  article
 patch('src/hooks/useArticleList.js','  const preparedEntries = response.entries.map((entry) => prepareEntry(entry))','  contentState.setKey("articleListOffset", response.entries.length)\n  const preparedEntries = response.entries.map((entry) => prepareEntry(entry))')
 patch('src/hooks/useLoadMore.js','      const progress = paginationProgressRef.current','      const isAiPagination = infoFrom === "all" && aiFilterEnabled()\n      if (isAiPagination) {\n        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)\n      }\n      const progress = paginationProgressRef.current')
 patch('src/hooks/useLoadMore.js','if (response.entries.length > 0 && !hasNewResponseEntries) {','if (!isAiPagination && response.entries.length > 0 && !hasNewResponseEntries) {')
+patch('src/components/Article/ArticleEntry.jsx','import useEntryActions from "@/hooks/useEntryActions"','import CardLanguage from "@/components/Ai/CardLanguage"\nimport useEntryActions from "@/hooks/useEntryActions"')
+patch('src/components/Article/ArticleEntry.jsx','        <Presenter entry={entry} previewContent={previewContent} />','        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />\n        <CardLanguage entry={entry} />')
+patch('src/components/Article/ArticleEntry.jsx','{ title: entry.title })\n    : entry.title','{ title: entry.card?.title || entry.title })\n    : (entry.card?.title || entry.title)')
+shutil.copy2(ROOT/'patches/CardLanguage.jsx', WEB/'src/components/Ai/CardLanguage.jsx')
 diffs=[]
 for original in BACK.rglob('*'):
  if original.is_file():

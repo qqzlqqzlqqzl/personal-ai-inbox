@@ -25,7 +25,9 @@ from core import (
     put_meta,
 )
 from worker import run_worker, MF
+from preview_worker import run_preview_worker, run_discovery_worker
 from content_input import first_image_src
+from card_translation import enqueue as enqueue_cards, run_translation_worker
 
 
 @asynccontextmanager
@@ -41,10 +43,17 @@ async def lifespan(app):
         timeout=80, follow_redirects=False, trust_env=False
     )
     task = asyncio.create_task(run_worker())
+    preview_task = asyncio.create_task(run_preview_worker())
+    discovery_task = asyncio.create_task(run_discovery_worker())
+    translation_task = asyncio.create_task(run_translation_worker())
     yield
     task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+    preview_task.cancel()
+    discovery_task.cancel()
+    translation_task.cancel()
+    for background_task in (task, preview_task, discovery_task, translation_task):
+        with contextlib.suppress(asyncio.CancelledError):
+            await background_task
     await app.state.client.aclose()
 
 
@@ -369,7 +378,9 @@ async def ai_entries(request, uid):
                 MF + f"/v1/entries/{eid}", headers=upstream_headers
             )
             r.raise_for_status()
-            item = decorate(r.json(), uid)
+            raw_entry = r.json()
+            enqueue_cards([raw_entry], priority=30)
+            item = decorate(raw_entry, uid)
             if p.get("ai_view") == "recommended":
                 ai = item.setdefault("ai", {})
                 if not ai.get("cover_url"):
@@ -591,6 +602,7 @@ async def proxy(path: str, request: Request):
         ):
             data = r.json()
             if isinstance(data, dict) and isinstance(data.get("entries"), list):
+                enqueue_cards(data["entries"], priority=30)
                 data["entries"] = [decorate(e, e["user_id"]) for e in data["entries"]]
             elif (
                 isinstance(data, dict)
@@ -598,6 +610,7 @@ async def proxy(path: str, request: Request):
                 and "user_id" in data
                 and "id" in data
             ):
+                enqueue_cards([data], priority=40)
                 data = decorate(data, data["user_id"])
             content = json.dumps(data, ensure_ascii=False).encode()
         if "json" in content_type or "text/html" in content_type:

@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router"
 import { aiState } from "@/store/aiState"
 import { invalidateArticleList } from "@/store/contentState"
@@ -12,6 +12,7 @@ export default function AiToolbar({ source }) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const [progress,setProgress] = useState(null)
+  const completedCards = useRef(null)
   useEffect(() => {
     let active = true
     const load = async () => {
@@ -28,7 +29,12 @@ export default function AiToolbar({ source }) {
           aiState.set({ ...current, minimum, hydrated: true })
           if (changed) invalidateArticleList()
         }
-        if (active) setProgress(s)
+        if (active) {
+          const count = s.translations?.counts?.done || 0
+          if (completedCards.current !== null && completedCards.current !== count) invalidateArticleList()
+          completedCards.current = count
+          setProgress(s)
+        }
       } catch { /* Native reader remains usable if the add-on is unavailable. */ }
     }
     load(); const timer = setInterval(load,30000)

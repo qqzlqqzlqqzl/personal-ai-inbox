@@ -107,16 +107,28 @@ async def process_one(client, row, cfg):
                 error="论文原文适配尚未接入，不把摘要页当成论文全文",
             )
             return
+        from product_source import is_product_entry, enrich_product_entry
+        product = is_product_entry(entry)
         social = is_our_social_feed(entry.get("feed", {}).get("feed_url", ""))
         source = "social_adapter_post" if social else "original_url"
         current = entry.get("content", "")
         cover_url = row["cover_url"] if "cover_url" in row.keys() else None
         cover_source = row["cover_source"] if "cover_source" in row.keys() else None
-        if not social and not cover_url:
+        if product:
+            prepared = await enrich_product_entry(client, entry, MF, worker_headers())
+            current = prepared["content"]
+            source = prepared.get("content_source") or "product_page"
+            cover_url = prepared.get("cover_url") or cover_url
+            cover_source = prepared.get("cover_source") or cover_source
+            if cover_url:
+                update(entry_id, cover_url=cover_url, cover_source=cover_source)
+        if not social and not product and not cover_url:
             cover_url, cover_source = await discover_original_cover(
                 entry["url"], entry.get("title", "")
             )
-        if not social and (
+            if cover_url:
+                update(entry_id, cover_url=cover_url, cover_source=cover_source)
+        if not social and not product and (
             not row["extracted_at"] or hash_text(current) != row["content_hash"]
         ):
             update(entry_id, state="fetching")
@@ -124,9 +136,16 @@ async def process_one(client, row, cfg):
                 client, f"/v1/entries/{entry_id}/fetch-content", update_content="true"
             )
             current = fetched.get("content", "")
+            from media_repair import repair_entry, needs_repair
+            if needs_repair(current):
+                try:
+                    fixed = await repair_entry(client, {**entry, "content": current}, MF, worker_headers())
+                    current = fixed["content"]
+                except (httpx.HTTPError, ValueError):
+                    log.warning("ai-news body_image_repair deferred entry_id=%s", entry_id)
             if not current:
                 raise ValueError("Original extraction returned no content")
-        if not social:
+        if not social and not product:
             current = await add_original_cover(
                 client, entry, current, MF, worker_headers()
             )
@@ -293,7 +312,6 @@ async def run_worker():
                 await asyncio.sleep(30)
                 continue
             try:
-                await discover_pending(client)
                 if cfg["enabled"]:
                     states = ["pending", "fetch_error", "ai_error", "budget_paused"]
                     if os.environ.get("ARK_API_KEY"):

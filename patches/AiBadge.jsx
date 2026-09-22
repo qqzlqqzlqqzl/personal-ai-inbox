@@ -16,7 +16,7 @@ export default function AiBadge({ entry, detailed = false }) {
     {detailed && <>
       <p>{ai.summary}</p>
       <blockquote>{ai.evidence}</blockquote>
-      <small>{ai.content_source === "social_adapter_post" ? "依据适配器提供的原帖（未展开完整讨论串）" : "依据抓取的原网页文本"} · 模型输入 {ai.input_chars} 字符 · 保留 {ai.image_count} 张可用配图{ai.truncated ? " · 输入已截断" : ""} · {ai.model}</small>
+      <small>{ai.content_source === "product_page" ? "依据 Product Hunt 产品介绍（非长文全文）" : ai.content_source === "social_adapter_post" ? "依据适配器提供的原帖（未展开完整讨论串）" : "依据抓取的原网页文本"} · 模型输入 {ai.input_chars} 字符 · 正文包含 {ai.image_count} 张配图{ai.truncated ? " · 输入已截断" : ""} · {ai.model}</small>
       <p className="ai-pending">评分是模型判断，不是事实保证；图片保留不代表模型理解了图片内容。</p>
     </>}
   </div>

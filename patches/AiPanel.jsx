@@ -60,6 +60,8 @@ export default function AiPanel({ onClose }) {
     {tab === "settings" && config && <section className="ai-form">
       <p className="ai-notice">模型密钥{config.api_key_configured ? "已配置，调用结果以处理状态为准" : "尚未配置"}。密钥仅从服务器环境读取，网页不接收或回显密钥。修改接口会改变原文与模型认证的发送目标，只填写可信服务。</p>
       <label><input type="checkbox" checked={config.enabled} onChange={e=>change("enabled",e.target.checked)} /> 开启后台分析</label>
+      <label><input type="checkbox" checked={config.translation_enabled !== false} onChange={e=>change("translation_enabled",e.target.checked)} /> 卡片标题与简介中文化（DeepSeek）</label>
+      <p className="ai-notice">中文卡片与价值评分独立，结果缓存在服务器；翻译与评分共用下面的每日请求与 Token 总上限。正文保留原文。</p>
       <label>接口地址<input value={config.base_url} onChange={e=>change("base_url",e.target.value)} /></label>
       <label>模型 ID<input value={config.model} onChange={e=>change("model",e.target.value)} /></label>
       <label>个人筛选提示词<textarea rows={9} value={config.prompt} onChange={e=>change("prompt",e.target.value)} /></label>
@@ -72,7 +74,8 @@ export default function AiPanel({ onClose }) {
       <div className="ai-state-grid">{Object.entries(status.counts).map(([key,value])=><div key={key}><strong>{value}</strong><span>{key}</span></div>)}</div>
       <button disabled={busy} onClick={()=>run(async()=>{const r=await apiClient.post("/v1/ai/retry",{});setMessage(`已重排 ${r.queued} 个失败任务`);await load()})}>重试失败任务</button>
       <button disabled={busy} onClick={load}>刷新状态</button>
-      <h3>用量记录（UTC 日期）</h3>{status.usage.map(u=><p key={u.day}>{u.day} · {u.calls} 次请求 · {u.tokens} Token（失败请求保留预留预算）</p>)}
+      <h3>中文卡片</h3><p>{Object.entries(status.translations?.counts || {}).map(([k,v])=>`${k}: ${v}`).join(" · ")}</p>
+      <h3>用量记录（UTC 日期，评分与翻译合计）</h3>{status.usage.map(u=><p key={u.day}>{u.day} · {u.calls} 次请求 · {u.tokens} Token（失败请求保留预留预算）</p>)}
       <h3>近期处理日志</h3>{status.events.map((e,i)=><p className="ai-event" key={i}>{new Date(e.at*1000).toLocaleString()} · {e.kind} · {e.detail}</p>)}
     </section>}
     {tab === "sources" && <section>

@@ -383,7 +383,7 @@
    const { hasError, isReady, shouldCrop } = currentCoverState
    const hasCover = Boolean(entry.coverSource) && !hasError
 -  const cardSummary = getCardSummary(previewContent)
-+  const cardSummary = getCardSummary(entry.ai?.state === "done" ? entry.ai.summary : previewContent)
++  const cardSummary = getCardSummary(entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent))
  
    const handleCoverLoad = ({ currentTarget }) => {
      const aspectRatio = getAspectRatio(currentTarget.naturalWidth, currentTarget.naturalHeight)
@@ -422,7 +422,7 @@
                style={{ lineClamp: summaryLines, WebkitLineClamp: summaryLines }}
              >
 -              {previewContent}
-+              {entry.ai?.state === "done" ? entry.ai.summary : previewContent}
++              {entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent)}
              </p>
            )}
          </div>
@@ -434,3 +434,34 @@
      </div>
    )
  }
+--- a/src/components/Article/ArticleEntry.jsx
++++ b/src/components/Article/ArticleEntry.jsx
+@@ -12,6 +12,7 @@
+ import classNames from "classnames"
+ import { memo, useLayoutEffect, useMemo, useRef } from "react"
+ 
++import CardLanguage from "@/components/Ai/CardLanguage"
+ import useEntryActions from "@/hooks/useEntryActions"
+ import { polyglotState } from "@/hooks/useLanguage"
+ import useLongPressContextMenu from "@/hooks/useLongPressContextMenu"
+@@ -81,8 +82,8 @@
+   const { getPrimaryLinkProps, openInReactFlux, opensSourceOnCardClick } = articleActivation
+   const primaryLinkProps = getPrimaryLinkProps(entry)
+   const accessibleLabel = isUnread
+-    ? polyglot.t("article_card.unread_article_aria_label", { title: entry.title })
+-    : entry.title
++    ? polyglot.t("article_card.unread_article_aria_label", { title: entry.card?.title || entry.title })
++    : (entry.card?.title || entry.title)
+   const menuOpenAction = opensSourceOnCardClick
+     ? {
+         icon: <IconBook aria-hidden="true" />,
+@@ -171,7 +172,8 @@
+           unread: isUnread,
+         })}
+       >
+-        <Presenter entry={entry} previewContent={previewContent} />
++        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />
++        <CardLanguage entry={entry} />
+       </a>
+     </Dropdown>
+   )
