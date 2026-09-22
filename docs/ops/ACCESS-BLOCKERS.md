@@ -1,3 +1,5 @@
+> 2026-09-22 更新：用户授权的新实例初始化已完成；Miniflux、Worker token、Ark 真实请求及健康检查均通过。以下保留为早期执行记录，当前状态以 [SOP](SOP.md) 为准。
+
 # 访问及初始化阻塞记录
 
 截至本次执行，Linux 的 Remote Desktop Commander 连接与普通用户命令正常。Windows 设备列表虽显示在线，实际目录读取和 ping 均返回 no live connection；尚不能将交付同步到 WeChat Mini Program，亦不能确认原仓库远端。
