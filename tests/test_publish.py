@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from build_frontend import publish
+from build_frontend import publish, precompress
 
 
 def fixture_build(root):
@@ -67,3 +67,16 @@ def test_scoped_missing_asset_cannot_replace_live(tmp_path):
 def test_invalid_base_rejected(tmp_path, base):
     with pytest.raises(ValueError):
         publish(tmp_path, tmp_path / "live", base)
+
+
+def test_precompresses_large_text_assets_but_not_service_worker(tmp_path):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "assets").mkdir()
+    source = stage / "assets/app.js"
+    source.write_text("const value = 'compress me';\n" * 80)
+    (stage / "sw.js").write_text("self.skipWaiting();\n" * 80)
+    assert precompress(stage) == 1
+    gz = stage / "assets/app.js.gz"
+    assert gz.is_file() and gz.stat().st_size < source.stat().st_size
+    assert not (stage / "sw.js.gz").exists()

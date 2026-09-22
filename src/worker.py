@@ -7,6 +7,8 @@ from content_input import (
     is_our_social_feed,
     model_payload,
     add_original_cover,
+    discover_original_cover,
+    first_image_src,
 )
 from core import (
     connect,
@@ -24,7 +26,7 @@ from core import (
 )
 
 MF = "http://127.0.0.1:8091/mf"
-log = logging.getLogger("ai-news.worker")
+log = logging.getLogger("uvicorn.error")
 
 
 def worker_headers():
@@ -91,6 +93,7 @@ async def discover_pending(client):
 
 async def process_one(client, row, cfg):
     entry_id = row["entry_id"]
+    started = time.perf_counter()
     phase = "fetch_error"
     try:
         entry = await mf_get(client, f"/v1/entries/{entry_id}")
@@ -107,6 +110,12 @@ async def process_one(client, row, cfg):
         social = is_our_social_feed(entry.get("feed", {}).get("feed_url", ""))
         source = "social_adapter_post" if social else "original_url"
         current = entry.get("content", "")
+        cover_url = row["cover_url"] if "cover_url" in row.keys() else None
+        cover_source = row["cover_source"] if "cover_source" in row.keys() else None
+        if not social and not cover_url:
+            cover_url, cover_source = await discover_original_cover(
+                entry["url"], entry.get("title", "")
+            )
         if not social and (
             not row["extracted_at"] or hash_text(current) != row["content_hash"]
         ):
@@ -121,6 +130,17 @@ async def process_one(client, row, cfg):
             current = await add_original_cover(
                 client, entry, current, MF, worker_headers()
             )
+        if not cover_url:
+            cover_url = first_image_src(current)
+            cover_source = "extracted_content" if cover_url else None
+        if not cover_url:
+            for enclosure in entry.get("enclosures") or []:
+                media_type = str(enclosure.get("mime_type") or enclosure.get("type") or "")
+                candidate = str(enclosure.get("url") or "").strip()
+                if media_type.startswith("image/") and candidate.startswith(("http://", "https://")):
+                    cover_url = candidate[:4000]
+                    cover_source = "enclosure"
+                    break
         text, images = content_text(current)
         if len(text) < (8 if social else 120):
             update(
@@ -130,6 +150,8 @@ async def process_one(client, row, cfg):
                 source_chars=len(text),
                 image_count=images,
                 content_source=source,
+                cover_url=cover_url,
+                cover_source=cover_source,
             )
             return
         used, message = model_payload(entry, text, source, cfg)
@@ -142,6 +164,8 @@ async def process_one(client, row, cfg):
             source_text=used,
             image_count=images,
             content_source=source,
+            cover_url=cover_url,
+            cover_source=cover_source,
             extracted_at=time.time(),
             truncated=int(len(text) > len(used)),
             error=None,
@@ -170,6 +194,7 @@ async def process_one(client, row, cfg):
                 duplicate_of=duplicate["entry_id"],
             )
             event("analysis_reused", entry_id, "相同正文复用已验证分析")
+            log.info("ai-news analysis_reused entry_id=%s duplicate_of=%s duration_ms=%.1f", entry_id, duplicate["entry_id"], (time.perf_counter()-started)*1000)
             return
         usage_id = reserve_budget(entry_id, message, cfg)
         if usage_id is None:
@@ -220,6 +245,13 @@ async def process_one(client, row, cfg):
             next_try=0,
         )
         event("analysis_done", entry_id, "真实原文/原帖已评价；正文图片保留")
+        log.info(
+            "ai-news analysis_done entry_id=%s duration_ms=%.1f tokens=%s source_chars=%s",
+            entry_id,
+            (time.perf_counter() - started) * 1000,
+            tokens,
+            len(text),
+        )
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -227,26 +259,13 @@ async def process_one(client, row, cfg):
         detail = type(exc).__name__
         if isinstance(exc, httpx.HTTPStatusError):
             detail += " HTTP " + str(exc.response.status_code)
-            try:
-                payload = exc.response.json()
-                reason = payload.get("error_message") or payload.get("error", {}).get(
-                    "message", ""
-                )
-                for name in ["ARK_API_KEY", "MINIFLUX_API_KEY"]:
-                    secret = os.environ.get(name)
-                    if secret:
-                        reason = reason.replace(secret, "[redacted]")
-                reason = re.sub(r"(?i)(bearer\s+)[^\s]+", r"\1[redacted]", str(reason))
-                detail += ": " + reason[:220] if reason else ""
-            except (ValueError, AttributeError, TypeError):
-                pass
             if exc.response.status_code == 404 and "/v1/entries/" in str(
                 exc.request.url
             ):
                 update(entry_id, state="removed", error="条目已从阅读器移除")
                 return
         elif isinstance(exc, ValueError):
-            detail += ": " + str(exc)[:150]
+            detail += ": validation failed"
         update(
             entry_id,
             state=phase,
@@ -255,6 +274,14 @@ async def process_one(client, row, cfg):
             error=detail,
         )
         event(phase, entry_id, detail)
+        log.warning(
+            "ai-news analysis_failed entry_id=%s phase=%s attempts=%s duration_ms=%.1f detail=%s",
+            entry_id,
+            phase,
+            attempts,
+            (time.perf_counter() - started) * 1000,
+            detail,
+        )
 
 
 async def run_worker():
@@ -281,4 +308,8 @@ async def run_worker():
                 raise
             except Exception as exc:
                 event("worker_error", detail=type(exc).__name__)
+                # Frame locations are useful; exception messages can contain credentials/body text.
+                import traceback
+                frames = " > ".join(f"{f.name}:{f.lineno}" for f in traceback.extract_tb(exc.__traceback__))
+                log.error("ai-news worker_loop_error type=%s frames=%s", type(exc).__name__, frames)
             await asyncio.sleep(cfg["interval_seconds"])

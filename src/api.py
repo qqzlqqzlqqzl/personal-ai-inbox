@@ -1,11 +1,12 @@
 """Same-origin reader gateway and authenticated AI extension API."""
 
-import asyncio, json, os, time, contextlib
+import asyncio, json, os, time, contextlib, logging, uuid, mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response, FileResponse, HTMLResponse
+from fastapi.middleware.gzip import GZipMiddleware
 from core import (
     ROOT,
     init_db,
@@ -22,6 +23,7 @@ from core import (
     put_meta,
 )
 from worker import run_worker, MF
+from content_input import first_image_src
 
 
 @asynccontextmanager
@@ -51,6 +53,19 @@ app = FastAPI(
     openapi_url=None,
     lifespan=lifespan,
 )
+app.add_middleware(GZipMiddleware, minimum_size=512, compresslevel=5)
+access_log = logging.getLogger("uvicorn.error")
+
+
+def accepts_gzip_encoding(value):
+    for part in value.lower().split(","):
+        coding, *params = part.strip().split(";")
+        if coding == "gzip":
+            try:
+                return all(float(p.strip()[2:]) > 0 for p in params if p.strip().startswith("q="))
+            except ValueError:
+                return False
+    return False
 
 
 def auth_headers(request):
@@ -77,6 +92,8 @@ async def authorize(request):
 
 @app.middleware("http")
 async def security_headers(request, call_next):
+    started = time.perf_counter()
+    request_id = uuid.uuid4().hex[:12]
     origin = request.headers.get("origin")
     if request.method not in ["GET", "HEAD", "OPTIONS"] and (
         request.headers.get("sec-fetch-site") == "cross-site"
@@ -94,11 +111,24 @@ async def security_headers(request, call_next):
     if size > 2 * 1024 * 1024:
         return JSONResponse({"error_message": "Request too large"}, status_code=413)
     response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Request-ID"] = request_id
+    response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
     if "/v1/" in request.url.path:
         response.headers["Cache-Control"] = "no-store"
+    if request.url.path.startswith("/mf/v1/") or elapsed_ms >= 500:
+        access_log.info(
+            "ai-news request id=%s method=%s path=%s status=%s duration_ms=%.1f response_bytes=%s",
+            request_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+            response.headers.get("content-length", "-"),
+        )
     return response
 
 
@@ -192,6 +222,32 @@ async def retry(request: Request):
     return {"queued": len(ids)}
 
 
+async def list_upstream_headers(request, uid):
+    """Reuse the worker token only for this already-authenticated same-user request."""
+    supplied = auth_headers(request)
+    token = os.environ.get("MINIFLUX_API_KEY")
+    if (
+        not token
+        or not supplied.get("authorization", "").lower().startswith("basic ")
+        or supplied.get("x-auth-token")
+    ):
+        return supplied
+    worker = {"X-Auth-Token": token}
+    try:
+        response = await app.state.client.get(MF + "/v1/me", headers=worker, timeout=8)
+        response.raise_for_status()
+        identity = response.json()
+        if (
+            isinstance(identity, dict)
+            and type(identity.get("id")) is int
+            and identity["id"] == uid
+        ):
+            return worker
+    except (httpx.HTTPError, ValueError):
+        access_log.warning("ai-news list worker identity unavailable; retaining user authentication")
+    return supplied
+
+
 async def ai_entries(request, uid):
     p = request.query_params
     if p.get("ai_view") not in ["recommended", "pending"]:
@@ -206,6 +262,7 @@ async def ai_entries(request, uid):
             raise ValueError()
     except ValueError:
         raise HTTPException(400, "Invalid AI filter")
+    upstream_headers = await list_upstream_headers(request, uid)
     params = {}
     status = p.get("status")
     if status in ["read", "unread"]:
@@ -218,7 +275,7 @@ async def ai_entries(request, uid):
         while True:
             response = await app.state.client.get(
                 MF + "/v1/entries/ids",
-                headers=auth_headers(request),
+                headers=upstream_headers,
                 params={**params, "status": st, "limit": 10000, "offset": start},
             )
             response.raise_for_status()
@@ -276,7 +333,7 @@ async def ai_entries(request, uid):
             )
         ]
     feeds_response = await app.state.client.get(
-        MF + "/v1/feeds", headers=auth_headers(request)
+        MF + "/v1/feeds", headers=upstream_headers
     )
     feeds_response.raise_for_status()
     hidden = {f["id"] for f in feeds_response.json() if f.get("hide_globally")}
@@ -286,15 +343,25 @@ async def ai_entries(request, uid):
         if x["entry_id"] in allowed_ids
         and (p.get("globally_visible") != "true" or x["feed_id"] not in hidden)
     ]
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(8)
 
     async def fetch_entry(eid):
         async with semaphore:
             r = await app.state.client.get(
-                MF + f"/v1/entries/{eid}", headers=auth_headers(request)
+                MF + f"/v1/entries/{eid}", headers=upstream_headers
             )
             r.raise_for_status()
-            return decorate(r.json(), uid)
+            item = decorate(r.json(), uid)
+            if p.get("ai_view") == "recommended":
+                ai = item.setdefault("ai", {})
+                if not ai.get("cover_url"):
+                    cover = first_image_src(item.get("content", ""))
+                    if cover:
+                        ai["cover_url"] = cover
+                        ai["cover_source"] = "extracted_content"
+                item["content"] = ""
+                item["content_deferred"] = True
+            return item
 
     entries = await asyncio.gather(
         *(fetch_entry(eid) for eid in ids[offset : offset + limit])
@@ -403,6 +470,19 @@ setTimeout(() => location.replace("/inbox/?updated=1"), 350);
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/mf/v1/ai/x/probe")
+async def x_probe(request: Request):
+    await authorize(request)
+    from x_source import probe
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Expected an object")
+    try:
+        return await probe(body.get("handle"))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @app.post("/mf/v1/ai/subscribe")
 async def subscribe(request: Request):
     await authorize(request)
@@ -410,6 +490,15 @@ async def subscribe(request: Request):
     if not isinstance(body, dict) or not isinstance(body.get("category_id"), int):
         raise HTTPException(400, "Invalid subscription")
     url = str(body.get("url", ""))
+    if body.get("x_handle"):
+        from x_source import probe
+        try:
+            checked = await probe(body["x_handle"])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if not checked["posts_returned"]:
+            return JSONResponse({"error_message": checked["message"], "probe": checked}, status_code=409)
+        url = "http://127.0.0.1:1200" + checked["route"]
     from urllib.parse import urlparse
 
     if urlparse(url).scheme not in ["http", "https"]:
@@ -444,10 +533,11 @@ async def proxy(path: str, request: Request):
         ):
             uid = await authorize(request)
             data = await ai_entries(request, uid)
+            content = json.dumps(data, ensure_ascii=False).replace(
+                "http://127.0.0.1:8092/mf", "/mf"
+            ).encode()
             return Response(
-                json.dumps(data, ensure_ascii=False).replace(
-                    "http://127.0.0.1:8092/mf", "/mf"
-                ),
+                content,
                 media_type="application/json",
             )
         headers = {
@@ -533,7 +623,7 @@ async def home():
 
 
 @app.api_route("/inbox/{path:path}", methods=["GET", "HEAD"])
-async def frontend(path: str):
+async def frontend(path: str, request: Request):
     webroot = (ROOT / "upstream/reactflux/build").resolve()
     if any(part.startswith(".") for part in Path(path).parts):
         raise HTTPException(404)
@@ -541,9 +631,18 @@ async def frontend(path: str):
     if not target.is_relative_to(webroot):
         raise HTTPException(404)
     if target.is_file():
-        headers = {}
+        headers = {"Vary": "Accept-Encoding"}
         if path in {"sw.js", "registerSW.js", "manifest.webmanifest"}:
             headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        elif path.startswith(("assets/", "fonts/")):
+            headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        accepts_gzip = accepts_gzip_encoding(request.headers.get("accept-encoding", ""))
+        gz_target = target.with_name(target.name + ".gz")
+        if accepts_gzip and gz_target.is_file():
+            headers["Content-Encoding"] = "gzip"
+            headers["Vary"] = "Accept-Encoding"
+            media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            return FileResponse(gz_target, media_type=media_type, headers=headers)
         return FileResponse(target, headers=headers)
     index = webroot / "index.html"
     if Path(path).suffix:

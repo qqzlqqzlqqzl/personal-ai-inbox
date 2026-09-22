@@ -8,6 +8,22 @@
 
 ReactFlux 的覆盖源在 `patches/`。`src/patch_frontend.py` 应用初始补丁，`src/polish_frontend.py` 修复中文登录、标识、PWA 回退和控制台细节；`src/build_frontend.py` 统一完成补丁、离线构建及分阶段发布。上游源码保留于 `upstream/reactflux`，不提交其依赖或构建目录。
 
+## 性能与封面维护
+
+AI 精选首批 24 条，列表返回轻量卡片并标记 content_deferred，点击与深链刷新通过单条接口取得全文。前端分页按服务端原始返回条数推进 offset，展示去重不改变游标，避免重复条目导致跳项或无法停止；末尾以真实分页结果收束。
+
+本轮实测的慢点是浏览器 Basic 认证被 AI 列表扇出的多次 Miniflux 请求重复执行密码校验。src/api.py 的 list_upstream_headers 先保留用户认证与 UID，再检查内部 worker token 的 /v1/me，只有 UID 完全相同才在本次内部列表请求复用 token；缺少 token、身份不匹配或验证失败时仍用用户凭据。不是取消登录、跨账号代查或降低密码哈希成本；token 不下发给浏览器。
+
+封面由 src/content_input.py 优先选文章 hero，再选站点声明的 OG/Twitter 图片，最后只考虑文章/main 范围内候选；排除 header/nav/footer/aside，避免把全站熊猫横幅当文章封面。候选还要实际请求并检查 200 与 image/ 类型；hero 被 403 等拒绝时尝试声明的社交封面。选中正确 URL 与浏览器能加载图片是两层验收。
+
+src/backfill_covers.py 可为历史条目补封面元数据，不调用 AI、不重算评分。进展与失败以当时生成的报告和日志为准，不能把启动回填当作已全部完成。
+
+## 日志与 X 来源边界
+
+从 [LOGGING.md](LOGGING.md) 的只读诊断入口检查服务、心跳、预算、feed 错误、近期事件与慢请求；不要转储凭据或原文。analysis_reused 只是复用既有结果，不证明一次新模型调用成功。
+
+src/x_source.py 的预检分开报告适配器配置、直连网络与 RSS 实际帖子；专用 x_handle 订阅再次预检，无帖子返回 409。当前直连超时、未配置 RSSHub 503、第三方未认证 403 均不算取得帖子，也未部署稳定的无个人 X Token 方案。第三方不需要个人 X 登录 Token 仍可能需要服务商 API Key；RSSHub thirdPartyApi 需要 GraphQL 协议兼容，不能直接填任意 REST 根地址。详见 [X-NO-TOKEN.md](../research/X-NO-TOKEN.md)。
+
 ## 公网入口与构建边界
 
 日常入口 `https://106.53.40.6/inbox/`，无需隧道。`src/build_frontend.py` 固定 `VITE_BASE_PATH=/inbox/`，publish 验证时剥掉此 URL 前缀；资源实际仍在 `build/assets/`。Login 使用 `import.meta.env.BASE_URL`。不要改回根路径 PWA；`/mf/` 始终是根路径 API。
@@ -47,6 +63,14 @@ runtime/venv/bin/python src/audit_secrets.py
 ```
 
 自动化测试用临时 SQLite 和 mock HTTP，不污染生产；live 与 browser 两项使用真实 Linux 服务。浏览器验收会临时改动一个真实条目的已读/收藏以及最低分/工具列表，并在 finally 恢复。运行时不要与人工同时编辑这些相同设置；浏览器任务不是单元测试的一部分。
+
+专项验收脚本：
+
+- tests/performance_acceptance.py：真实接口性能；tests/browser_performance.py：首批卡片、点击/深链全文、完整分页、gzip 与 X 失败界面。
+- tests/test_ai_pagination.mjs：分页与去重游标；tests/cover_acceptance.py：封面候选；tests/browser_cover_acceptance.py：Airing 真实卡片图片 URL、加载尺寸及状态不变。
+- tests/worker_logging_acceptance.py：worker 日志；tests/restart_acceptance.py：重启后的可用性。具体动作先读脚本，不将有状态验收误当只读诊断。
+
+性能浏览器测试会临时打开条目并恢复已读状态；封面浏览器测试只看列表，拦截文章写请求并检查状态不变。真实浏览器验收串行运行，避免与人工编辑或其他浏览器任务冲突。通过数量、性能数值和回填进展只引用本次 artifacts 报告，不在交接中固定写死。
 
 浏览器环境需 Playwright、Chromium 及其依赖。当前测试使用服务器已有 Chrome 153 和项目内解压的图形库，不修改系统；可通过 `CHROMIUM_EXECUTABLE` 指定自己的兼容 Chromium。中文字体属于测试运行环境，不随仓库分发。
 

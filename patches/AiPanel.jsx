@@ -16,6 +16,8 @@ export default function AiPanel({ onClose }) {
   const [message, setMessage] = useState("")
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState("")
+  const [xHandle, setXHandle] = useState("@OpenAI")
+  const [xProbe, setXProbe] = useState(null)
   const { refreshFeedData } = useAppData()
   const load = async () => {
     try {
@@ -77,7 +79,19 @@ export default function AiPanel({ onClose }) {
       <p>先广泛收录，再按实际阅读价值裁剪。以下“可用”只表示本次成功解析订阅 XML，不代表每篇原文都能抓到。</p>
       <input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} />
       <button disabled={busy} onClick={()=>add(filtered.filter(s=>s.status==="ok" && !s.subscribed && s.analysis_supported !== false))}>添加当前可用来源</button>
-      <p className="ai-notice">社交平台接入：X 通常需要 TWITTER_AUTH_TOKEN；Instagram 需相应账号或 Cookie；Telegram 公开频道可尝试网页路由。Facebook 未经本实例验证。不要把这些入口当成已经接通。</p>
+      <p className="ai-notice">社交平台接入：X 可用账号授权或第三方服务，先检查是否真的取得帖子；Instagram 需相应账号或 Cookie；Telegram 公开频道可尝试网页路由。Facebook 未经本实例验证。不要把这些入口当成已经接通。</p>
+      <form onSubmit={e=>{e.preventDefault();run(async()=>{const result=await apiClient.post("/v1/ai/x/probe",{handle:xHandle});setXProbe(result);setMessage(result.message)})}}>
+        <label>X 用户名<input value={xHandle} onChange={e=>{setXHandle(e.target.value);setXProbe(null)}} placeholder="@OpenAI" required /></label>
+        <button disabled={busy}>检查 X 来源</button>
+        <button type="button" disabled={busy || !xProbe?.posts_returned} onClick={()=>run(async()=>{
+          const categories=await apiClient.get("/v1/categories")
+          const category=categories.find(c=>c.title==="社交动态") || categories[0]
+          if (!category) throw new Error("请先添加订阅分类")
+          await apiClient.post("/v1/ai/subscribe",{x_handle:xHandle,category_id:category.id})
+          await refreshFeedData();invalidateArticleList();setMessage("已订阅 X 来源；长期稳定性仍待验证")
+        })}>订阅 X 来源</button>
+      </form>
+      {xProbe && <p className="ai-notice">适配器：{xProbe.adapter_configured ? "已配置" : "未配置"} · 直连 X：{xProbe.network_reachable ? "有 HTTP 响应" : "不可达"} · 本次帖子：{xProbe.post_count}。{xProbe.message}</p>}
       {status?.social_probe && <p className="ai-notice">最近 Telegram 公共路由实测：{status.social_probe.passed ? "成功" : "未通过，需检查服务器出站网络"}（HTTP {status.social_probe.http || "无响应"}）。这与 RSSHub 服务本身是否在线是两项不同检查。</p>}
       <form onSubmit={e=>{e.preventDefault();const url=new FormData(e.currentTarget).get("feed");add([{url,category:"手动来源"}])}}><label>自定义 RSS / RSSHub 地址<input required name="feed" type="url" placeholder="http://127.0.0.1:1200/telegram/channel/频道名" /></label><button disabled={busy}>添加订阅</button></form>
       <div className="ai-source-list">{filtered.map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.subscribed ? "已订阅 · " : ""}{s.live_error ? "抓取异常 · " : ""}{s.status==="ok" ? "订阅可解析" : (s.error || "待验证")}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a></div><button disabled={busy || s.status!=="ok" || s.subscribed || s.analysis_supported === false} onClick={()=>add([s])}>{s.analysis_supported === false ? "需全文适配" : (s.subscribed ? "已添加" : "添加")}</button></div>)}</div>

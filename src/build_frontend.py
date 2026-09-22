@@ -1,6 +1,6 @@
 """Build away from the live tree; retain old hashed chunks for existing browser tabs."""
 
-import json, os, re, shutil, subprocess, time, uuid
+import json, os, re, shutil, subprocess, time, uuid, gzip
 from pathlib import Path
 
 ROOT = Path("/home/ubuntu/ai-news")
@@ -45,6 +45,23 @@ def publish(staging: Path, live: Path, base_path: str = "/"):
     return len(files)
 
 
+def precompress(staging: Path):
+    """Create deterministic gzip siblings for text assets served by the gateway."""
+    count = 0
+    for source in staging.rglob("*"):
+        if (
+            source.is_file()
+            and source.suffix in {".js", ".css", ".json", ".webmanifest", ".html", ".svg"}
+            and source.stat().st_size >= 512
+            and source.name not in {"sw.js", "registerSW.js"}
+        ):
+            compressed = gzip.compress(source.read_bytes(), compresslevel=6, mtime=0)
+            target = source.with_name(source.name + ".gz")
+            target.write_bytes(compressed)
+            count += 1
+    return count
+
+
 def main():
     stage = ROOT / "runtime" / ("web-build-" + uuid.uuid4().hex)
     node = ROOT / "runtime/node/bin/node"
@@ -84,10 +101,12 @@ def main():
         "--emptyOutDir",
     ]
     subprocess.run(cmd, cwd=web, env=env, check=True, timeout=600)
+    compressed = precompress(stage)
     count = publish(stage, web / "build", PUBLIC_BASE)
     report = {
         "at": time.time(),
         "files_published": count,
+        "precompressed_assets": compressed,
         "base_path": PUBLIC_BASE,
         "old_hashed_assets_retained": True,
         "upstream": "534eeb97723ac11025de4ec1ac56335072e3be52",

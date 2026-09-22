@@ -13,12 +13,11 @@
          icons: [
            {
              src: "favicon.ico",
-@@ -68,6 +68,9 @@
+@@ -68,6 +68,8 @@
        },
        workbox: {
          cleanupOutdatedCaches: true,
 +        clientsClaim: true,
-+        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
 +        navigateFallbackDenylist: [/^\/mf(?:\/|$)/, /^\/(?:healthz|readyz|deployment)(?:\/|$)/],
          globPatterns: [
            "**/*.html",
@@ -34,6 +33,56 @@
    </head>
    <body>
      <noscript>You need to enable JavaScript to run this app.</noscript>
+--- a/src/hooks/useLoadMore.js
++++ b/src/hooks/useLoadMore.js
+@@ -13,6 +13,7 @@
+ } from "@/store/contentState"
+ import { getDataSessionRevision } from "@/store/dataState"
+ import { settingsState } from "@/store/settingsState"
++import { aiFilterEnabled, AI_PAGE_SIZE } from "@/store/aiState"
+ import createArticleListRequestKey from "@/utils/article-list-request-key"
+ import { getTimestamp } from "@/utils/date"
+ import {
+@@ -62,6 +63,9 @@
+   }
+ 
+   const getFilterParams = (currentEntries) => {
++    if (infoFrom === "all" && aiFilterEnabled()) {
++      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }
++    }
+     if (currentEntries.length === 0) {
+       return {}
+     }
+@@ -227,13 +231,17 @@
+         throw new TypeError("Invalid entries response")
+       }
+ 
++      const isAiPagination = infoFrom === "all" && aiFilterEnabled()
++      if (isAiPagination) {
++        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)
++      }
+       const progress = paginationProgressRef.current
+       const responseEntryIds = new Set(response.entries.map(({ id }) => id))
+       const hasNewResponseEntries = [...responseEntryIds].some(
+         (entryId) => !progress.seenResponseEntryIds.has(entryId),
+       )
+ 
+-      if (response.entries.length > 0 && !hasNewResponseEntries) {
++      if (!isAiPagination && response.entries.length > 0 && !hasNewResponseEntries) {
+         console.warn("Stopped loading more articles because the pagination cursor did not advance")
+         setLoadMoreVisible(false)
+         return
+@@ -247,7 +255,9 @@
+         }
+         progress.committedEntryIds = new Set(contentState.get().entries.map(({ id }) => id))
+       }
+-      if (response.total <= pageSize || response.entries.length < pageSize) {
++      const effectivePageSize = infoFrom === "all" && aiFilterEnabled() ? AI_PAGE_SIZE : pageSize
++      const loadedCount = isAiPagination ? contentState.get().articleListOffset : contentState.get().entries.length
++      if (response.total <= loadedCount || response.entries.length < effectivePageSize) {
+         setLoadMoreVisible(false)
+       }
+     } catch (error) {
 --- a/src/store/contentState.js
 +++ b/src/store/contentState.js
 @@ -1,4 +1,5 @@
@@ -42,7 +91,15 @@
  
  import {
    dataState,
-@@ -50,10 +51,11 @@
+@@ -18,6 +19,7 @@
+   articleListError: false,
+   articleListRevision: 0,
+   articleListSnapshotRevision: 0,
++  articleListOffset: 0,
+   entries: [], // 接口返回的所有文章
+   filterDate: null, // 搜索日期
+   filterString: "", // 搜索文本
+@@ -50,10 +52,11 @@
  export const filteredEntriesState = computed(contentState, (content) => content.entries)
  
  export const dynamicCountState = computed(
@@ -66,6 +123,16 @@
  
  export const settingsState = persistentAtom("settings", defaultSettings, {
    encode: (settings) => encodeSettings(settings, defaultSettings),
+--- a/src/utils/entry-presentation.js
++++ b/src/utils/entry-presentation.js
+@@ -197,6 +197,7 @@
+ 
+   const coverElement = firstImage ?? video
+   const coverSource =
++    entry.ai?.cover_url ||
+     firstImage?.getAttribute("src") ||
+     video?.getAttribute("poster") ||
+     attachments.images[0]?.url ||
 --- a/src/utils/settings-schema.js
 +++ b/src/utils/settings-schema.js
 @@ -104,7 +104,7 @@
@@ -278,6 +345,24 @@
  
  import { getEntry } from "@/apis"
  import ActionButtons from "@/components/Article/ActionButtons"
+@@ -112,7 +113,7 @@
+     const numericEntryId = Number(entryId)
+     const existingEntry = contentState.get().entries.find((entry) => entry.id === numericEntryId)
+ 
+-    if (existingEntry) {
++    if (existingEntry && !existingEntry.content_deferred) {
+       setIsArticleLoading(false)
+       setActiveContent(existingEntry)
+       return
+@@ -213,7 +214,7 @@
+     const currentActiveContent = contentState.get().activeContent
+ 
+     if (entryId) {
+-      if (currentActiveContent?.id !== Number(entryId)) {
++      if (currentActiveContent?.id !== Number(entryId) || currentActiveContent?.content_deferred) {
+         fetchSingleEntry(entryId)
+       }
+     } else {
 @@ -239,6 +240,7 @@
            opacity: isBelowMedium && isArticleLoading ? 0 : 1,
          }}

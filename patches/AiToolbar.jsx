@@ -16,11 +16,18 @@ export default function AiToolbar({ source }) {
     let active = true
     const load = async () => {
       try {
-        if (!aiState.get().hydrated) {
-          const c = await apiClient.get("/v1/ai/settings")
-          if (active) { aiState.set({ ...aiState.get(), minimum:c.minimum_score, hydrated:true }); invalidateArticleList() }
+        const needsSettings = !aiState.get().hydrated
+        const [c, s] = await Promise.all([
+          needsSettings ? apiClient.get("/v1/ai/settings") : Promise.resolve(null),
+          apiClient.get("/v1/ai/status"),
+        ])
+        if (active && c) {
+          const current = aiState.get()
+          const minimum = Number(c.minimum_score)
+          const changed = current.minimum !== minimum
+          aiState.set({ ...current, minimum, hydrated: true })
+          if (changed) invalidateArticleList()
         }
-        const s = await apiClient.get("/v1/ai/status")
         if (active) setProgress(s)
       } catch { /* Native reader remains usable if the add-on is unavailable. */ }
     }

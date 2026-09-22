@@ -24,6 +24,174 @@ def content_text(html):
     return soup.get_text(" ", strip=True), len(soup.find_all("img"))
 
 
+def _safe_image_url(src, base_url=None):
+    from urllib.parse import urljoin
+
+    src = str(src or "").strip()
+    if not src or src.startswith(("data:", "blob:")):
+        return None
+    if src.startswith("/mf/proxy/"):
+        return src[:4000]
+    absolute = urljoin(base_url or "", src)
+    parsed = urlsplit(absolute)
+    if parsed.scheme in ("http", "https") and parsed.hostname and not parsed.username:
+        return absolute[:4000]
+    return None
+
+
+def _image_is_decorative(img, src):
+    # Miniflux rewrites image URLs. Inspect the encoded original for decorations too.
+    import base64
+    if "/mf/proxy/" in (src or ""):
+        try:
+            encoded = urlsplit(src).path.rsplit("/", 1)[-1]
+            src += " " + base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
+        except (ValueError, UnicodeError):
+            pass
+    text = " ".join(
+        [
+            src or "",
+            " ".join(img.get("class", []) if isinstance(img.get("class"), list) else []),
+            str(img.get("id", "")),
+            str(img.get("alt", "")),
+        ]
+    ).lower()
+    bad = (
+        "avatar",
+        "gravatar",
+        "favicon",
+        "logo",
+        "emoji",
+        "sprite",
+        "/panda/",
+        "/counter/",
+        "/doc/gopher/",
+        "/static/images/rust-social",
+        "/img/featured/featured-espressif",
+    )
+    if any(token in text for token in bad):
+        return True
+    try:
+        width = float(img.get("width") or 0)
+        height = float(img.get("height") or 0)
+        if (width and width <= 2) or (height and height <= 2) or (width and height and max(width, height) <= 180):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
+def first_image_src(html):
+    """Pick the first non-decorative image already present in extracted HTML."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    for img in soup.find_all("img"):
+        src = _safe_image_url(img.get("src"))
+        if src and not _image_is_decorative(img, src):
+            return src
+    return None
+
+
+def select_cover_from_page(raw_html, final_url, title="", prefer_social=False):
+    """Prefer explicit article heroes; never use a global header/banner as fallback."""
+    soup = BeautifulSoup(raw_html, "html.parser")
+    scoped = soup.select("article img, main img, [role=main] img")
+    candidates = []
+    for img in soup.find_all("img"):
+        if img.find_parent(["header", "nav", "footer", "aside"]):
+            continue
+        urls = [img.get("data-src"), img.get("data-lazy-src"), img.get("src")]
+        srcset = str(img.get("srcset") or "").strip()
+        if srcset:
+            urls.append(srcset.split(",")[-1].strip().split()[0])
+        src = next((u for candidate in urls if (u := _safe_image_url(candidate, final_url))
+                    and not _image_is_decorative(img, u)), None)
+        if not src:
+            continue
+        alt = str(img.get("alt") or "").strip().casefold()
+        classes = " ".join(img.get("class") or []).lower()
+        hero = bool(title and alt and title.strip().casefold() in alt) or any(
+            word in classes for word in ("hero", "cover", "featured", "post-image"))
+        in_article = any(img is item for item in scoped)
+        candidates.append((src, hero, in_article))
+    for src, hero, in_article in sorted(candidates, key=lambda c: not c[2]):
+        if hero and not prefer_social:
+            return src, "page_hero"
+    for attrs in ({"property": "og:image:secure_url"}, {"property": "og:image"},
+                  {"name": "twitter:image"}, {"name": "twitter:image:src"}):
+        tag = soup.find("meta", attrs=attrs)
+        src = _safe_image_url(tag.get("content") if tag else None, final_url)
+        if src and not _image_is_decorative(soup.new_tag("img"), src):
+            return src, "social_meta"
+    for src, _, in_article in candidates:
+        if in_article:
+            return src, "page_first_image"
+    return None, None
+
+
+async def _discover_original_cover(entry_url, title="", strict=False):
+    """Fetch the article page and choose its hero image; OG/Twitter is fallback."""
+    import httpx
+
+    url = urlsplit(entry_url)
+    if url.scheme not in ("http", "https") or not url.hostname or url.username:
+        return None, None
+    try:
+        async with httpx.AsyncClient(
+            timeout=12,
+            follow_redirects=True,
+            max_redirects=3,
+            trust_env=False,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; PersonalAIInbox/1.0)"},
+        ) as external:
+            async with external.stream("GET", entry_url) as response:
+                if response.status_code != 200:
+                    if strict:
+                        response.raise_for_status()
+                    return None, None
+                chunks = []
+                size = 0
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > 3 * 1024 * 1024:
+                        return None, None
+                    chunks.append(chunk)
+                raw = b"".join(chunks)
+                final_url = str(response.url)
+            selected = select_cover_from_page(raw, final_url, title)
+            if not selected[0]:
+                return selected
+            # Article CDN links can reject hotlinking while its declared social image works.
+            choices = [selected, select_cover_from_page(raw, final_url, title, prefer_social=True)]
+            seen = set()
+            for cover, source in choices:
+                if not cover or cover in seen:
+                    continue
+                seen.add(cover)
+                try:
+                    async with external.stream("GET", cover, timeout=6) as image:
+                        if image.status_code == 200 and image.headers.get("content-type", "").lower().startswith("image/"):
+                            return cover, source
+                except httpx.HTTPError:
+                    continue
+            if strict:
+                raise ValueError("cover_image_unavailable")
+            return None, None
+    except Exception:
+        if strict:
+            raise
+        return None, None
+
+
+async def discover_original_cover(entry_url, title="", strict=False):
+    import asyncio
+    try:
+        return await asyncio.wait_for(_discover_original_cover(entry_url, title, strict), timeout=18)
+    except asyncio.TimeoutError:
+        if strict:
+            raise
+        return None, None
+
+
 def model_payload(entry, text, source, config):
     import json
 

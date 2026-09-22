@@ -28,6 +28,9 @@ if '...getAiQuery()' not in section:
 patch('src/pages/All.jsx','import Content from "@/components/Content/Content"','import Content from "@/components/Content/Content"\nimport { aiFilterEnabled } from "@/store/aiState"')
 patch('src/pages/All.jsx','isEntryScopeFullyVisible("global")\n    ?','isEntryScopeFullyVisible("global") && !aiFilterEnabled()\n    ?')
 patch('src/pages/All.jsx','const getEntries = (status, _starred, filterParams) => getAllEntries(status, filterParams)','const getEntries = (status, starred, filterParams) => getAllEntries(status, { ...filterParams, ...(starred ? { starred: true } : {}) })')
+patch('src/hooks/useLoadMore.js','import { settingsState } from "@/store/settingsState"','import { settingsState } from "@/store/settingsState"\nimport { aiFilterEnabled, AI_PAGE_SIZE } from "@/store/aiState"')
+patch('src/hooks/useLoadMore.js','  const getFilterParams = (currentEntries) => {\n    if (currentEntries.length === 0) {','  const getFilterParams = (currentEntries) => {\n    if (infoFrom === "all" && aiFilterEnabled()) {\n      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }\n    }\n    if (currentEntries.length === 0) {')
+patch('src/hooks/useLoadMore.js','      if (response.total <= pageSize || response.entries.length < pageSize) {','      const effectivePageSize = infoFrom === "all" && aiFilterEnabled() ? AI_PAGE_SIZE : pageSize\n      const loadedCount = isAiPagination ? contentState.get().articleListOffset : contentState.get().entries.length\n      if (response.total <= loadedCount || response.entries.length < effectivePageSize) {')
 patch('src/store/contentState.js','import { computed, map } from "nanostores"','import { computed, map } from "nanostores"\nimport { aiState, aiFilterEnabled } from "./aiState"')
 patch('src/store/contentState.js','[contentState, dataState, unreadTotalState, settingsState, feedsState, visibleFeedsState],','[contentState, dataState, unreadTotalState, settingsState, feedsState, visibleFeedsState, aiState],')
 patch('src/store/contentState.js','    const { showStatus } = settings\n','    const { showStatus } = settings\n    if (infoFrom === "all" && aiFilterEnabled()) return total\n')
@@ -40,7 +43,14 @@ patch('src/components/Article/ArticleGridCard.jsx','        <div className="grid
 patch('src/components/Article/ArticleCard.jsx','              {previewContent}','              {entry.ai?.state === "done" ? entry.ai.summary : previewContent}')
 patch('src/components/Article/ArticleCard.jsx','      </div>\n    </div>\n  )','      </div>\n      <AiBadge entry={entry} />\n    </div>\n  )')
 patch('src/components/Article/ArticleDetail.jsx','            <Divider />\n          </div>','            <AiBadge entry={activeContent} detailed />\n            <Divider />\n          </div>')
+patch('src/utils/entry-presentation.js','  const coverSource =\n    firstImage?.getAttribute("src") ||','  const coverSource =\n    entry.ai?.cover_url ||\n    firstImage?.getAttribute("src") ||')
+patch('src/components/Content/Content.jsx','    if (existingEntry) {\n      setIsArticleLoading(false)','    if (existingEntry && !existingEntry.content_deferred) {\n      setIsArticleLoading(false)')
+patch('src/components/Content/Content.jsx','      if (currentActiveContent?.id !== Number(entryId)) {','      if (currentActiveContent?.id !== Number(entryId) || currentActiveContent?.content_deferred) {')
 patch('src/utils/settings-schema.js','articleListLayout: enumSetting("column", ARTICLE_LIST_LAYOUTS)','articleListLayout: enumSetting("card", ARTICLE_LIST_LAYOUTS)')
+patch('src/store/contentState.js','  articleListSnapshotRevision: 0,','  articleListSnapshotRevision: 0,\n  articleListOffset: 0,')
+patch('src/hooks/useArticleList.js','  const preparedEntries = response.entries.map((entry) => prepareEntry(entry))','  contentState.setKey("articleListOffset", response.entries.length)\n  const preparedEntries = response.entries.map((entry) => prepareEntry(entry))')
+patch('src/hooks/useLoadMore.js','      const progress = paginationProgressRef.current','      const isAiPagination = infoFrom === "all" && aiFilterEnabled()\n      if (isAiPagination) {\n        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)\n      }\n      const progress = paginationProgressRef.current')
+patch('src/hooks/useLoadMore.js','if (response.entries.length > 0 && !hasNewResponseEntries) {','if (!isAiPagination && response.entries.length > 0 && !hasNewResponseEntries) {')
 diffs=[]
 for original in BACK.rglob('*'):
  if original.is_file():

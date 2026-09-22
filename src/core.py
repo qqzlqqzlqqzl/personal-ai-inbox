@@ -149,6 +149,8 @@ def update(entry_id, **fields):
         "source_chars",
         "content_source",
         "duplicate_of",
+        "cover_url",
+        "cover_source",
     }
     if not set(fields) <= allowed:
         raise ValueError("Unknown analysis field")
@@ -187,6 +189,8 @@ def decorate(entry, user_id):
             "source_chars",
             "content_source",
             "duplicate_of",
+            "cover_url",
+            "cover_source",
         ]
     }
     return {**entry, "ai": {**result, **metadata}}
@@ -276,6 +280,8 @@ def migrate():
             "source_chars": "INTEGER",
             "content_source": "TEXT",
             "duplicate_of": "INTEGER",
+            "cover_url": "TEXT",
+            "cover_source": "TEXT",
         }.items():
             if name not in existing:
                 c.execute(f"ALTER TABLE analyses ADD COLUMN {name} {kind}")
