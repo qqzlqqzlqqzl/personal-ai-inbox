@@ -90,3 +90,5 @@ runtime/venv/bin/python src/audit_secrets.py
 ## Kaggle Qwen 按需批处理
 
 新增独立批处理入口，不替换网页服务。使用说明、模型固定版本、64K/思考配置、恢复及额度限制见 [Kaggle 运行手册](../../src/kaggle_batch/RUNBOOK.md)。定时任务保持关闭；旧付费 worker 开关保持不变。
+
+真实 GPU、恢复、产品读回及限制见 [Kaggle 验收记录](kaggle/ACCEPTANCE.md)。

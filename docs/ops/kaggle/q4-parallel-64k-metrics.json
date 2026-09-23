@@ -1,0 +1,421 @@
+{
+  "batch_id": "qwen-inbox-fa7ce014c6637f197e92eec2",
+  "model": {
+    "model_repo": "kaggle://micronic/qwen3-6-35b-a3b-gguf",
+    "model_revision": "sha256:4ac6a06bce551257267f49ad2226f8671a22519ccc1a4dde9d5b433d1f2a410d",
+    "filename": "Qwen3.6-35B-A3B-Q4_K_M.gguf",
+    "size": 21166757728,
+    "sha256": "4ac6a06bce551257267f49ad2226f8671a22519ccc1a4dde9d5b433d1f2a410d",
+    "llama_commit": "4e416ee7308dd6b581796f1a6241276cd5982691"
+  },
+  "comparison": {
+    "quant": "q4",
+    "control_16k": false,
+    "upstream_hash_verified": false
+  },
+  "configured_context": 65536,
+  "parallel_requests": 2,
+  "prompt_policy": "source-fidelity-v2",
+  "observed_contexts": [
+    65536
+  ],
+  "devices": [
+    [
+      "CUDA0",
+      "Tesla T4"
+    ],
+    [
+      "CUDA1",
+      "Tesla T4"
+    ]
+  ],
+  "offload_layers": [
+    41,
+    41
+  ],
+  "generation": {
+    "thinking": true,
+    "reasoning_budget": -1,
+    "use_remaining_context": true,
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5,
+    "repeat_penalty": 1.0,
+    "seed": 42
+  },
+  "script_seconds": 2329.9628765059997,
+  "model_source": "attached_dataset",
+  "model_acquisition_hash_seconds": 125.85380177299999,
+  "load_seconds": 8.217676635000089,
+  "process_cleanup_complete": true,
+  "server_returncode": 0,
+  "fatal_error": null,
+  "groups": {
+    "analysis": {
+      "requests": 23,
+      "successful": 23,
+      "request_seconds": 2833.3753176709997,
+      "phase_wall_seconds": 1426.561986468,
+      "median_request_seconds": 122.7836439470002,
+      "prompt_tokens": 60018,
+      "completion_tokens_including_reasoning": 85278,
+      "reasoning_tokens_estimated": 80290,
+      "requests_with_reasoning": 23,
+      "completion_tokens_per_wall_second": 59.77868526494129
+    },
+    "translation": {
+      "requests": 4,
+      "successful": 4,
+      "request_seconds": 621.3402808359997,
+      "phase_wall_seconds": 312.6452844629998,
+      "median_request_seconds": 154.35156140499998,
+      "prompt_tokens": 6032,
+      "completion_tokens_including_reasoning": 19647,
+      "reasoning_tokens_estimated": 17706,
+      "requests_with_reasoning": 4,
+      "completion_tokens_per_wall_second": 62.841184487224005
+    }
+  },
+  "missing_ids": [],
+  "errors": [],
+  "context_probes": [
+    {
+      "target_input_tokens": 8192,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 8176,
+      "messages_sha256": "c0a786b1f733844c1ecbfc2c101ee13b1ea790546868aaeb34079459864d2dac",
+      "generation_max_tokens": 57344,
+      "inference_started_monotonic": 3553.451325829,
+      "inference_seconds": 19.096003082000152,
+      "inference_finished_monotonic": 3572.547330509,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 206,
+        "prompt_tokens": 8176,
+        "total_tokens": 8382,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 8176,
+        "prompt_ms": 14383.624,
+        "prompt_per_token_ms": 1.7592495107632093,
+        "prompt_per_second": 568.4242024124101,
+        "predicted_n": 206,
+        "predicted_ms": 3967.394,
+        "predicted_per_token_ms": 19.353141463414634,
+        "predicted_per_second": 51.67119776861084
+      },
+      "reasoning_chars": 558,
+      "reasoning_token_estimate": 159,
+      "passed": true,
+      "total_seconds": 19.96115606400008
+    },
+    {
+      "target_input_tokens": 8192,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 8176,
+      "messages_sha256": "c0a786b1f733844c1ecbfc2c101ee13b1ea790546868aaeb34079459864d2dac",
+      "generation_max_tokens": 57344,
+      "inference_started_monotonic": 3573.405578529,
+      "inference_seconds": 18.008761614999912,
+      "inference_finished_monotonic": 3591.414341243,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 206,
+        "prompt_tokens": 8176,
+        "total_tokens": 8382,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 8176,
+        "prompt_ms": 14035.472,
+        "prompt_per_token_ms": 1.7166673189823873,
+        "prompt_per_second": 582.5240504914976,
+        "predicted_n": 206,
+        "predicted_ms": 3941.374,
+        "predicted_per_token_ms": 19.22621463414634,
+        "predicted_per_second": 52.0123185467809
+      },
+      "reasoning_chars": 558,
+      "reasoning_token_estimate": 159,
+      "passed": true,
+      "total_seconds": 18.86257375699961
+    },
+    {
+      "target_input_tokens": 16384,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 16384,
+      "messages_sha256": "ce49d107a90bc813c4ed5b3262b5c524770f3feb7b777a30bc200fb2db403428",
+      "generation_max_tokens": 49136,
+      "inference_started_monotonic": 3593.165676381,
+      "inference_seconds": 36.44761391699967,
+      "inference_finished_monotonic": 3629.613291418,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 422,
+        "prompt_tokens": 16384,
+        "total_tokens": 16806,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 16384,
+        "prompt_ms": 27481.197,
+        "prompt_per_token_ms": 1.6773191528320313,
+        "prompt_per_second": 596.1894600151514,
+        "predicted_n": 422,
+        "predicted_ms": 8474.61,
+        "predicted_per_token_ms": 20.129714964370546,
+        "predicted_per_second": 49.67780228234691
+      },
+      "reasoning_chars": 1236,
+      "reasoning_token_estimate": 375,
+      "passed": true,
+      "total_seconds": 38.19559333899997
+    },
+    {
+      "target_input_tokens": 60000,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 59998,
+      "messages_sha256": "2ecbea927bd6c7dfd955a9f0335651ce2bea9d6f27251efc450e17b5af5c0228",
+      "generation_max_tokens": 5522,
+      "inference_started_monotonic": 3636.296400106,
+      "inference_seconds": 118.92432467200024,
+      "inference_finished_monotonic": 3755.220726169,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 344,
+        "prompt_tokens": 59998,
+        "total_tokens": 60342,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 59998,
+        "prompt_ms": 110099.076,
+        "prompt_per_token_ms": 1.8350457681922732,
+        "prompt_per_second": 544.9455361460073,
+        "predicted_n": 344,
+        "predicted_ms": 8075.387,
+        "predicted_per_token_ms": 23.543402332361516,
+        "predicted_per_second": 42.4747445540381
+      },
+      "reasoning_chars": 945,
+      "reasoning_token_estimate": 297,
+      "passed": true,
+      "total_seconds": 125.60305231699977
+    }
+  ],
+  "parallel_context_probes": [
+    {
+      "target_input_tokens": 60000,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 59998,
+      "messages_sha256": "2ecbea927bd6c7dfd955a9f0335651ce2bea9d6f27251efc450e17b5af5c0228",
+      "generation_max_tokens": 5522,
+      "inference_started_monotonic": 3762.422578093,
+      "inference_seconds": 242.01504938900007,
+      "inference_finished_monotonic": 4004.437629012,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 612,
+        "prompt_tokens": 59998,
+        "total_tokens": 60610,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 59998,
+        "prompt_ms": 224149.142,
+        "prompt_per_token_ms": 3.735943564785493,
+        "prompt_per_second": 267.6699962563319,
+        "predicted_n": 612,
+        "predicted_ms": 17661.842,
+        "predicted_per_token_ms": 28.90645171849427,
+        "predicted_per_second": 34.59435318241438
+      },
+      "reasoning_chars": 1806,
+      "reasoning_token_estimate": 565,
+      "passed": true,
+      "total_seconds": 249.2094066919999
+    },
+    {
+      "target_input_tokens": 60000,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 59998,
+      "messages_sha256": "2ecbea927bd6c7dfd955a9f0335651ce2bea9d6f27251efc450e17b5af5c0228",
+      "generation_max_tokens": 5522,
+      "inference_started_monotonic": 3762.429318512,
+      "inference_seconds": 232.94530191900003,
+      "inference_finished_monotonic": 3995.374621813,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 346,
+        "prompt_tokens": 59998,
+        "total_tokens": 60344,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 59998,
+        "prompt_ms": 112971.046,
+        "prompt_per_token_ms": 1.8829135304510152,
+        "prompt_per_second": 531.091833919994,
+        "predicted_n": 346,
+        "predicted_ms": 119476.437,
+        "predicted_per_token_ms": 346.3085130434783,
+        "predicted_per_second": 2.8875986651660863
+      },
+      "reasoning_chars": 944,
+      "reasoning_token_estimate": 299,
+      "passed": true,
+      "total_seconds": 240.13902613400023
+    }
+  ],
+  "parallel_context_overlap_seconds": 232.94530330099997,
+  "long_articles": [
+    {
+      "id": "analysis-2918",
+      "source_characters": 26923,
+      "input_tokens": 5598,
+      "usage": {
+        "completion_tokens": 2532,
+        "prompt_tokens": 5598,
+        "total_tokens": 8130,
+        "prompt_tokens_details": {
+          "cached_tokens": 245
+        }
+      },
+      "status": "ok",
+      "seconds": 87.38210083900003
+    },
+    {
+      "id": "analysis-1487",
+      "source_characters": 36511,
+      "input_tokens": 7010,
+      "usage": {
+        "completion_tokens": 3138,
+        "prompt_tokens": 7010,
+        "total_tokens": 10148,
+        "prompt_tokens_details": {
+          "cached_tokens": 245
+        }
+      },
+      "status": "ok",
+      "seconds": 130.8430016379998
+    },
+    {
+      "id": "analysis-1591",
+      "source_characters": 35598,
+      "input_tokens": 9331,
+      "usage": {
+        "completion_tokens": 3548,
+        "prompt_tokens": 9331,
+        "total_tokens": 12879,
+        "prompt_tokens_details": {
+          "cached_tokens": 245
+        }
+      },
+      "status": "ok",
+      "seconds": 151.60945326799992
+    },
+    {
+      "id": "analysis-1904",
+      "source_characters": 35287,
+      "input_tokens": 9478,
+      "usage": {
+        "completion_tokens": 2726,
+        "prompt_tokens": 9478,
+        "total_tokens": 12204,
+        "prompt_tokens_details": {
+          "cached_tokens": 245
+        }
+      },
+      "status": "ok",
+      "seconds": 93.94319678500005
+    }
+  ],
+  "peak_gpu_used_mib": {
+    "0": 11803,
+    "1": 11281
+  },
+  "peak_server_rss_kib": 21133080,
+  "minimum_system_available_kib": 22008616,
+  "memory_observation_errors": 0,
+  "business_validation": {
+    "valid": 27,
+    "invalid": 0,
+    "missing_ids": []
+  },
+  "projection_200_articles_per_day": {
+    "assumption": "200 analyses plus 200 card translations daily, each scaled from its measured group (23 articles / 23 cards); excludes platform provisioning, mounting, output saving and retries. Not an acceptance guarantee.",
+    "four_daily_batches_hours_per_week": 30.44966438886657,
+    "two_daily_batches_hours_per_week": 29.92827530616879
+  },
+  "manual_review": {
+    "accepted_for_product": false,
+    "findings": [
+      {
+        "entry_id": 2926,
+        "issue": "Deaths in monitored border areas became murder-victim wording in Chinese."
+      },
+      {
+        "entry_id": 2942,
+        "issue": "The first showcase was rendered as a first-ever exhibition."
+      },
+      {
+        "entry_id": 1591,
+        "issue": "A truncated leak definition was completed using information absent from the supplied excerpt."
+      },
+      {
+        "entry_id": 2951,
+        "issue": "The output added a high degree of customization and audio-experience intent not stated in the short excerpt."
+      }
+    ],
+    "scope": "Selected manual source-fidelity findings; not an exhaustive factual certification."
+  },
+  "server_log_evidence": {
+    "file": "output/server.log",
+    "slot_initialization_lines": [
+      199,
+      200
+    ],
+    "long_prompt_lines": [
+      3805,
+      3869
+    ],
+    "completion_without_truncation_lines": [
+      4372,
+      4380
+    ],
+    "note": "Two different slots hold 59998-token prompts; decode on one overlaps prefill on the other. Scheduling contention increases individual latency."
+  }
+}

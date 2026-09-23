@@ -1,0 +1,328 @@
+{
+  "batch_id": "qwen-inbox-ee2b13c9b865dc81b5a34da7",
+  "model": {
+    "model_repo": "kaggle://micronic/qwen3-6-35b-a3b-gguf",
+    "model_revision": "sha256:4ac6a06bce551257267f49ad2226f8671a22519ccc1a4dde9d5b433d1f2a410d",
+    "filename": "Qwen3.6-35B-A3B-Q4_K_M.gguf",
+    "size": 21166757728,
+    "sha256": "4ac6a06bce551257267f49ad2226f8671a22519ccc1a4dde9d5b433d1f2a410d",
+    "llama_commit": "4e416ee7308dd6b581796f1a6241276cd5982691"
+  },
+  "comparison": {
+    "quant": "q4",
+    "control_16k": false,
+    "upstream_hash_verified": false
+  },
+  "configured_context": 65536,
+  "parallel_requests": 1,
+  "prompt_policy": null,
+  "observed_contexts": [
+    65536
+  ],
+  "devices": [
+    [
+      "CUDA0",
+      "Tesla T4"
+    ],
+    [
+      "CUDA1",
+      "Tesla T4"
+    ]
+  ],
+  "offload_layers": [
+    41,
+    41
+  ],
+  "generation": {
+    "thinking": true,
+    "reasoning_budget": -1,
+    "use_remaining_context": true,
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5,
+    "repeat_penalty": 1.0,
+    "seed": 42
+  },
+  "script_seconds": 2388.481593653,
+  "model_source": "attached_dataset",
+  "model_acquisition_hash_seconds": 133.6675233850001,
+  "load_seconds": 8.09673635199988,
+  "process_cleanup_complete": true,
+  "server_returncode": 0,
+  "fatal_error": null,
+  "groups": {
+    "analysis": {
+      "requests": 23,
+      "successful": 23,
+      "request_seconds": 1613.992919705,
+      "phase_wall_seconds": 1613.992919705,
+      "median_request_seconds": 69.67043543700038,
+      "prompt_tokens": 58304,
+      "completion_tokens_including_reasoning": 79091,
+      "reasoning_tokens_estimated": 74153,
+      "requests_with_reasoning": 23,
+      "completion_tokens_per_wall_second": 49.00331286115925
+    },
+    "translation": {
+      "requests": 4,
+      "successful": 4,
+      "request_seconds": 422.681769448001,
+      "phase_wall_seconds": 422.681769448001,
+      "median_request_seconds": 106.05371715200022,
+      "prompt_tokens": 5628,
+      "completion_tokens_including_reasoning": 21663,
+      "reasoning_tokens_estimated": 19730,
+      "requests_with_reasoning": 4,
+      "completion_tokens_per_wall_second": 51.251323255059425
+    }
+  },
+  "missing_ids": [],
+  "errors": [],
+  "context_probes": [
+    {
+      "target_input_tokens": 8192,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 8176,
+      "messages_sha256": "c0a786b1f733844c1ecbfc2c101ee13b1ea790546868aaeb34079459864d2dac",
+      "generation_max_tokens": 57344,
+      "inference_seconds": 18.504956685000252,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 206,
+        "prompt_tokens": 8176,
+        "total_tokens": 8382,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 8176,
+        "prompt_ms": 14183.14,
+        "prompt_per_token_ms": 1.7347284735812132,
+        "prompt_per_second": 576.4590915692858,
+        "predicted_n": 206,
+        "predicted_ms": 3925.585,
+        "predicted_per_token_ms": 19.14919512195122,
+        "predicted_per_second": 52.22151602882118
+      },
+      "reasoning_chars": 558,
+      "reasoning_token_estimate": 159,
+      "passed": true,
+      "total_seconds": 19.352763670999593
+    },
+    {
+      "target_input_tokens": 8192,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 8176,
+      "messages_sha256": "c0a786b1f733844c1ecbfc2c101ee13b1ea790546868aaeb34079459864d2dac",
+      "generation_max_tokens": 57344,
+      "inference_seconds": 18.127593039000203,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 206,
+        "prompt_tokens": 8176,
+        "total_tokens": 8382,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 8176,
+        "prompt_ms": 14148.732,
+        "prompt_per_token_ms": 1.7305200587084149,
+        "prompt_per_second": 577.8609701561949,
+        "predicted_n": 206,
+        "predicted_ms": 3949.1,
+        "predicted_per_token_ms": 19.26390243902439,
+        "predicted_per_second": 51.91056190017979
+      },
+      "reasoning_chars": 558,
+      "reasoning_token_estimate": 159,
+      "passed": true,
+      "total_seconds": 18.969590652999614
+    },
+    {
+      "target_input_tokens": 16384,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 16384,
+      "messages_sha256": "ce49d107a90bc813c4ed5b3262b5c524770f3feb7b777a30bc200fb2db403428",
+      "generation_max_tokens": 49136,
+      "inference_seconds": 37.07686758,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 422,
+        "prompt_tokens": 16384,
+        "total_tokens": 16806,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 16384,
+        "prompt_ms": 28218.142,
+        "prompt_per_token_ms": 1.7222987060546875,
+        "prompt_per_second": 580.6193760028566,
+        "predicted_n": 422,
+        "predicted_ms": 8416.245,
+        "predicted_per_token_ms": 19.991080760095013,
+        "predicted_per_second": 50.0223080483042
+      },
+      "reasoning_chars": 1236,
+      "reasoning_token_estimate": 375,
+      "passed": true,
+      "total_seconds": 38.778850486999545
+    },
+    {
+      "target_input_tokens": 60000,
+      "synthetic": true,
+      "cache_prompt": false,
+      "input_tokens": 59998,
+      "messages_sha256": "2ecbea927bd6c7dfd955a9f0335651ce2bea9d6f27251efc450e17b5af5c0228",
+      "generation_max_tokens": 5522,
+      "inference_seconds": 121.10368720099996,
+      "content": "{\n  \"codes\": [\n    \"MAPLE-731\",\n    \"QUARTZ-482\",\n    \"HARBOR-956\"\n  ]\n}",
+      "finish_reason": "stop",
+      "usage": {
+        "completion_tokens": 344,
+        "prompt_tokens": 59998,
+        "total_tokens": 60342,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 59998,
+        "prompt_ms": 112274.581,
+        "prompt_per_token_ms": 1.8713053935131172,
+        "prompt_per_second": 534.38631848468,
+        "predicted_n": 344,
+        "predicted_ms": 8073.819,
+        "predicted_per_token_ms": 23.53883090379009,
+        "predicted_per_second": 42.482993487963995
+      },
+      "reasoning_chars": 945,
+      "reasoning_token_estimate": 297,
+      "passed": true,
+      "total_seconds": 127.6353511870002
+    }
+  ],
+  "parallel_context_probes": [],
+  "parallel_context_overlap_seconds": null,
+  "long_articles": [
+    {
+      "id": "analysis-2918",
+      "source_characters": 26923,
+      "input_tokens": 5523,
+      "usage": {
+        "completion_tokens": 3141,
+        "prompt_tokens": 5523,
+        "total_tokens": 8664,
+        "prompt_tokens_details": {
+          "cached_tokens": 245
+        }
+      },
+      "status": "ok",
+      "seconds": 71.04224643499992
+    },
+    {
+      "id": "analysis-1487",
+      "source_characters": 36511,
+      "input_tokens": 6936,
+      "usage": {
+        "completion_tokens": 3712,
+        "prompt_tokens": 6936,
+        "total_tokens": 10648,
+        "prompt_tokens_details": {
+          "cached_tokens": 251
+        }
+      },
+      "status": "ok",
+      "seconds": 84.85224108400007
+    },
+    {
+      "id": "analysis-1591",
+      "source_characters": 35598,
+      "input_tokens": 9257,
+      "usage": {
+        "completion_tokens": 4167,
+        "prompt_tokens": 9257,
+        "total_tokens": 13424,
+        "prompt_tokens_details": {
+          "cached_tokens": 251
+        }
+      },
+      "status": "ok",
+      "seconds": 102.328328693
+    },
+    {
+      "id": "analysis-1904",
+      "source_characters": 35287,
+      "input_tokens": 9404,
+      "usage": {
+        "completion_tokens": 3026,
+        "prompt_tokens": 9404,
+        "total_tokens": 12430,
+        "prompt_tokens_details": {
+          "cached_tokens": 251
+        }
+      },
+      "status": "ok",
+      "seconds": 80.6201783460001
+    }
+  ],
+  "peak_gpu_used_mib": {
+    "0": 11129,
+    "1": 10611
+  },
+  "peak_server_rss_kib": 21132852,
+  "minimum_system_available_kib": 22446576,
+  "memory_observation_errors": 0,
+  "business_validation": {
+    "valid": 27,
+    "invalid": 0,
+    "missing_ids": []
+  },
+  "projection_200_articles_per_day": {
+    "assumption": "200 analyses plus 200 card translations daily, each scaled from its measured group (23 articles / 23 cards); excludes platform provisioning, mounting, output saving and retries. Not an acceptance guarantee.",
+    "four_daily_batches_hours_per_week": 35.539139469623535,
+    "two_daily_batches_hours_per_week": 34.98783401509076
+  },
+  "manual_review": {
+    "accepted_for_product": false,
+    "findings": [
+      {
+        "entry_id": 2869,
+        "issue": "No wiring between boards became an unrestricted no-wiring claim, with an added edge-running capability."
+      },
+      {
+        "entry_id": 1701,
+        "issue": "Two live PostgreSQL databases became a dual-active architecture claim."
+      },
+      {
+        "entry_id": 1591,
+        "issue": "A truncated excerpt was completed into an overbroad definition of goroutine leaks."
+      },
+      {
+        "entry_id": 2953,
+        "issue": "Imminent team closure became an accomplished closure."
+      },
+      {
+        "entry_id": 2938,
+        "issue": "A 33 percent faster production claim became a 33 percent shorter duration."
+      }
+    ],
+    "scope": "Selected manual fidelity findings; schema success is not factual certification."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "rows": [
+    {
+      "context_limit": 16384,
+      "batch_id": "qwen-inbox-9009f344042db47d91ef837e",
+      "input_tokens": 8176,
+      "completion_tokens": [
+        206,
+        206
+      ],
+      "mean_request_seconds": 17.491333035000252,
+      "mean_prefill_seconds": 13.2785595,
+      "mean_decode_tokens_per_second": 51.26474433678791,
+      "whole_run_peak_gpu_mib": {
+        "0": 10601,
+        "1": 10083
+      }
+    },
+    {
+      "context_limit": 65536,
+      "batch_id": "qwen-inbox-ee2b13c9b865dc81b5a34da7",
+      "input_tokens": 8176,
+      "completion_tokens": [
+        206,
+        206
+      ],
+      "mean_request_seconds": 18.316274862000228,
+      "mean_prefill_seconds": 14.165936,
+      "mean_decode_tokens_per_second": 52.066038964500486,
+      "whole_run_peak_gpu_mib": {
+        "0": 11129,
+        "1": 10611
+      }
+    }
+  ],
+  "request_time_change_percent": 4.716289063556567,
+  "limitations": "Two repeats in separate sessions; GPU peaks cover different full workloads. Remaining output budgets differ with context limits. This is not a universal speed or memory guarantee."
+}
