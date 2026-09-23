@@ -58,3 +58,24 @@ await native.handleLoadMore(async()=>({entries:Array.from({length:5},(_,i)=>({id
 assert.equal(visible,false);
 assert.equal(state.entries.length,65);
 console.log('PASS native remaining total vs cumulative count, true tail stopping');
+
+// Batch imports: created_at buckets must never choose the same ID boundary twice.
+for (const direction of ['desc', 'asc']) {
+  dependencies.settingsState.set({pageSize:20,showStatus:'all',orderBy:'created_at',orderDirection:direction});
+  const initialIds = direction === 'desc' ? Array.from({length:20},(_,i)=>100-i) : Array.from({length:20},(_,i)=>1+i);
+  state={entries:initialIds.map(id=>({id,title:'ID '+id,created_at:123})),articleListOffset:20,articleListSnapshotRevision:2,infoFrom:'feed',filterString:''};
+  visible=true;
+  const loader=evaluate('hooks/useLoadMore.js','useLoadMore')();
+  const key=direction==='desc'?'before_entry_id':'after_entry_id';
+  const expectedFirst=direction==='desc'?81:20;
+  await loader.handleLoadMore(async(_status,_starred,params)=>{
+    assert.equal(params[key],expectedFirst);
+    return {total:61,entries:Array.from({length:20},(_,i)=>{const id=direction==='desc'?80-i:21+i;return{id,title:'ID '+id,created_at:123}})};
+  });
+  await loader.handleLoadMore(async(_status,_starred,params)=>{
+    assert.equal(params[key],direction==='desc'?61:40);
+    return {total:0,entries:[]};
+  });
+  assert.equal(visible,false);
+}
+console.log('PASS created-at native ID boundaries advance both directions despite equal timestamps');

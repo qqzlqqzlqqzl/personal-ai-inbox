@@ -2,16 +2,16 @@
 <opml version="2.0" xmlns:miniflux="https://miniflux.app/opml">
     <head>
         <title>Miniflux</title>
-        <dateCreated>Wed, 23 Sep 2026 10:19:32 CST</dateCreated>
+        <dateCreated>Wed, 23 Sep 2026 11:47:13 CST</dateCreated>
     </head>
     <body>
         <outline text="AI 公司与研究">
             <outline title="AWS Machine Learning" text="AWS Machine Learning" xmlUrl="https://aws.amazon.com/blogs/machine-learning/feed/" htmlUrl="https://aws.amazon.com/blogs/machine-learning/" description="Official Machine Learning Blog of Amazon Web Services" type="rss"></outline>
-            <outline title="BAIR" text="BAIR" xmlUrl="https://bair.berkeley.edu/blog/feed.xml" htmlUrl="http://bair.berkeley.edu/blog/" description="The BAIR Blog" type="rss"></outline>
             <outline title="Google DeepMind" text="Google DeepMind" xmlUrl="https://deepmind.google/blog/rss.xml" htmlUrl="https://deepmind.google/blog/" description="Read the latest articles and stories from DeepMind and find out more about our latest breakthroughs in cutting-edge AI research." type="rss"></outline>
             <outline title="Microsoft Research" text="Microsoft Research" xmlUrl="https://www.microsoft.com/en-us/research/feed/" htmlUrl="https://www.microsoft.com/en-us/research/" type="rss"></outline>
-            <outline title="NVIDIA Developer" text="NVIDIA Developer" xmlUrl="https://developer.nvidia.com/blog/feed/" htmlUrl="https://developer.nvidia.com/blog" description="News and tutorials for developers, data scientists, and IT admins" type="rss"></outline>
             <outline title="OpenAI News" text="OpenAI News" xmlUrl="https://openai.com/news/rss.xml" htmlUrl="https://openai.com/news" description="The OpenAI blog" type="rss"></outline>
+            <outline title="BAIR" text="BAIR" xmlUrl="https://bair.berkeley.edu/blog/feed.xml" htmlUrl="http://bair.berkeley.edu/blog/" description="The BAIR Blog" type="rss"></outline>
+            <outline title="NVIDIA Developer" text="NVIDIA Developer" xmlUrl="https://developer.nvidia.com/blog/feed/" htmlUrl="https://developer.nvidia.com/blog" description="News and tutorials for developers, data scientists, and IT admins" type="rss"></outline>
         </outline>
         <outline text="个人博客">
             <outline title="Andrej Karpathy" text="Andrej Karpathy" xmlUrl="https://karpathy.github.io/feed.xml" htmlUrl="http://karpathy.github.io/" description="Musings of a Computer Scientist." type="rss"></outline>
@@ -23,10 +23,10 @@
             <outline title="Simon Willison" text="Simon Willison" xmlUrl="https://simonwillison.net/atom/everything/" htmlUrl="http://simonwillison.net/" type="rss"></outline>
         </outline>
         <outline text="中文技术与资讯">
+            <outline title="开源中国" text="开源中国" xmlUrl="https://www.oschina.net/news/rss" htmlUrl="https://www.oschina.net/news/rss" description="OSCHINA - 中文开源技术交流社区" type="rss"></outline>
             <outline title="InfoQ 中文" text="InfoQ 中文" xmlUrl="https://www.infoq.cn/feed" htmlUrl="https://www.infoq.cn" description="InfoQ 是一个实践驱动的社区资讯站点，致力于促进软件开发领域知识与创新的传播。" type="rss"></outline>
             <outline title="Solidot" text="Solidot" xmlUrl="https://www.solidot.org/index.rss" htmlUrl="https://www.solidot.org" description="奇客的知识，重要的东西。" type="rss"></outline>
             <outline title="少数派" text="少数派" xmlUrl="https://sspai.com/feed" htmlUrl="https://sspai.com" description="少数派致力于更好地运用数字产品或科学方法，帮助用户提升工作效率和生活品质" type="rss"></outline>
-            <outline title="开源中国" text="开源中国" xmlUrl="https://www.oschina.net/news/rss" htmlUrl="https://www.oschina.net/news/rss" description="OSCHINA - 中文开源技术交流社区" type="rss"></outline>
             <outline title="阮一峰科技周刊" text="阮一峰科技周刊" xmlUrl="https://www.ruanyifeng.com/blog/atom.xml" htmlUrl="http://www.ruanyifeng.com/blog/" description="Ruan YiFeng&#39;s Blog" type="rss"></outline>
         </outline>
         <outline text="产品与众筹">

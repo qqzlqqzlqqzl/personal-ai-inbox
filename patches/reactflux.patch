@@ -33,6 +33,42 @@
    </head>
    <body>
      <noscript>You need to enable JavaScript to run this app.</noscript>
+--- a/src/hooks/useEntryActions.js
++++ b/src/hooks/useEntryActions.js
+@@ -436,16 +436,19 @@
+   const handleFetchContent = async () => {
+     const { activeContent } = contentState.get()
+     if (!activeContent) {
+-      return
++      return false
+     }
+ 
+     try {
+       const { content: newContent, reading_time: readingTime } = await getOriginalContent(
+         activeContent.id,
+       )
++      if (typeof newContent !== "string" || !newContent.trim()) {
++        throw new Error("Empty extracted article body")
++      }
+       const currentActiveContent = contentState.get().activeContent
+       if (currentActiveContent?.id !== activeContent.id) {
+-        return
++        return false
+       }
+ 
+       Message.success(polyglot.t("actions.fetched_content_success"))
+@@ -456,9 +459,11 @@
+         headings: extractHeadings(newContent),
+         reading_time: newReadingTime,
+       })
++      return true
+     } catch (error) {
+       console.error("Failed to fetch content:", error)
+       Message.error(polyglot.t("actions.fetched_content_error"))
++      return false
+     }
+   }
+ 
 --- a/src/hooks/useLoadMore.js
 +++ b/src/hooks/useLoadMore.js
 @@ -13,6 +13,7 @@
@@ -43,7 +79,7 @@
  import createArticleListRequestKey from "@/utils/article-list-request-key"
  import { getTimestamp } from "@/utils/date"
  import {
-@@ -62,6 +63,9 @@
+@@ -62,8 +63,18 @@
    }
  
    const getFilterParams = (currentEntries) => {
@@ -52,8 +88,17 @@
 +    }
      if (currentEntries.length === 0) {
        return {}
++    }
++
++    if (sortProperty === "created_at") {
++      const boundary = currentEntries.reduce((value, entry) =>
++        orderDirection === "desc" ? Math.min(value, entry.id) : Math.max(value, entry.id),
++        currentEntries[0].id)
++      return orderDirection === "desc" ? { before_entry_id: boundary } : { after_entry_id: boundary }
      }
-@@ -227,13 +231,17 @@
+ 
+     const referenceEntry = getReferenceEntry(currentEntries)
+@@ -227,13 +238,17 @@
          throw new TypeError("Invalid entries response")
        }
  
@@ -72,7 +117,7 @@
          console.warn("Stopped loading more articles because the pagination cursor did not advance")
          setLoadMoreVisible(false)
          return
-@@ -247,7 +255,9 @@
+@@ -247,7 +262,9 @@
          }
          progress.committedEntryIds = new Set(contentState.get().entries.map(({ id }) => id))
        }
@@ -160,6 +205,28 @@
      ...filterParams,
    }
  
+--- a/src/locales/zh-CN.json
++++ b/src/locales/zh-CN.json
+@@ -130,7 +130,7 @@
+     "unread_article_aria_label": "%{title}，未读",
+     "star_tooltip": "收藏",
+     "unstar_tooltip": "取消收藏",
+-    "fetch_original_tooltip": "获取原文",
++    "fetch_original_tooltip": "重新抓取正文",
+     "more_actions_tooltip": "更多操作",
+     "save_to_third_party_services_tooltip": "保存到第三方服务",
+     "share_tooltip": "分享",
+@@ -350,8 +350,8 @@
+     "enable_swipe_gesture_label": "启用文章滑动切换",
+     "swipe_sensitivity_description": "调整文章切换手势的触发灵敏度",
+     "swipe_sensitivity_label": "文章滑动灵敏度",
+-    "update_content_on_fetch_label": "获取原文时自动保存",
+-    "update_content_on_fetch_description": "获取原文时自动更新并保存到数据库",
++    "update_content_on_fetch_label": "重新抓取正文后保存到服务器",
++    "update_content_on_fetch_description": "关闭时仅更新本次阅读内容；开启后覆盖服务器保存的正文，不影响原站",
+     "skip_mark_all_read_confirmation_label": "跳过全部标为已读的确认",
+     "skip_mark_all_read_confirmation_description": "点击全部标为已读时不显示确认对话框",
+     "mark_all_read_jump_to_next_label": "标记已读后自动跳转下一个未读",
 --- a/src/pages/Login.jsx
 +++ b/src/pages/Login.jsx
 @@ -1,20 +1,18 @@
@@ -373,12 +440,18 @@
            ref={entryListRef}
 --- a/src/components/Article/ArticleGridCard.jsx
 +++ b/src/components/Article/ArticleGridCard.jsx
-@@ -1,3 +1,4 @@
+@@ -1,8 +1,10 @@
 +import AiBadge from "@/components/Ai/AiBadge"
  import { IconClockCircle, IconStarFill } from "@arco-design/web-react/icon"
  import { useStore } from "@nanostores/react"
  import classNames from "classnames"
-@@ -56,7 +57,7 @@
+ import { memo, useState } from "react"
+ 
++import CardLanguage from "@/components/Ai/CardLanguage"
+ import FeedIcon from "@/components/ui/FeedIcon"
+ import { articleGridCardSettingsState } from "@/store/settingsState"
+ import { generateReadingTime, generateRelativeTime } from "@/utils/date"
+@@ -56,7 +58,7 @@
    const currentCoverState = isCurrentCover ? coverState : getInitialCoverState(entry)
    const { hasError, isReady, shouldCrop } = currentCoverState
    const hasCover = Boolean(entry.coverSource) && !hasError
@@ -387,14 +460,16 @@
  
    const handleCoverLoad = ({ currentTarget }) => {
      const aspectRatio = getAspectRatio(currentTarget.naturalWidth, currentTarget.naturalHeight)
-@@ -122,6 +123,7 @@
+@@ -122,7 +124,9 @@
  
          {showCardSummary && cardSummary && <p className="grid-card-summary">{cardSummary}</p>}
  
 +        <AiBadge entry={entry} />
          <div className="grid-card-footer">
++          <CardLanguage entry={entry} />
            {showEstimatedReadingTime && (
              <span className="grid-card-reading-time">
+               <IconClockCircle aria-hidden="true" />
 --- a/src/components/Article/ArticleDetail.jsx
 +++ b/src/components/Article/ArticleDetail.jsx
 @@ -1,3 +1,4 @@
@@ -410,14 +485,69 @@
              <Divider />
            </div>
            <div
+@@ -665,6 +667,14 @@
+                   onImagePreview={togglePhotoSlider}
+                   onOpenChange={handleEnclosuresOpenChange}
+                 />
++                {sourceUrl && (
++                  <footer className="article-source-footer">
++                    <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
++                      打开原始网页 ↗
++                    </a>
++                    <span>在原站查看评论、互动及最新内容</span>
++                  </footer>
++                )}
+                 {hasOpenedPhotoSlider && (
+                   <Suspense fallback={null}>
+                     <ArticleLightbox
+--- a/src/components/Article/ArticleListItem.jsx
++++ b/src/components/Article/ArticleListItem.jsx
+@@ -2,6 +2,7 @@
+ import { useStore } from "@nanostores/react"
+ import { memo } from "react"
+ 
++import CardLanguage from "@/components/Ai/CardLanguage"
+ import FeedIcon from "@/components/ui/FeedIcon"
+ import { articleListItemSettingsState } from "@/store/settingsState"
+ import { generateReadingTime, generateRelativeTime } from "@/utils/date"
+@@ -18,7 +19,7 @@
+ const ArticleListItem = ({ entry, previewContent }) => {
+   const { showDetailedRelativeTime, showEstimatedReadingTime, showFeedIcon, showListSummary } =
+     useStore(articleListItemSettingsState)
+-  const listSummary = getListSummary(previewContent)
++  const listSummary = getListSummary(entry.card?.summary || entry.ai?.summary || previewContent)
+ 
+   return (
+     <div className="list-entry-content">
+@@ -40,6 +41,7 @@
+       </div>
+ 
+       <div className="list-entry-meta">
++        <CardLanguage entry={entry} />
+         {showEstimatedReadingTime && (
+           <span className="list-entry-reading-time">
+             <IconClockCircle aria-hidden="true" />
 --- a/src/components/Article/ArticleCard.jsx
 +++ b/src/components/Article/ArticleCard.jsx
-@@ -1,3 +1,4 @@
+@@ -1,7 +1,9 @@
 +import AiBadge from "@/components/Ai/AiBadge"
  import { IconClockCircle, IconStarFill } from "@arco-design/web-react/icon"
  import { useStore } from "@nanostores/react"
  import { memo, useState } from "react"
-@@ -164,7 +165,7 @@
+ 
++import CardLanguage from "@/components/Ai/CardLanguage"
+ import FeedIcon from "@/components/ui/FeedIcon"
+ import { articleCardSettingsState } from "@/store/settingsState"
+ import { WIDE_IMAGE_RATIO } from "@/utils/constants"
+@@ -131,6 +133,7 @@
+         </div>
+ 
+         <h3 className="article-entry-title card-title">{entry.title}</h3>
++        <CardLanguage entry={entry} />
+       </div>
+ 
+       {shouldRenderCover && isWideImage && (
+@@ -164,7 +167,7 @@
                className="card-preview"
                style={{ lineClamp: summaryLines, WebkitLineClamp: summaryLines }}
              >
@@ -426,7 +556,7 @@
              </p>
            )}
          </div>
-@@ -180,6 +181,7 @@
+@@ -180,6 +183,7 @@
            </div>
          )}
        </div>
@@ -434,17 +564,43 @@
      </div>
    )
  }
+--- a/src/components/Article/SearchAndSortBar.jsx
++++ b/src/components/Article/SearchAndSortBar.jsx
+@@ -27,6 +27,7 @@
+ import { catalogCategoriesState, catalogFeedsState } from "@/store/dataState"
+ import { duplicateHotkeysState, hotkeysState } from "@/store/hotkeysState"
+ import { settingsState, updateSettings } from "@/store/settingsState"
++import { aiState } from "@/store/aiState"
+ import { getStartOfToday } from "@/utils/date"
+ import "./SearchAndSortBar.css"
+ 
+@@ -182,6 +183,8 @@
+     keys: ["filterDate", "filterString", "infoFrom", "isArticleListReady"],
+   })
+   const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })
++  const ai = useStore(aiState)
++  const scoreOrder = infoFrom === "all" && ai.mode === "recommended" && ai.sort !== "time"
+   const { polyglot } = useStore(polyglotState)
+   const feeds = useStore(catalogFeedsState)
+   const categories = useStore(catalogCategoriesState)
+@@ -199,10 +202,11 @@
+   const searchLabel = filterString
+     ? polyglot.t("search.active_query", { query: filterString })
+     : polyglot.t("search.search")
+-  const sortLabel =
+-    orderDirection === "desc"
++  const sortLabel = scoreOrder
++    ? (orderDirection === "desc" ? "高分优先" : "低分优先")
++    : (orderDirection === "desc"
+       ? polyglot.t("article_list.sort_direction_desc")
+-      : polyglot.t("article_list.sort_direction_asc")
++      : polyglot.t("article_list.sort_direction_asc"))
+   const openSearchModalHotkeys = hotkeys.openSearchModal.filter(
+     (key) => !duplicateHotkeys.includes(key),
+   )
 --- a/src/components/Article/ArticleEntry.jsx
 +++ b/src/components/Article/ArticleEntry.jsx
-@@ -12,6 +12,7 @@
- import classNames from "classnames"
- import { memo, useLayoutEffect, useMemo, useRef } from "react"
- 
-+import CardLanguage from "@/components/Ai/CardLanguage"
- import useEntryActions from "@/hooks/useEntryActions"
- import { polyglotState } from "@/hooks/useLanguage"
- import useLongPressContextMenu from "@/hooks/useLongPressContextMenu"
-@@ -81,8 +82,8 @@
+@@ -81,8 +81,8 @@
    const { getPrimaryLinkProps, openInReactFlux, opensSourceOnCardClick } = articleActivation
    const primaryLinkProps = getPrimaryLinkProps(entry)
    const accessibleLabel = isUnread
@@ -455,13 +611,92 @@
    const menuOpenAction = opensSourceOnCardClick
      ? {
          icon: <IconBook aria-hidden="true" />,
-@@ -171,7 +172,8 @@
+@@ -171,7 +171,7 @@
            unread: isUnread,
          })}
        >
 -        <Presenter entry={entry} previewContent={previewContent} />
 +        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />
-+        <CardLanguage entry={entry} />
        </a>
      </Dropdown>
    )
+--- a/src/components/Article/ActionButtons.jsx
++++ b/src/components/Article/ActionButtons.jsx
+@@ -132,15 +132,14 @@
+ 
+   const [dropdownVisible, setDropdownVisible] = useState(false)
+   const [isCompactTocVisible, setIsCompactTocVisible] = useState(false)
+-  const [isFetchedOriginal, setIsFetchedOriginal] = useState(false)
+-  const [lastActiveContentId, setLastActiveContentId] = useState(activeContent?.id)
++  const [fetchedEntryId, setFetchedEntryId] = useState(null)
++  const [fetchingEntryId, setFetchingEntryId] = useState(null)
++  const fetchRequestRef = useRef(null)
++  const isFetchedOriginal = fetchedEntryId === activeContent?.id
++  const fetchBusy = fetchingEntryId === activeContent?.id
+   const compactTocMenuItemRef = useRef(null)
+   const moreButtonRef = useRef(null)
+ 
+-  if (activeContent?.id !== lastActiveContentId) {
+-    setLastActiveContentId(activeContent?.id)
+-    setIsFetchedOriginal(false)
+-  }
+ 
+   const hasHeadings = headings.length > 0
+ 
+@@ -151,6 +150,25 @@
+     handleToggleStatus,
+     handleOpenLinkExternally,
+   } = useEntryActions()
++
++  const fetchOriginalForCurrentEntry = async () => {
++    const id = contentState.get().activeContent?.id
++    if (!id || fetchRequestRef.current?.id === id) return
++    const request = { id }
++    fetchRequestRef.current = request
++    setFetchingEntryId(id)
++    try {
++      const succeeded = await handleFetchContent()
++      if (succeeded && contentState.get().activeContent?.id === id && fetchRequestRef.current === request) {
++        setFetchedEntryId(id)
++      }
++    } finally {
++      if (fetchRequestRef.current === request) {
++        fetchRequestRef.current = null
++        setFetchingEntryId(null)
++      }
++    }
++  }
+ 
+   const { exitDetailView, navigateToNextArticle, navigateToPreviousArticle } = useKeyHandlers()
+ 
+@@ -311,13 +329,11 @@
+       <CustomTooltip mini content={actionLabels.fetch}>
+         <Button
+           aria-label={actionLabels.fetch}
+-          disabled={isFetchedOriginal}
++          loading={fetchBusy}
++          disabled={isFetchedOriginal || fetchBusy}
+           icon={<IconCloudDownload aria-hidden="true" />}
+           shape="circle"
+-          onClick={async () => {
+-            await handleFetchContent()
+-            setIsFetchedOriginal(true)
+-          }}
++          onClick={fetchOriginalForCurrentEntry}
+         />
+       </CustomTooltip>
+     ),
+@@ -345,11 +361,8 @@
+               {showFetchInMenu && (
+                 <Menu.Item
+                   key="fetch_original"
+-                  disabled={isFetchedOriginal}
+-                  onClick={async () => {
+-                    await handleFetchContent()
+-                    setIsFetchedOriginal(true)
+-                  }}
++                  disabled={isFetchedOriginal || fetchBusy}
++                  onClick={fetchOriginalForCurrentEntry}
+                 >
+                   <div className="settings-menu-item">
+                     <span>{actionLabels.fetch}</span>

@@ -1,5 +1,5 @@
 {
-  "at": 1790135037.2658334,
+  "at": 1790130155.9415843,
   "base_url": "https://106.53.40.6",
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
@@ -116,7 +116,7 @@
       "name": "full_article_readable",
       "passed": true,
       "detail": {
-        "body_chars": 17250,
+        "body_chars": 17224,
         "entry_id": 1344
       }
     },
@@ -180,7 +180,7 @@
       "passed": true,
       "detail": {
         "status": 200,
-        "url": "https://106.53.40.6/news/i/?rid=6ab34b1d1f78a"
+        "url": "https://106.53.40.6/news/i/?rid=6ab3380e8e75c"
       }
     },
     {

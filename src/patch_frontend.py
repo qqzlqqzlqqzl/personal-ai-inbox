@@ -52,7 +52,7 @@ patch('src/hooks/useArticleList.js','  const preparedEntries = response.entries.
 patch('src/hooks/useLoadMore.js','      const progress = paginationProgressRef.current','      const isAiPagination = infoFrom === "all" && aiFilterEnabled()\n      if (isAiPagination) {\n        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)\n      }\n      const progress = paginationProgressRef.current')
 patch('src/hooks/useLoadMore.js','if (response.entries.length > 0 && !hasNewResponseEntries) {','if (!isAiPagination && response.entries.length > 0 && !hasNewResponseEntries) {')
 patch('src/components/Article/ArticleEntry.jsx','import useEntryActions from "@/hooks/useEntryActions"','import CardLanguage from "@/components/Ai/CardLanguage"\nimport useEntryActions from "@/hooks/useEntryActions"')
-patch('src/components/Article/ArticleEntry.jsx','        <Presenter entry={entry} previewContent={previewContent} />','        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />\n        <CardLanguage entry={entry} />')
+patch('src/components/Article/ArticleEntry.jsx','        <Presenter entry={entry} previewContent={previewContent} />','        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />')
 patch('src/components/Article/ArticleEntry.jsx','{ title: entry.title })\n    : entry.title','{ title: entry.card?.title || entry.title })\n    : (entry.card?.title || entry.title)')
 shutil.copy2(ROOT/'patches/CardLanguage.jsx', WEB/'src/components/Ai/CardLanguage.jsx')
 diffs=[]

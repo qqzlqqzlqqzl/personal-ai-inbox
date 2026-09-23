@@ -1,5 +1,10 @@
 # 验收证据索引
 
+## 2026-09-23 卡片/排序/原站入口（PR #14，当前）
+以 `ui-review/suite.json` 为总门禁；其每一阶段必须退出0、产出本轮新报告且通过。详见 `docs/ops/UI-REVIEW-RELEASE.md`。`ui-review/*attempt*.json`、`baseline.json`、`layout-before.json` 是保留的复现/失败证据，不能算成功。
+
+根目录和 `scroll-session/browser.json` 会被复跑更新；PR #5原始证据请通过其提交历史查看，不将新的复跑结果反向冒充旧版本结果。
+
 ## 2026-09-23 连续阅读发布（PR #5）
 以 `scroll-session/release.json`、`scroll-session/browser.json`、`scroll-session/live-api.json`、`scroll-session/comprehensive-after.json` 和 `scroll-session/unit-tests.xml` 为准。
 

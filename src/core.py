@@ -276,6 +276,8 @@ def status_summary(user_id):
     return {
         "counts": counts,
         "translations": translation_status(user_id),
+        "analysis_enabled": settings()["enabled"],
+        "translation_enabled": settings().get("translation_enabled", True),
         "preview_heartbeat": get_meta("preview_heartbeat"),
         "events": recent,
         "usage": usage,

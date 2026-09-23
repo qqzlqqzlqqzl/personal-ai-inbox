@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react"
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router"
 import { aiState } from "@/store/aiState"
+import { settingsState, updateSettings } from "@/store/settingsState"
 import { invalidateArticleList } from "@/store/contentState"
 import AiPanel from "./AiPanel"
 import apiClient from "@/apis/ofetch"
@@ -9,6 +10,7 @@ import "./AiNews.css"
 
 export default function AiToolbar({ source }) {
   const state = useStore(aiState)
+  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const [progress,setProgress] = useState(null)
@@ -53,9 +55,9 @@ export default function AiToolbar({ source }) {
       <button key={mode} aria-pressed={source === "all" && state.mode === mode} onClick={() => change({ mode })}>{label}</button>)}</div>
     {state.mode === "recommended" && source === "all" && <>
       <label>最低分 <select value={state.minimum} onChange={e => change({ minimum: Number(e.target.value) })}>{[0,3,5,6,7,8,9].map(n => <option key={n}>{n}</option>)}</select></label>
-      <select aria-label="AI 排序" value={state.sort} onChange={e => change({ sort: e.target.value })}><option value="score">推荐优先</option><option value="technical">技术价值</option><option value="business">商业启发</option><option value="time">最新内容</option></select>
+      <select aria-label="AI 排序" value={state.sort === "time" ? `time_${orderDirection}` : state.sort} onChange={e => { const value = e.target.value; updateSettings({ orderDirection: value === "time_asc" ? "asc" : "desc" }); change({ sort: value.startsWith("time_") ? "time" : value }) }}><option value="score">推荐优先</option><option value="technical">技术价值</option><option value="business">商业启发</option><option value="time_desc">最新优先</option><option value="time_asc">最旧优先</option></select>
     </>}
-    {progress && <span className="ai-progress">已分析 {progress.counts.done || 0} / {Object.values(progress.counts).reduce((a,b)=>a+b,0)} · 后台按预算处理</span>}
+    {progress && <span className="ai-progress">已分析 {progress.counts.done || 0} / {Object.values(progress.counts).reduce((a,b)=>a+b,0)} · {progress.analysis_enabled === false ? "分析已暂停" : "后台按预算处理"}{progress.translation_enabled === false ? " · 中文翻译已暂停" : ""}</span>}
     {updatesAvailable && <button className="ai-updates" onClick={() => { setUpdatesAvailable(false); invalidateArticleList() }}>有新内容 / 中文更新 · 点击刷新</button>}
     <button className="ai-settings-button" onClick={() => setOpen(true)}>AI 设置 · 来源 · 工具</button>
     {open && <AiPanel onClose={() => setOpen(false)} />}
