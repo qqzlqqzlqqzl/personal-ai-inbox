@@ -1,0 +1,28 @@
+{
+  "at": 1790135517.1417048,
+  "code_commit": "136596368f00b43ec9762ab150bfe7bc92dedf7f",
+  "suite_passed": true,
+  "stage_count": 9,
+  "public_index_sha256": "1d97669e3789ea483b8ccba55efb951c3e66a778f36dea1ce48623d4fed65341",
+  "local_index_sha256": "1d97669e3789ea483b8ccba55efb951c3e66a778f36dea1ce48623d4fed65341",
+  "public_http": 200,
+  "health": {
+    "services": {
+      "gateway": true,
+      "reader": true,
+      "rsshub": true
+    },
+    "ready": true,
+    "model_configured": true,
+    "reader_worker_configured": true
+  },
+  "settings_unchanged": true,
+  "existing_settings": {
+    "model": "deepseek-v4-flash-ga-260731",
+    "enabled": false,
+    "translation_enabled": false,
+    "daily_articles": 300,
+    "daily_tokens": 1000000
+  },
+  "limits": "Current tested paths only; ongoing lifecycle gaps remain in issue #3"
+}

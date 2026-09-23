@@ -1,0 +1,311 @@
+{
+  "at": 1790134960.5809178,
+  "base": "https://106.53.40.6",
+  "mode": "live entries; controlled translation state and fetch failures",
+  "checks": [
+    {
+      "name": "disabled_translation_has_no_waiting_stripe",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "paused_translation_explained_once_in_toolbar",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_order_time_asc",
+      "passed": true,
+      "detail": [
+        1591869600.0,
+        1647241200.0,
+        1709035200.0,
+        1732752000.0,
+        1734436800.0
+      ]
+    },
+    {
+      "name": "dom_order_time_asc",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_order_time_desc",
+      "passed": true,
+      "detail": [
+        1790107920.0,
+        1790103487.0,
+        1790089920.0,
+        1790087537.0,
+        1790086645.0
+      ]
+    },
+    {
+      "name": "dom_order_time_desc",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_order_score_desc",
+      "passed": true,
+      "detail": [
+        9,
+        9,
+        9,
+        9,
+        9
+      ]
+    },
+    {
+      "name": "dom_order_score_desc",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "live_order_score_asc",
+      "passed": true,
+      "detail": [
+        6,
+        6,
+        6,
+        6,
+        6
+      ]
+    },
+    {
+      "name": "dom_order_score_asc",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "score_direction_label_matches",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_card_width_pending",
+      "passed": true,
+      "detail": [
+        {
+          "id": "1339",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        },
+        {
+          "id": "1521",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        }
+      ]
+    },
+    {
+      "name": "status_placement_pending",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_card_width_processing",
+      "passed": true,
+      "detail": [
+        {
+          "id": "1339",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        },
+        {
+          "id": "1521",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        }
+      ]
+    },
+    {
+      "name": "status_placement_processing",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_card_width_error",
+      "passed": true,
+      "detail": [
+        {
+          "id": "1339",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        },
+        {
+          "id": "1521",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        }
+      ]
+    },
+    {
+      "name": "status_placement_error",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_card_width_budget_paused",
+      "passed": true,
+      "detail": [
+        {
+          "id": "1339",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        },
+        {
+          "id": "1521",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": true
+        }
+      ]
+    },
+    {
+      "name": "status_placement_budget_paused",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_card_width_disabled",
+      "passed": true,
+      "detail": [
+        {
+          "id": "1339",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": false
+        },
+        {
+          "id": "1521",
+          "w": 286,
+          "cw": 284,
+          "side": false,
+          "statusInside": false
+        }
+      ]
+    },
+    {
+      "name": "status_placement_disabled",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "column_no_status_sibling",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "column_no_overflow",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "list_no_status_sibling",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "list_no_overflow",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "compact_ai_list_keeps_summary",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "mobile_no_horizontal_overflow",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "mobile_no_status_sibling",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "title_and_footer_same_original_url",
+      "passed": true,
+      "detail": "http://karpathy.github.io/2022/03/14/lecun1989/"
+    },
+    {
+      "name": "both_source_links_new_tab",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "title_opens_original_site",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "footer_opens_original_site",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "failed_fetch_preserves_body",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "failed_fetch_allows_retry",
+      "passed": true,
+      "detail": {
+        "requests": 1
+      }
+    },
+    {
+      "name": "successful_retry_shows_body",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "fetch_without_save_not_persisted",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "old_article_fetch_in_flight",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "stale_fetch_does_not_replace_new_article",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "stale_fetch_does_not_disable_new_button",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "no_fatal_javascript",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "settings_unchanged": true,
+  "test_entry_states_restored": true,
+  "passed": true
+}
