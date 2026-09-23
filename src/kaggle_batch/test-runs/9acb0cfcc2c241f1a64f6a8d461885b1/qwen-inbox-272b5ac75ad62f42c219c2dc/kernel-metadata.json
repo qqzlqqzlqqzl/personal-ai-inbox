@@ -1,0 +1,15 @@
+{
+  "id": "owner/qwen-inbox-272b5ac75ad62f42c219c2dc",
+  "title": "qwen-inbox-272b5ac75ad62f42c219c2dc",
+  "code_file": "runner.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "kernel_sources": [
+    "owner/runtime"
+  ],
+  "dataset_sources": [],
+  "competition_sources": []
+}

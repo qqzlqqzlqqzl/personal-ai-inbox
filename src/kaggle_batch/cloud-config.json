@@ -1,0 +1,17 @@
+{
+  "owner": "qogirqogir",
+  "source": "/home/ubuntu/ai-news/src",
+  "database": "/home/ubuntu/ai-news/state/analysis.sqlite3",
+  "state_root": "/home/ubuntu/ai-news/state/kaggle-batches",
+  "kaggle_python": "/home/ubuntu/ai-news/runtime/kaggle-venv/bin/python",
+  "token_file": "/home/ubuntu/ai-news/.private/kaggle/access_token",
+  "versions": "/home/ubuntu/ai-news/src/kaggle_batch/versions-q4.json",
+  "runtime_source": "qogirqogir/qwen36-inbox-16k-20260923",
+  "runtime_sha256": "27c74fe67350c20a7f61f5d0bb15ab3857977883f8be1bbd3281c4beb4381be4",
+  "model_dataset": "micronic/qwen3-6-35b-a3b-gguf",
+  "batch_limit": 20,
+  "context_size": 65536,
+  "parallel_requests": 2,
+  "interval_hours": 6,
+  "schedule_enabled": false
+}

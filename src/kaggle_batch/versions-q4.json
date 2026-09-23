@@ -1,0 +1,35 @@
+{
+  "model_repo": "kaggle://micronic/qwen3-6-35b-a3b-gguf",
+  "model_revision": "sha256:4ac6a06bce551257267f49ad2226f8671a22519ccc1a4dde9d5b433d1f2a410d",
+  "file": {
+    "rfilename": "Qwen3.6-35B-A3B-Q4_K_M.gguf",
+    "size": 21166757728,
+    "lfs": {
+      "sha256": "4ac6a06bce551257267f49ad2226f8671a22519ccc1a4dde9d5b433d1f2a410d"
+    }
+  },
+  "llama_commit": "4e416ee7308dd6b581796f1a6241276cd5982691",
+  "dataset_source": "micronic/qwen3-6-35b-a3b-gguf",
+  "metadata": {
+    "gguf_version": 3,
+    "tensor_count": 733,
+    "metadata_count": 41,
+    "general.architecture": "qwen35moe",
+    "general.type": "model",
+    "general.sampling.top_k": 20,
+    "general.sampling.top_p": 0.949999988079071,
+    "general.sampling.temp": 1.0,
+    "general.name": "Qwen_Qwen3.6 35B A3B",
+    "general.basename": "Qwen_Qwen3.6",
+    "general.size_label": "35B-A3B",
+    "qwen35moe.block_count": 40,
+    "qwen35moe.context_length": 262144,
+    "qwen35moe.embedding_length": 2048,
+    "qwen35moe.expert_count": 256,
+    "qwen35moe.expert_used_count": 8,
+    "chat_template_sha256": "e84f32a23fdda27689f868aa4a1a5621f41133e51a48d7f3efcbea2839574259",
+    "general.quantization_version": 2,
+    "general.file_type": 15
+  },
+  "upstream_hash_verified": false
+}

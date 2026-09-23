@@ -1,0 +1,19 @@
+{
+  "runtime_source": "owner/runtime",
+  "session_timeout": 600,
+  "items": [
+    {
+      "id": "analysis-1",
+      "input_hash": "version-a",
+      "messages": [
+        {
+          "role": "user",
+          "content": "public test fixture"
+        }
+      ]
+    }
+  ],
+  "runner_sha256": "c78446722285f511d340513fd1ea9207905297bf6263dab6f0089a607acefc8b",
+  "batch_id": "qwen-inbox-272b5ac75ad62f42c219c2dc",
+  "manifest_hash": "272b5ac75ad62f42c219c2dcbc55e4004f81281582e573acce674a8fe4645818"
+}

@@ -1,0 +1,39 @@
+{
+  "runtime_source": "owner/runtime",
+  "session_timeout": 600,
+  "items": [
+    {
+      "id": "analysis-1",
+      "input_hash": "version-a",
+      "messages": [
+        {
+          "role": "user",
+          "content": "public test fixture"
+        }
+      ]
+    },
+    {
+      "id": "analysis-2",
+      "input_hash": "version-b",
+      "messages": [
+        {
+          "role": "user",
+          "content": "b"
+        }
+      ]
+    },
+    {
+      "id": "analysis-3",
+      "input_hash": "version-c",
+      "messages": [
+        {
+          "role": "user",
+          "content": "c"
+        }
+      ]
+    }
+  ],
+  "runner_sha256": "4afecf695cf7fb0448b9fdb1da70df7351f20fcabb8bdc844ff17d278c72c350",
+  "batch_id": "qwen-inbox-c2638a0f3a1ab94b8096b967",
+  "manifest_hash": "c2638a0f3a1ab94b8096b967e92e0f491dbe7a51edaefbd711a2f04d9318ee46"
+}

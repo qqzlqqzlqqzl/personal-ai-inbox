@@ -85,3 +85,8 @@ runtime/venv/bin/python src/audit_secrets.py
 ## 历史材料
 
 `docs/research/DECISIONS.md` 及各仓库快照解释选型；`ACCESS-BLOCKERS.md` 仅保留早期安全检查的历史记录。最终交付状态、未通过的外部条件和证据以 `DELIVERY.md`、验收 Checklist 以及 `artifacts/` 中的机器可读报告为准。
+
+
+## Kaggle Qwen 按需批处理
+
+新增独立批处理入口，不替换网页服务。使用说明、模型固定版本、64K/思考配置、恢复及额度限制见 [Kaggle 运行手册](../../src/kaggle_batch/RUNBOOK.md)。定时任务保持关闭；旧付费 worker 开关保持不变。

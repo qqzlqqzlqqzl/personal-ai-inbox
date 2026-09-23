@@ -1,0 +1,9 @@
+[Unit]
+Description=Finite Kaggle Inbox batch (template, disabled)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/ai-news
+ExecStart=/usr/bin/timeout 8000 /home/ubuntu/ai-news/runtime/venv/bin/python /home/ubuntu/ai-news/src/kaggle_batch/cloud_cycle.py --config /home/ubuntu/ai-news/src/kaggle_batch/cloud-config.json
+TimeoutStartSec=8100
+UMask=0077
