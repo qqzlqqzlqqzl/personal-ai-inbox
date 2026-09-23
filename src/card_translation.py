@@ -100,6 +100,11 @@ def attach(entry, user_id):
         card.update(status=row['status'],source_kind=row['source_kind'],translated_at=row['translated_at'],error=row['error'])
         if row['status'] in ('done','native') and row['original_title'] == entry.get('title'):
             card.update(title=row['title_zh'],summary=row['summary_zh'],language='zh-CN')
+    if card.get('status') in ('done', 'native') and card.get('language') != 'zh-CN':
+        card['status'] = 'pending'  # Never advertise a stale title as translated.
+    card['enabled'] = core.settings().get('translation_enabled', True)
+    if not card['enabled'] and card['status'] not in ('done', 'native'):
+        card['status'] = 'disabled'
     return {**entry,'card':card}
 
 def status(user_id):

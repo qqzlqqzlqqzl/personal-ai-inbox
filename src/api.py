@@ -342,11 +342,20 @@ async def ai_entries(request, uid):
     if p.get("search"):
         where.append("(title LIKE ? OR result LIKE ?)")
         values += ["%" + p["search"][:200] + "%"] * 2
+    sort_key = p.get("ai_sort", "score")
+    direction = p.get("direction", "desc")
+    if sort_key not in {"score", "technical", "business", "time"} or direction not in {"asc", "desc"}:
+        raise HTTPException(400, "Invalid sort field or direction")
+    # Pending items have no meaningful score. Dates must compare instants, not ISO strings.
+    if p.get("ai_view") == "pending":
+        sort_key = "time"
     order = {
+        "score": "score",
         "technical": "technical_score",
         "business": "business_score",
-        "time": "published_at",
-    }.get(p.get("ai_sort"), "score")
+        "time": "julianday(published_at)",
+    }[sort_key]
+    sql_direction = direction.upper()
     with connect() as c:
         candidates = [
             dict(x)
@@ -355,7 +364,7 @@ async def ai_entries(request, uid):
                 + " AND ".join(where)
                 + " ORDER BY "
                 + order
-                + " DESC,entry_id DESC",
+                + f" {sql_direction},entry_id {sql_direction}",
                 values,
             )
         ]
@@ -363,7 +372,10 @@ async def ai_entries(request, uid):
         MF + "/v1/feeds", headers=upstream_headers
     )
     feeds_response.raise_for_status()
-    hidden = {f["id"] for f in feeds_response.json() if f.get("hide_globally")}
+    hidden = {
+        f["id"] for f in feeds_response.json()
+        if f.get("hide_globally") or (f.get("category") or {}).get("hide_globally")
+    }
     ids = [
         x["entry_id"]
         for x in candidates

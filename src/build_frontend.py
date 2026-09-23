@@ -92,6 +92,7 @@ def main():
         timeout=60,
     )
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_reading_session.py")], check=True, env=env, timeout=60)
+    subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_ui_review.py")], check=True, env=env, timeout=60)
     cmd = [
         str(ROOT / "runtime/build-tools/node_modules/.bin/pnpm"),
         "exec",
