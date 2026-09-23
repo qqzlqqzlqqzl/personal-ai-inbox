@@ -19,9 +19,9 @@ def until_count(page,n):
  page.wait_for_timeout(450)
 def read_to_next(page):
  old=geo(page)
- for _ in range(45):
+ for _ in range(160):
   if geo(page)['count']>old['count']:return geo(page)
-  move(page,max(140,old['viewport']*.28));page.wait_for_timeout(160)
+  move(page,max(180,old['viewport']*.65));page.wait_for_timeout(160)
  until_count(page,old['count']);return geo(page)
 with client() as c:status=c.get('/v1/ai/status').json()
 u,pw=local_admin()

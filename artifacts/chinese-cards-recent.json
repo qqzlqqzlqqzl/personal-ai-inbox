@@ -1,0 +1,37 @@
+{
+  "seeded": 200,
+  "batches": [
+    {
+      "processed": 6,
+      "tokens": 1780
+    },
+    {
+      "processed": 6,
+      "tokens": 2301
+    },
+    {
+      "processed": 6,
+      "tokens": 1890
+    },
+    {
+      "processed": 6,
+      "tokens": 1888
+    },
+    {
+      "processed": 0,
+      "failed": 6,
+      "error": "JSONDecodeError"
+    }
+  ],
+  "value_analysis_requests": 0,
+  "status": {
+    "counts": {
+      "done": 33,
+      "error": 6,
+      "native": 51,
+      "pending": 118
+    },
+    "heartbeat": null,
+    "shared_budget": true
+  }
+}

@@ -1,6 +1,6 @@
 {
-  "at": 1790101078.094952,
-  "base_url": "http://127.0.0.1:8092",
+  "at": 1790101113.5311317,
+  "base_url": "https://106.53.40.6",
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
     {
@@ -124,73 +124,9 @@
       "name": "real_article_has_image",
       "passed": true,
       "detail": null
-    },
-    {
-      "name": "real_article_image_loaded",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "ai_evidence_in_detail",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "deep_link_reload",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "preferences_cross_device",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "source_catalog_live_status",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "tool_shortcuts_not_empty",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "tools_cross_device",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "service_worker_scoped_to_inbox",
-      "passed": true,
-      "detail": {
-        "scope": "http://127.0.0.1:8092/inbox/",
-        "script": "http://127.0.0.1:8092/inbox/sw.js"
-      }
-    },
-    {
-      "name": "no_root_service_worker",
-      "passed": true,
-      "detail": [
-        "http://127.0.0.1:8092/inbox/"
-      ]
-    },
-    {
-      "name": "service_worker_does_not_hijack_status",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "outside_inbox_not_controlled",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "no_fatal_javascript_errors",
-      "passed": true,
-      "detail": []
     }
   ],
+  "error": "TimeoutError: Page.wait_for_function: Timeout 25000ms exceeded.",
   "test_mutations_restored": true,
-  "passed": true
+  "passed": false
 }

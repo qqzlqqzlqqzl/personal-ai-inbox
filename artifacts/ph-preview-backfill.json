@@ -1,0 +1,258 @@
+{
+  "at": 1790092271.3903055,
+  "batches": [
+    {
+      "at": 1790092170.4910226,
+      "processed": 12,
+      "updated": 10,
+      "failed": 2,
+      "ai_requests": 0,
+      "entries": [
+        {
+          "entry_id": 2409,
+          "result": "failed",
+          "error": "HTTPStatusError HTTP 404"
+        },
+        {
+          "entry_id": 2394,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2392,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2411,
+          "result": "failed",
+          "error": "ValueError"
+        },
+        {
+          "entry_id": 2386,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2870,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2385,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2384,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2846,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2383,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2858,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2847,
+          "result": "updated"
+        }
+      ]
+    },
+    {
+      "at": 1790092205.6614628,
+      "processed": 12,
+      "updated": 11,
+      "failed": 1,
+      "ai_requests": 0,
+      "entries": [
+        {
+          "entry_id": 2856,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2408,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2399,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2849,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2382,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2390,
+          "result": "failed",
+          "error": "ValueError"
+        },
+        {
+          "entry_id": 2850,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2407,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2848,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2857,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2406,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2387,
+          "result": "updated"
+        }
+      ]
+    },
+    {
+      "at": 1790092237.2032247,
+      "processed": 12,
+      "updated": 12,
+      "failed": 0,
+      "ai_requests": 0,
+      "entries": [
+        {
+          "entry_id": 2381,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2380,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2419,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2421,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2396,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2378,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2417,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2855,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2422,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2424,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2389,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2391,
+          "result": "updated"
+        }
+      ]
+    },
+    {
+      "at": 1790092265.631168,
+      "processed": 12,
+      "updated": 12,
+      "failed": 0,
+      "ai_requests": 0,
+      "entries": [
+        {
+          "entry_id": 2377,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2379,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2403,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2376,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2401,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2416,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2420,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2851,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2400,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2418,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2402,
+          "result": "updated"
+        },
+        {
+          "entry_id": 2398,
+          "result": "updated"
+        }
+      ]
+    },
+    {
+      "at": 1790092271.3565626,
+      "processed": 1,
+      "updated": 1,
+      "failed": 0,
+      "ai_requests": 0,
+      "entries": [
+        {
+          "entry_id": 2425,
+          "result": "updated"
+        }
+      ]
+    },
+    {
+      "at": 1790092271.3891768,
+      "processed": 0,
+      "updated": 0,
+      "failed": 0,
+      "ai_requests": 0,
+      "entries": []
+    }
+  ],
+  "ai_requests": 0
+}

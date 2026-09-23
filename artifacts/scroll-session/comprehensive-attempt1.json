@@ -1,6 +1,6 @@
 {
-  "at": 1790101078.094952,
-  "base_url": "http://127.0.0.1:8092",
+  "at": 1790130043.904632,
+  "base_url": "https://106.53.40.6",
   "mode": "live Chromium, independent desktop and mobile contexts",
   "checks": [
     {
@@ -154,43 +154,9 @@
       "name": "tool_shortcuts_not_empty",
       "passed": true,
       "detail": null
-    },
-    {
-      "name": "tools_cross_device",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "service_worker_scoped_to_inbox",
-      "passed": true,
-      "detail": {
-        "scope": "http://127.0.0.1:8092/inbox/",
-        "script": "http://127.0.0.1:8092/inbox/sw.js"
-      }
-    },
-    {
-      "name": "no_root_service_worker",
-      "passed": true,
-      "detail": [
-        "http://127.0.0.1:8092/inbox/"
-      ]
-    },
-    {
-      "name": "service_worker_does_not_hijack_status",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "outside_inbox_not_controlled",
-      "passed": true,
-      "detail": null
-    },
-    {
-      "name": "no_fatal_javascript_errors",
-      "passed": true,
-      "detail": []
     }
   ],
+  "error": "AssertionError: Locator expected to contain text '快捷入口已保存'\nActual value: None\nError: strict mode violation: get_by_role(\"status\") resolved to 2 elements:\n    1) <p role=\"status\" class=\"ai-message\">快捷入口已保存到服务器</p> aka get_by_text(\"快捷入口已保存到服务器\")\n    2) <div role=\"status\" data-more=\"true\" data-cursor=\"24\" aria-live=\"polite\" data-loaded-count=\"24\" class=\"load-more-container\" data-prefetch-fraction=\"0.25\">…</div> aka get_by_role(\"status\").filter(has_text=\"继续滚动自动预加载 · 也可点击加载\")\n \nCall log:\n  - Expect \"to_contain_text\" get_by_role(\"status\") with timeout 15000ms\n  - waiting for get_by_role(\"status\")\n    5 × locator resolved to <div role=\"status\" data-more=\"true\" data-cursor=\"24\" aria-live=\"polite\" data-loaded-count=\"24\" class=\"load-more-container\" data-prefetch-fraction=\"0.25\">…</div>\n      - unexpected value \"继续滚",
   "test_mutations_restored": true,
-  "passed": true
+  "passed": false
 }
