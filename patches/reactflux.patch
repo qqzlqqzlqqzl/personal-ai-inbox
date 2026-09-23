@@ -79,7 +79,7 @@
 -      if (response.total <= pageSize || response.entries.length < pageSize) {
 +      const effectivePageSize = infoFrom === "all" && aiFilterEnabled() ? AI_PAGE_SIZE : pageSize
 +      const loadedCount = isAiPagination ? contentState.get().articleListOffset : contentState.get().entries.length
-+      if (response.total <= loadedCount || response.entries.length < effectivePageSize) {
++      if ((isAiPagination ? response.total <= loadedCount : response.total <= effectivePageSize) || response.entries.length < effectivePageSize) {
          setLoadMoreVisible(false)
        }
      } catch (error) {

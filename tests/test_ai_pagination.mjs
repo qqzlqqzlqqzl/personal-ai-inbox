@@ -45,3 +45,16 @@ assert.equal(state.articleListOffset, 12);
 await handleLoadMore(async () => {state.articleListSnapshotRevision++;return {entries: records.slice(12, 36), total: 52}});
 assert.equal(state.articleListOffset, 12, "stale snapshot must not advance cursor");
 console.log("PASS: duplicate-only middle page, no lost unique tail, initial reset, stale snapshot ignored");
+
+// Native total counts the remaining cursor range, not the accumulated list.
+dependencies.aiFilterEnabled = () => false;
+dependencies.getTimestamp = value => Number(value);
+state = {entries:Array.from({length:40},(_,i)=>({id:i+1,title:'Native '+i,published_at:100-i})),articleListOffset:40,articleListSnapshotRevision:1,infoFrom:'feed',filterString:''};
+visible = true;
+const native = evaluate('hooks/useLoadMore.js','useLoadMore')();
+await native.handleLoadMore(async()=>({entries:Array.from({length:20},(_,i)=>({id:i+41,title:'Native '+(i+40),published_at:60-i})),total:25}));
+assert.equal(visible,true,'25 remaining with a full 20-row page must continue even after 60 cumulative entries');
+await native.handleLoadMore(async()=>({entries:Array.from({length:5},(_,i)=>({id:i+61,title:'Tail '+i,published_at:40-i})),total:5}));
+assert.equal(visible,false);
+assert.equal(state.entries.length,65);
+console.log('PASS native remaining total vs cumulative count, true tail stopping');

@@ -1,0 +1,17 @@
+{
+  "seeded": 3,
+  "batches": [
+    {
+      "processed": 3,
+      "tokens": 1049
+    }
+  ],
+  "value_analysis_requests": 0,
+  "status": {
+    "counts": {
+      "done": 9
+    },
+    "heartbeat": null,
+    "shared_budget": true
+  }
+}

@@ -13,6 +13,7 @@ export default function AiToolbar({ source }) {
   const navigate = useNavigate()
   const [progress,setProgress] = useState(null)
   const completedCards = useRef(null)
+  const [updatesAvailable, setUpdatesAvailable] = useState(false)
   useEffect(() => {
     let active = true
     const load = async () => {
@@ -30,8 +31,9 @@ export default function AiToolbar({ source }) {
           if (changed) invalidateArticleList()
         }
         if (active) {
-          const count = s.translations?.counts?.done || 0
-          if (completedCards.current !== null && completedCards.current !== count) invalidateArticleList()
+          const count = `${s.translations?.counts?.done || 0}:${s.counts?.done || 0}`
+          // A background completion must never replace the current reading snapshot.
+          if (completedCards.current !== null && completedCards.current !== count) setUpdatesAvailable(true)
           completedCards.current = count
           setProgress(s)
         }
@@ -42,6 +44,7 @@ export default function AiToolbar({ source }) {
   }, [])
   const change = (value) => {
     aiState.set({ ...aiState.get(), ...value })
+    setUpdatesAvailable(false)
     invalidateArticleList()
     if (source !== "all") navigate("/all")
   }
@@ -53,6 +56,7 @@ export default function AiToolbar({ source }) {
       <select aria-label="AI 排序" value={state.sort} onChange={e => change({ sort: e.target.value })}><option value="score">推荐优先</option><option value="technical">技术价值</option><option value="business">商业启发</option><option value="time">最新内容</option></select>
     </>}
     {progress && <span className="ai-progress">已分析 {progress.counts.done || 0} / {Object.values(progress.counts).reduce((a,b)=>a+b,0)} · 后台按预算处理</span>}
+    {updatesAvailable && <button className="ai-updates" onClick={() => { setUpdatesAvailable(false); invalidateArticleList() }}>有新内容 / 中文更新 · 点击刷新</button>}
     <button className="ai-settings-button" onClick={() => setOpen(true)}>AI 设置 · 来源 · 工具</button>
     {open && <AiPanel onClose={() => setOpen(false)} />}
   </div>

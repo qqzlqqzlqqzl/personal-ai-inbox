@@ -1,0 +1,162 @@
+{
+  "at": 1790130043.904632,
+  "base_url": "https://106.53.40.6",
+  "mode": "live Chromium, independent desktop and mobile contexts",
+  "checks": [
+    {
+      "name": "dedicated_login_no_server_selector",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_default_username",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_no_token_input",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "dedicated_login_no_generic_help",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "service_worker_no_store",
+      "passed": true,
+      "detail": "no-cache, no-store, must-revalidate"
+    },
+    {
+      "name": "pwa_manifest_brand",
+      "passed": true,
+      "detail": {
+        "name": "个人信息箱",
+        "short_name": "信息箱",
+        "description": "个人 AI 信息收集与阅读",
+        "start_url": "/inbox/",
+        "display": "fullscreen",
+        "background_color": "#ffffff",
+        "theme_color": "#1F2327",
+        "lang": "en",
+        "scope": "/inbox/",
+        "icons": [
+          {
+            "src": "favicon.ico",
+            "sizes": "64x64 32x32 24x24 16x16",
+            "type": "image/x-icon"
+          },
+          {
+            "src": "logo192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+          },
+          {
+            "src": "logo512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+          }
+        ]
+      }
+    },
+    {
+      "name": "desktop_login",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "mobile_login",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "real_ai_cards",
+      "passed": true,
+      "detail": {
+        "visible_cards": 12
+      }
+    },
+    {
+      "name": "card_reason",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "mobile_no_horizontal_overflow",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "desktop_read_persisted",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "desktop_star_persisted",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "read_visible_in_independent_session_history",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "star_visible_in_independent_session",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "original_link",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_article_readable",
+      "passed": true,
+      "detail": {
+        "body_chars": 17224,
+        "entry_id": 1344
+      }
+    },
+    {
+      "name": "real_article_has_image",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "real_article_image_loaded",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "ai_evidence_in_detail",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "deep_link_reload",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "preferences_cross_device",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "source_catalog_live_status",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "tool_shortcuts_not_empty",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "error": "AssertionError: Locator expected to contain text '快捷入口已保存'\nActual value: None\nError: strict mode violation: get_by_role(\"status\") resolved to 2 elements:\n    1) <p role=\"status\" class=\"ai-message\">快捷入口已保存到服务器</p> aka get_by_text(\"快捷入口已保存到服务器\")\n    2) <div role=\"status\" data-more=\"true\" data-cursor=\"24\" aria-live=\"polite\" data-loaded-count=\"24\" class=\"load-more-container\" data-prefetch-fraction=\"0.25\">…</div> aka get_by_role(\"status\").filter(has_text=\"继续滚动自动预加载 · 也可点击加载\")\n \nCall log:\n  - Expect \"to_contain_text\" get_by_role(\"status\") with timeout 15000ms\n  - waiting for get_by_role(\"status\")\n    5 × locator resolved to <div role=\"status\" data-more=\"true\" data-cursor=\"24\" aria-live=\"polite\" data-loaded-count=\"24\" class=\"load-more-container\" data-prefetch-fraction=\"0.25\">…</div>\n      - unexpected value \"继续滚",
+  "test_mutations_restored": true,
+  "passed": false
+}

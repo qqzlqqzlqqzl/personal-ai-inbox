@@ -1,0 +1,82 @@
+{
+  "at": 1790100957.387664,
+  "checks": [
+    {
+      "name": "rss_teaser_cannot_erase_prepared_product",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "rss_teaser_cannot_invalidate_chinese_cache",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "product_feed_refresh_requested",
+      "passed": true,
+      "detail": 204
+    },
+    {
+      "name": "product_feed_refreshed",
+      "passed": true,
+      "detail": "2026-09-22T18:15:57.656773Z"
+    },
+    {
+      "name": "product_feed_refresh_not_failed",
+      "passed": true,
+      "detail": 0
+    },
+    {
+      "name": "after_refresh_product_2900",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "after_refresh_product_2899",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "after_refresh_product_2898",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "after_refresh_product_2897",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "after_refresh_product_2896",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "after_refresh_product_2881",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "after_refresh_product_2880",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "after_refresh_product_2871",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "refresh_keeps_cached_translation_versions",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "refresh_does_not_call_model",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "controlled_mutation_restored": true,
+  "passed": true
+}

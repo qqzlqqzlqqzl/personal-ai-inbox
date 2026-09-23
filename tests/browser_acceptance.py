@@ -195,7 +195,7 @@ with client() as api:
             changed = 7 if config["minimum_score"] != 7 else 6
             a.get_by_label("默认最低推荐分", exact=True).fill(str(changed))
             a.get_by_role("button", name="保存到服务器", exact=True).click()
-            expect(a.get_by_role("status")).to_contain_text(
+            expect(a.locator(".ai-dialog").get_by_role("status")).to_contain_text(
                 "已保存到服务器", timeout=15000
             )
             b.get_by_role("button", name="关闭文章", exact=True).click()
@@ -221,7 +221,7 @@ with client() as api:
                 json.dumps(edited, ensure_ascii=False)
             )
             a.get_by_role("button", name="保存入口", exact=True).click()
-            expect(a.get_by_role("status")).to_contain_text(
+            expect(a.locator(".ai-dialog").get_by_role("status")).to_contain_text(
                 "快捷入口已保存", timeout=15000
             )
             b.get_by_role("button", name="关闭", exact=True).click()
