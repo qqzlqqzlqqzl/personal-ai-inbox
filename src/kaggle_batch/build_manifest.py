@@ -33,6 +33,11 @@ def build(sample, versions, runtime_sha256, runtime_source, context_size=65536, 
         content={'title':row['title'],'url':row['url'],'content_source':row['content_source'],
                  'truncated':bool(row['truncated']),'content':row['source_text'],
                  'output_requirements':ANALYSIS_FIDELITY}
+        if row.get('attempts',0)>0:
+            content['retry_attempt']=row['attempts']+1
+            content['retry_requirements']=('重新按同一评分标准判断。evidence请选择content中更短的一段连续原文，'
+                '8到120字符，逐字复制；不要替换主语或同义词，不要省略中间的品牌名，'
+                '不要转换大小写、直引号或弯引号。输出前逐字核对。')
         messages=[{'role':'system','content':sample['settings']['prompt']},
                   {'role':'user','content':json.dumps(content,ensure_ascii=False)}]
         refs={k:row[k] for k in ('entry_id','user_id','content_hash','source_text','truncated')}

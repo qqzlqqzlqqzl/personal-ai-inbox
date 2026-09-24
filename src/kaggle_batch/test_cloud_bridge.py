@@ -1,6 +1,7 @@
 import unittest
 import sqlite3
 import uuid
+import json
 from pathlib import Path
 from cloud_bridge import upstream_hash,backup_before_import,validate_model_config,resolve_recovery
 from types import SimpleNamespace
@@ -8,6 +9,21 @@ from build_manifest import build
 
 
 class SourceVersionTests(unittest.TestCase):
+    def test_retry_changes_request_without_changing_score_prompt_or_body(self):
+        row={'entry_id':1,'user_id':2,'title':'Example','url':'https://example.com',
+             'content_source':'original_url_site_rule','truncated':False,'source_text':'Full article body.',
+             'content_hash':'source-v1','card':None,'attempts':0}
+        sample={'settings':{'prompt':'score policy','max_output_tokens':100},'translation_prompt':'translate','samples':[row]}
+        versions={'model_repo':'owner/model','model_revision':'revision','llama_commit':'commit',
+                  'file':{'rfilename':'model.gguf','size':1,'lfs':{'sha256':'hash'}}}
+        before=build(sample,versions,'runtime','owner/runtime')['items'][0]
+        row['attempts']=1
+        after=build(sample,versions,'runtime','owner/runtime')['items'][0]
+        self.assertEqual(before['messages'][0],after['messages'][0])
+        self.assertEqual('Full article body.',json.loads(after['messages'][1]['content'])['content'])
+        self.assertEqual(2,json.loads(after['messages'][1]['content'])['retry_attempt'])
+        self.assertNotEqual(before['input_hash'],after['input_hash'])
+
     def test_recovery_resolution_requires_exact_import_receipts_and_sources(self):
         folder=Path(__file__).parent/'test-runs'/uuid.uuid4().hex
         (folder/'original').mkdir(parents=True)
