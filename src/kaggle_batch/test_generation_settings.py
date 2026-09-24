@@ -9,6 +9,16 @@ class GenerationBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server_layout({'context_size':65536,'parallel_requests':3})
 
+    def test_tensor_split_keeps_both_full_contexts_and_rejects_unknown_mode(self):
+        self.assertEqual((2,131072),server_layout({
+            'context_size':65536,'parallel_requests':2,'split_mode':'tensor'}))
+        with self.assertRaises(ValueError):
+            server_layout({'context_size':65536,'split_mode':'typo'})
+        self.assertEqual((2,131072),server_layout({'context_size':65536,
+            'parallel_requests':2,'split_mode':'tensor','ubatch_size':512}))
+        with self.assertRaises(ValueError):
+            server_layout({'context_size':65536,'ubatch_size':0})
+
     def test_unlimited_thinking_uses_remaining_window_without_changing_input(self):
         manifest={'context_size':65536,'generation':{'thinking':True,'use_remaining_context':True,
                                                    'temperature':1.0,'top_k':20}}

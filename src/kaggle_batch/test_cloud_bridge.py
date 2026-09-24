@@ -54,7 +54,8 @@ class SourceVersionTests(unittest.TestCase):
         config={'model_dataset':'owner/q4','context_size':65536,'parallel_requests':2}
         versions={'dataset_source':'owner/q4'}
         validate_model_config(config,versions)
-        for changed in ({'model_dataset':'owner/old-cache'},{'context_size':16384},{'parallel_requests':3}):
+        validate_model_config({**config,'split_mode':'tensor','ubatch_size':512},versions)
+        for changed in ({'model_dataset':'owner/old-cache'},{'context_size':16384},{'parallel_requests':3},{'split_mode':'typo'},{'ubatch_size':0}):
             with self.subTest(changed=changed),self.assertRaises(ValueError):
                 validate_model_config({**config,**changed},versions)
 

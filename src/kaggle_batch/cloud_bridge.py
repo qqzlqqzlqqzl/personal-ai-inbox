@@ -20,6 +20,10 @@ from queue_dispatch import claimed_entries, defer_unresolved
 
 
 def validate_model_config(config,versions):
+    if config.get('split_mode','layer') not in ('layer','tensor'):
+        raise ValueError('Unsupported GPU split mode')
+    if config.get('ubatch_size',128) not in (128,512):
+        raise ValueError('Unsupported microbatch size')
     if config.get('context_size',65536)!=65536:
         raise ValueError('Cloud business requests require a full 65536-token context')
     if config.get('parallel_requests',1) not in (1,2):
@@ -276,6 +280,8 @@ def main():
                            context_size=config.get('context_size',65536),
                            model_dataset=config['model_dataset'],runtime_dataset=config.get('runtime_dataset'))
             manifest['parallel_requests']=config.get('parallel_requests',1)
+            manifest['split_mode']=config.get('split_mode','layer')
+            manifest['ubatch_size']=config.get('ubatch_size',128)
             batch=control.prepare(manifest,Path(__file__).with_name('batch_runner.py').read_text(encoding='utf-8'))
             if batch:
                 atomic_json(root/batch/'extraction-report.json',{'selected':len(sample['samples']),'skipped':sample['skipped']})

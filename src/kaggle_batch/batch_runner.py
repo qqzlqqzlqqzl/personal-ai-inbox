@@ -15,6 +15,10 @@ from concurrent.futures import ThreadPoolExecutor,as_completed
 MANIFEST = None
 
 def server_layout(manifest):
+    if manifest.get('split_mode','layer') not in ('layer','tensor'):
+        raise ValueError('Unsupported GPU split mode')
+    if manifest.get('ubatch_size',128) not in (128,512):
+        raise ValueError('Unsupported microbatch size')
     parallel=manifest.get('parallel_requests',1)
     if parallel not in (1,2):
         raise ValueError('Only one or two simultaneous requests have been configured')
@@ -174,9 +178,9 @@ def main():
         report['generation']=generation
         parallel,total_context=server_layout(manifest)
         report.update(parallel_requests=parallel,context_per_request=manifest['context_size'])
-        args=[str(binary),'-m',str(model),'-ngl','99','--split-mode','layer','--tensor-split','1,1',
+        args=[str(binary),'-m',str(model),'-ngl','99','--split-mode',manifest.get('split_mode','layer'),'--tensor-split','1,1',
             '--ctx-size',str(total_context),'--parallel',str(parallel),'--fit','off',
-            '--batch-size','512','--ubatch-size','128','--flash-attn','on',
+            '--batch-size','512','--ubatch-size',str(manifest.get('ubatch_size',128)),'--flash-attn','on',
             '--host','127.0.0.1','--port','8080',
             '--reasoning','on' if thinking else 'off',
             '--reasoning-budget',str(generation.get('reasoning_budget',-1) if thinking else 0),
