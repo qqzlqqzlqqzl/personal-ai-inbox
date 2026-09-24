@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import sys
+from scoring_policy import add_priority
 
 def complete_summary(summary):
     """Drop only a visibly unfinished final sentence; retain raw output separately."""
@@ -40,6 +41,11 @@ def validate(manifest, results, source):
             if item['kind']=='analysis':
                 content=re.sub(r'^```(?:json)?\s*|\s*```$','',row['content'].strip())
                 data=validate_result(json.loads(content))
+                original_worth_reading=data['worth_reading']
+                data=add_priority(data,item['messages'][0]['content'])
+                if data['worth_reading']!=original_worth_reading:
+                    value['normalizations']=[{'field':'worth_reading','reason':'derived_from_reading_priority',
+                                              'original':original_worth_reading,'value':data['worth_reading']}]
                 if not evidence_matches(data['evidence'],item['source_refs'][0]['source_text']):
                     raise ValueError('evidence_not_in_original')
             else:
