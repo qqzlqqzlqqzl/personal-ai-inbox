@@ -1,4 +1,4 @@
-"""One bounded cloud-only cycle and disabled-by-default 6h/12h timer rendering."""
+"""Drain pending work in finite cloud cycles, retaining progress between runs."""
 import argparse
 import json
 import os
@@ -27,6 +27,54 @@ def bridge(config_path,*args,timeout):
     return json.loads(result.stdout)
 
 
+def drain(config_path, config, control, call=bridge, sleep=time.sleep, clock=time.monotonic):
+    from batch_control import atomic_json
+    duration=int(config.get('cycle_timeout_seconds',19800))
+    if not 60<=duration<=19800:
+        raise ValueError('Cycle must fit within the six-hour schedule')
+    deadline=clock()+duration
+    completed=0
+    previous_skip=None
+    def report(state, **extra):
+        value={'state':state,'completed_batches':completed,'at':time.time(),**extra}
+        atomic_json(control.root/'cycle-status.json',value)
+        print(json.dumps(value),flush=True)
+        return value
+    while clock()<deadline:
+        report('preparing')
+        prepared=call(config_path,'prepare','--limit',str(config['batch_limit']),
+                      timeout=max(1,min(7200,int(deadline-clock()))))
+        batch=prepared.get('batch_id') or prepared.get('existing_batch')
+        if not batch:
+            fingerprint=prepared.get('skipped_fingerprint')
+            if config.get('drain_queue') and prepared.get('considered') and fingerprint!=previous_skip:
+                previous_skip=fingerprint
+                report('skipped_unavailable_sources',skipped=prepared.get('skipped',0))
+                continue
+            return report('no_progress' if prepared.get('considered') else 'empty',gpu_started=False)
+        previous_skip=None
+        # On resume, always wait a full interval before observing the remote job.
+        if control.row(batch)['state']!='prepared':
+            report('resuming',batch_id=batch)
+            sleep(min(660,max(0,deadline-clock())))
+        while clock()<deadline:
+            outcome=call(config_path,'advance','--batch',batch,timeout=max(1,min(600,int(deadline-clock()))))
+            report('processing',batch_id=batch,outcome=outcome)
+            if control.row(batch)['state'] in {'imported','resolved'}:
+                completed+=1
+                break
+            if outcome.get('invalid') or outcome.get('missing_ids') or any(
+                state not in ('imported','already_imported','existing_result_preserved')
+                for state in outcome.get('import_states',{})):
+                raise RuntimeError('Batch requires selective recovery')
+            sleep(min(660,max(0,deadline-clock())))
+        else:
+            return report('observation_timeout',batch_id=batch)
+        if not config.get('drain_queue'):
+            return report('completed',batch_id=batch)
+    return report('cycle_window_complete')
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--config',required=True)
@@ -48,29 +96,8 @@ def main():
     root.mkdir(parents=True,exist_ok=True,mode=0o700)
     with (root/'cycle.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        prepared=bridge(args.config,'prepare','--limit',str(config['batch_limit']),timeout=3600)
-        batch=prepared.get('batch_id') or prepared.get('existing_batch')
-        if not batch:
-            print(json.dumps({'state':'empty','gpu_started':False}))
-            return
         control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'])
-        deadline=time.monotonic()+7200
-        if control.row(batch)['state']!='prepared':
-            # Restarting the observer must not bypass the check interval.
-            time.sleep(660)
-        while time.monotonic()<deadline:
-            outcome=bridge(args.config,'advance','--batch',batch,timeout=600)
-            print(json.dumps(outcome),flush=True)
-            if control.row(batch)['state'] in {'imported','resolved'}:
-                return
-            if outcome.get('invalid') or outcome.get('missing_ids') or any(
-                state not in ('imported','already_imported','existing_result_preserved')
-                for state in outcome.get('import_states',{})):
-                raise RuntimeError('Batch requires selective recovery; no automatic full resubmission')
-            # Do not issue a final early poll when the observation window ends.
-            time.sleep(min(660,max(0,deadline-time.monotonic())))
-        print(json.dumps({'batch_id':batch,'state':'observation_timeout',
-                          'note':'Remote state remains authoritative; resume this same batch'}))
+        drain(args.config,config,control)
 
 
 if __name__=='__main__':

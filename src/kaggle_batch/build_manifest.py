@@ -20,7 +20,7 @@ ANALYSIS_FIDELITY=('evidence只从content字段逐字复制连续8到120字符�
     '输出前核对引句确实连续出现在content中，并保留正文中的时间、条件和不确定性。')
 
 def build(sample, versions, runtime_sha256, runtime_source, context_size=65536, attempt=1,
-          model_dataset=None):
+          model_dataset=None, runtime_dataset=None):
     file = versions['file']
     model = {'model_repo':versions['model_repo'],'model_revision':versions['model_revision'],
              'filename':file['rfilename'],'size':file['size'],'sha256':file['lfs']['sha256'],
@@ -66,6 +66,9 @@ def build(sample, versions, runtime_sha256, runtime_source, context_size=65536, 
                             'presence_penalty':1.5,'repeat_penalty':1.0,'seed':42}}
     if model_dataset:
         manifest.update(dataset_sources=[model_dataset],require_model_cache=True)
+    if runtime_dataset:
+        manifest.setdefault('dataset_sources',[]).append(runtime_dataset)
+        manifest['runtime_dataset_source']=runtime_dataset
     return manifest
 
 if __name__=='__main__':

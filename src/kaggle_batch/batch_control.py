@@ -113,7 +113,7 @@ class Controller:
                 'id':self.owner+'/'+batch_id,'title':batch_id,'code_file':'runner.py',
                 'language':'python','kernel_type':'script','is_private':True,
                 'enable_gpu':True,'enable_internet':not manifest.get('require_model_cache',False),
-                'kernel_sources':[manifest['runtime_source']],
+                'kernel_sources':[] if manifest.get('runtime_dataset_source') else [manifest['runtime_source']],
                 'dataset_sources':manifest.get('dataset_sources',[]),'competition_sources':[]})
             db.execute('INSERT INTO batches VALUES (?,?,?,NULL,NULL,?)',
                        (batch_id,canonical,'prepared',time.time()))

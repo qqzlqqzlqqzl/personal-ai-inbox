@@ -16,6 +16,7 @@ from batch_control import Controller, TERMINAL, atomic_json, digest
 from build_manifest import build
 from import_results import import_validated
 from validate_business import validate
+from queue_dispatch import claimed_entries, defer_unresolved
 
 
 def validate_model_config(config,versions):
@@ -101,7 +102,7 @@ def load_inbox(source):
     return core,worker,card_translation
 
 
-async def prepare_sample(source, limit):
+async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids=None, analysis_only=False):
     import httpx
     core,worker,cards=load_inbox(source)
     from content_input import content_text,is_our_social_feed
@@ -110,16 +111,22 @@ async def prepare_sample(source, limit):
     cfg=core.settings()
     # model_payload's slice now preserves the complete input, without saving settings.
     extraction_cfg={**cfg,'max_chars':sys.maxsize}
+    excluded=sorted(set(int(value) for value in excluded_entry_ids))
+    exclusion=(' AND a.entry_id NOT IN ('+','.join('?' for _ in excluded)+')') if excluded else ''
+    allowed=sorted(set(int(value) for value in allowed_entry_ids)) if allowed_entry_ids is not None else None
+    inclusion=(' AND a.entry_id IN ('+','.join('?' for _ in allowed)+')') if allowed else (' AND 0' if allowed is not None else '')
+    if analysis_only:
+        inclusion+=" AND a.state!='done'"
     with core.connect() as db:
         rows=[dict(row) for row in db.execute('''SELECT a.* FROM analyses a
             LEFT JOIN card_translations c ON c.entry_id=a.entry_id AND c.user_id=a.user_id
-            WHERE (a.state IN ('pending','waiting_model','budget_paused','fetch_error','ai_error')
+            WHERE ((a.state IN ('pending','waiting_model','budget_paused','fetch_error','ai_error')
                    AND a.next_try<=? AND a.attempts<3)
                OR (a.state='done' AND c.status IN ('pending','error','budget_paused','waiting_model')
-                   AND c.next_try<=? AND c.attempts<3)
+                   AND c.next_try<=? AND c.attempts<3))'''+exclusion+inclusion+'''
             ORDER BY CASE WHEN c.status IN ('pending','error','budget_paused','waiting_model')
                           THEN 0 ELSE 1 END,a.published_at DESC,a.entry_id DESC LIMIT ?''',
-            (time.time(),time.time(),limit))]
+            (time.time(),time.time(),*excluded,*(allowed or []),limit))]
     samples=[]
     skipped=[]
     async with httpx.AsyncClient(follow_redirects=False,trust_env=False,timeout=70) as client:
@@ -186,7 +193,7 @@ async def prepare_sample(source, limit):
             refreshed['upstream_hash']=upstream_hash(entry)
             samples.append(refreshed)
     return {'settings':{key:cfg[key] for key in ('prompt','max_output_tokens')},
-            'translation_prompt':cards.PROMPT,'samples':samples,'skipped':skipped}
+            'translation_prompt':cards.PROMPT,'samples':samples,'skipped':skipped,'considered':len(rows)}
 
 
 async def verify_upstream(source,manifest):
@@ -218,12 +225,22 @@ def main():
         raise ValueError('A batch must contain 1..200 articles')
     config=json.loads(Path(args.config).read_text(encoding='utf-8'))
     os.environ['KAGGLE_API_TOKEN']=config['token_file']
+    sys.path.insert(0,str(Path(config['source']).resolve()))
+    from initialize_secrets import read_env
+    proxy=read_env('ai.env').get('AI_NEWS_OUTBOUND_PROXY')
+    if proxy:
+        for name in ('HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy'):
+            os.environ[name]=proxy
     root=Path(config['state_root'])
     root.mkdir(parents=True,exist_ok=True,mode=0o700)
     os.umask(0o077)
     import fcntl
-    with (root/'bridge.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    coordination=Path(config.get('coordination_root',root)) if args.action=='prepare' else root
+    coordination.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with (coordination/'bridge.lock').open('a') as lock:
+        # Both accounts claim articles under the same lock. The subprocess timeout
+        # bounds waiting; a second worker must not fail merely because extraction is busy.
+        fcntl.flock(lock,fcntl.LOCK_EX)
         control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'])
         if args.action=='resolve':
             if not args.batch:
@@ -241,15 +258,24 @@ def main():
             extraction_backup=root/('before-extraction-'+str(time.time_ns()))
             extraction_backup.mkdir(mode=0o700)
             backup_before_import(config['database'],extraction_backup)
-            sample=asyncio.run(prepare_sample(config['source'],args.limit))
+            claimed=claimed_entries(config.get('peer_state_roots',[str(root)]))
+            allowed=json.loads(Path(config['entry_allowlist']).read_text())['entry_ids'] if config.get('entry_allowlist') else None
+            sample=asyncio.run(prepare_sample(config['source'],args.limit,claimed,allowed,config.get('analysis_only',False)))
+            if config.get('analysis_only',False):
+                for row in sample['samples']:
+                    row['card']=None
+            attempt=1+max([max(row.get('attempts') or 0,(row.get('card') or {}).get('attempts') or 0)
+                           for row in sample['samples']],default=0)
             manifest=build(sample,versions,config['runtime_sha256'],config['runtime_source'],
+                           attempt=attempt,
                            context_size=config.get('context_size',65536),
-                           model_dataset=config['model_dataset'])
+                           model_dataset=config['model_dataset'],runtime_dataset=config.get('runtime_dataset'))
             manifest['parallel_requests']=config.get('parallel_requests',1)
             batch=control.prepare(manifest,Path(__file__).with_name('batch_runner.py').read_text(encoding='utf-8'))
             if batch:
                 atomic_json(root/batch/'extraction-report.json',{'selected':len(sample['samples']),'skipped':sample['skipped']})
-            print(json.dumps({'batch_id':batch,'selected':len(sample['samples']),'skipped':len(sample['skipped'])}))
+            print(json.dumps({'batch_id':batch,'selected':len(sample['samples']),'skipped':len(sample['skipped']),
+                              'considered':sample['considered'],'skipped_fingerprint':digest(sample['skipped'])}))
             return
         if not args.batch:
             raise ValueError('advance requires --batch')
@@ -277,6 +303,11 @@ def main():
                     ('imported','already_imported','existing_result_preserved')]
         if not unresolved and not evidence['missing_ids']:
             control._set(args.batch,'imported')
+        elif config.get('drain_queue',False):
+            deferred=defer_unresolved(config['database'],manifest,outcome)
+            atomic_json(folder/'retry-resolution.json',{'batch_id':args.batch,'actions':deferred,
+                                                       'disposition':'valid_imports_kept_failed_inputs_deferred'})
+            control._set(args.batch,'resolved')
         print(json.dumps({'batch_id':args.batch,'valid':report['valid'],'invalid':report['invalid'],
                           'import_states':{state:sum(item['state']==state for item in outcome['items'])
                                            for state in {item['state'] for item in outcome['items']}},

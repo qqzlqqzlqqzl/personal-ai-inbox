@@ -38,13 +38,27 @@ class FulltextBridgeTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.db.close()
 
-    async def prepare(self,fetch):
+    async def prepare(self,fetch,excluded=(),allowed=None):
         with patch('cloud_bridge.load_inbox',return_value=(self.core,self.worker,self.cards)), \
              patch.dict('sys.modules',{'content_input':SimpleNamespace(content_text=lambda text:(text,0),is_our_social_feed=lambda url:False),
                                       'product_source':SimpleNamespace(is_product_entry=lambda entry:False),
                                       'prepared_content':SimpleNamespace(apply=lambda entry:entry)}), \
              patch('fulltext_source.fetch',fetch):
-            return await prepare_sample('.',1)
+            return await prepare_sample('.',1,excluded,allowed)
+
+    async def test_pilot_allowlist_excludes_other_queue_entries(self):
+        fetch=AsyncMock(return_value=self.body)
+        for allowed in ([],[999]):
+            sample=await self.prepare(fetch,allowed=allowed)
+            self.assertEqual([],sample['samples'])
+        fetch.assert_not_called()
+
+    async def test_other_account_claim_prevents_duplicate_fetch(self):
+        fetch=AsyncMock(return_value=self.body)
+        sample=await self.prepare(fetch,excluded={1})
+        self.assertEqual([],sample['samples'])
+        self.assertEqual(0,sample['considered'])
+        fetch.assert_not_called()
 
     async def test_model_receives_publisher_body_and_receipt(self):
         sample=await self.prepare(AsyncMock(return_value=self.body))
