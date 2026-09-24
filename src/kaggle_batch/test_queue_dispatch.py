@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import sqlite3
+import time
 from types import SimpleNamespace
 import unittest
 import uuid
@@ -65,7 +66,7 @@ class QueueTests(unittest.TestCase):
         root=Path(__file__).parent/'test-runs'/uuid.uuid4().hex
         root.mkdir(parents=True)
         states={'a':'prepared','b':'prepared'}
-        batches=iter(['a','b',None])
+        batches=iter([None,'a','b',None])
         elapsed=[0]
         sleeps=[]
         calls=[]
@@ -73,6 +74,9 @@ class QueueTests(unittest.TestCase):
         def call(config,action,*args,timeout):
             calls.append((action,args))
             if action=='prepare':
+                if len(calls)==1:
+                    next(batches)
+                    return {'batch_id':None,'next_retry_at':time.time()+100}
                 return {'batch_id':next(batches)}
             batch=args[-1]
             states[batch]='submitted' if states[batch]=='prepared' else 'imported'
@@ -83,5 +87,5 @@ class QueueTests(unittest.TestCase):
         result=drain('config',{'batch_limit':20,'drain_queue':True},control,call,sleep,lambda:elapsed[0])
         self.assertEqual('empty',result['state'])
         self.assertEqual(2,result['completed_batches'])
-        self.assertEqual([660,660],sleeps)
-        self.assertEqual(3,sum(action=='prepare' for action,args in calls))
+        self.assertEqual([660,660,660],sleeps)
+        self.assertEqual(4,sum(action=='prepare' for action,args in calls))

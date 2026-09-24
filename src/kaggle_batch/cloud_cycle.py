@@ -51,6 +51,13 @@ def drain(config_path, config, control, call=bridge, sleep=time.sleep, clock=tim
                 previous_skip=fingerprint
                 report('skipped_unavailable_sources',skipped=prepared.get('skipped',0))
                 continue
+            retry_at=prepared.get('next_retry_at')
+            if config.get('drain_queue') and retry_at:
+                report('waiting_for_retry',next_retry_at=retry_at)
+                if retry_at-time.time()<deadline-clock():
+                    sleep(min(660,max(0,deadline-clock())))
+                    continue
+                return report('retry_after_cycle_window',next_retry_at=retry_at)
             return report('no_progress' if prepared.get('considered') else 'empty',gpu_started=False)
         previous_skip=None
         # On resume, always wait a full interval before observing the remote job.

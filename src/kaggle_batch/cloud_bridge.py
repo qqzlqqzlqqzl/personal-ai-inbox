@@ -127,6 +127,10 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
             ORDER BY CASE WHEN c.status IN ('pending','error','budget_paused','waiting_model')
                           THEN 0 ELSE 1 END,a.published_at DESC,a.entry_id DESC LIMIT ?''',
             (time.time(),time.time(),*excluded,*(allowed or []),limit))]
+        retry_at=db.execute("""SELECT MIN(a.next_try) FROM analyses a WHERE
+            a.state IN ('pending','waiting_model','budget_paused','fetch_error','ai_error')
+            AND a.attempts<3 AND a.next_try>?"""+exclusion+inclusion,
+            (time.time(),*excluded,*(allowed or []))).fetchone()[0]
     samples=[]
     skipped=[]
     async with httpx.AsyncClient(follow_redirects=False,trust_env=False,timeout=70) as client:
@@ -193,7 +197,8 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
             refreshed['upstream_hash']=upstream_hash(entry)
             samples.append(refreshed)
     return {'settings':{key:cfg[key] for key in ('prompt','max_output_tokens')},
-            'translation_prompt':cards.PROMPT,'samples':samples,'skipped':skipped,'considered':len(rows)}
+            'translation_prompt':cards.PROMPT,'samples':samples,'skipped':skipped,'considered':len(rows),
+            'next_retry_at':retry_at}
 
 
 async def verify_upstream(source,manifest):
@@ -275,7 +280,8 @@ def main():
             if batch:
                 atomic_json(root/batch/'extraction-report.json',{'selected':len(sample['samples']),'skipped':sample['skipped']})
             print(json.dumps({'batch_id':batch,'selected':len(sample['samples']),'skipped':len(sample['skipped']),
-                              'considered':sample['considered'],'skipped_fingerprint':digest(sample['skipped'])}))
+                              'considered':sample['considered'],'skipped_fingerprint':digest(sample['skipped']),
+                              'next_retry_at':sample['next_retry_at']}))
             return
         if not args.batch:
             raise ValueError('advance requires --batch')
@@ -306,7 +312,10 @@ def main():
         if not unresolved and not evidence['missing_ids']:
             control._set(args.batch,'imported')
         elif config.get('drain_queue',False):
-            deferred=defer_unresolved(config['database'],manifest,outcome)
+            retry_delay=int(config.get('retry_delay_seconds',21600))
+            if retry_delay<660:
+                raise ValueError('Retry interval must be at least 660 seconds')
+            deferred=defer_unresolved(config['database'],manifest,outcome,delay=retry_delay)
             atomic_json(folder/'retry-resolution.json',{'batch_id':args.batch,'actions':deferred,
                                                        'disposition':'valid_imports_kept_failed_inputs_deferred'})
             control._set(args.batch,'resolved')
