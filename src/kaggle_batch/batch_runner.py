@@ -125,7 +125,9 @@ def main():
     try:
         stage('runtime')
         threading.Thread(target=memory_monitor,daemon=True).start()
-        runtime_files=list(Path('/kaggle/input').rglob('llama-runtime.tar.gz'))
+        # Kaggle Datasets unpack .tar.gz on upload and discard symlink metadata.
+        # A .bin copy preserves the exact signed-off archive bytes for hash checking.
+        runtime_files=list(Path('/kaggle/input').rglob('llama-runtime.tar.gz'))+list(Path('/kaggle/input').rglob('llama-runtime.bin'))
         if len(runtime_files)!=1:
             raise ValueError('Expected one attached runtime archive')
         with runtime_files[0].open('rb') as stream:

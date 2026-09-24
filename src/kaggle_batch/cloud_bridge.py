@@ -292,6 +292,8 @@ def main():
             return
         evidence=control.download(args.batch)
         manifest=control.manifest(args.batch)
+        if not evidence['results'] and manifest['items']:
+            raise RuntimeError('Batch produced no results; inspect runtime before starting more GPU jobs')
         report=validate(manifest,evidence['results'],config['source'])
         folder=root/args.batch
         atomic_json(folder/'business-validation.json',report)
