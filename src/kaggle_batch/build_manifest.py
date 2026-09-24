@@ -38,6 +38,8 @@ def build(sample, versions, runtime_sha256, runtime_source, context_size=65536, 
         refs={k:row[k] for k in ('entry_id','user_id','content_hash','source_text','truncated')}
         if row.get('upstream_hash'):
             refs['upstream_hash']=row['upstream_hash']
+        if row.get('fulltext_receipt'):
+            refs['fulltext_receipt']=row['fulltext_receipt']
         item={'id':'analysis-'+str(row['entry_id']),'kind':'analysis','messages':messages,
               'max_tokens':sample['settings']['max_output_tokens'],'source_refs':[refs]}
         item['input_hash']=digest({'messages':messages,'source_refs':[refs],'model':model})

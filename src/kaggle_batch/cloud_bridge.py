@@ -104,7 +104,8 @@ def load_inbox(source):
 async def prepare_sample(source, limit):
     import httpx
     core,worker,cards=load_inbox(source)
-    from content_input import content_text
+    from content_input import content_text,is_our_social_feed
+    from product_source import is_product_entry
     from prepared_content import apply as apply_prepared
     cfg=core.settings()
     # model_payload's slice now preserves the complete input, without saving settings.
@@ -125,7 +126,13 @@ async def prepare_sample(source, limit):
         for row in rows:
             analysis_needed=row['state']!='done'
             refreshed=row
-            if analysis_needed:
+            entry=apply_prepared(await worker.mf_get(client,f"/v1/entries/{row['entry_id']}"))
+            if (entry['user_id']!=row['user_id'] or (analysis_needed and
+                (entry['title']!=row['title'] or entry['url']!=row['url']))):
+                skipped.append({'entry_id':row['entry_id'],'state':'upstream_identity_changed'})
+                continue
+            specialized=is_our_social_feed(entry.get('feed',{}).get('feed_url','')) or is_product_entry(entry)
+            if analysis_needed and specialized:
                 # Existing extraction returns before reserve_budget/post when no API key exists.
                 await asyncio.wait_for(worker.process_one(client,row,extraction_cfg),timeout=180)
                 with core.connect() as db:
@@ -133,13 +140,44 @@ async def prepare_sample(source, limit):
                 if refreshed['state']!='waiting_model' or refreshed['truncated']:
                     skipped.append({'entry_id':row['entry_id'],'state':refreshed['state']})
                     continue
-            entry=await worker.mf_get(client,f"/v1/entries/{row['entry_id']}")
-            entry=apply_prepared(entry)
-            if (entry['user_id']!=refreshed['user_id'] or (analysis_needed and
-                (entry['title']!=refreshed['title'] or entry['url']!=refreshed['url']
-                 or content_text(entry.get('content') or '')[0]!=refreshed['source_text']))):
-                skipped.append({'entry_id':row['entry_id'],'state':'upstream_changed_during_extract'})
-                continue
+                entry=apply_prepared(await worker.mf_get(client,f"/v1/entries/{row['entry_id']}"))
+                if (entry['user_id']!=refreshed['user_id'] or entry['title']!=refreshed['title']
+                    or entry['url']!=refreshed['url']
+                    or content_text(entry.get('content') or '')[0]!=refreshed['source_text']):
+                    skipped.append({'entry_id':row['entry_id'],'state':'upstream_changed_during_extract'})
+                    continue
+            if analysis_needed and not specialized:
+                # Miniflux's nonempty result is not proof of a complete article.
+                # Fetch the publisher body by its checked site rule before scoring.
+                from fulltext_source import fetch,FulltextUnavailable
+                try:
+                    fulltext=await fetch(entry['url'])
+                except FulltextUnavailable as exc:
+                    skipped.append({'entry_id':row['entry_id'],'state':'requires_fulltext_adapter','reason':str(exc)})
+                    with core.connect() as db:
+                        db.execute("""UPDATE analyses SET state='requires_fulltext_adapter',error=?,updated_at=?
+                            WHERE entry_id=? AND state=? AND content_hash IS ? AND source_text IS ?""",
+                            (str(exc),time.time(),row['entry_id'],row['state'],row['content_hash'],row['source_text']))
+                    continue
+                current=apply_prepared(await worker.mf_get(client,f"/v1/entries/{row['entry_id']}"))
+                if upstream_hash(current)!=upstream_hash(entry):
+                    skipped.append({'entry_id':row['entry_id'],'state':'upstream_changed_during_fulltext'})
+                    continue
+                with core.connect() as db:
+                    changed=db.execute("""UPDATE analyses SET source_text=?,source_chars=?,input_chars=?,
+                        image_count=?,content_source='original_url_site_rule',truncated=0,extracted_at=?,updated_at=?,
+                        content_hash=?,state='waiting_model',error=NULL
+                        WHERE entry_id=? AND user_id=? AND state=? AND content_hash IS ? AND source_text IS ?""",
+                        (fulltext['source_text'],len(fulltext['source_text']),len(fulltext['source_text']),
+                         fulltext['image_count'],time.time(),time.time(),worker.hash_text(entry.get('content') or ''),
+                         row['entry_id'],row['user_id'],row['state'],row['content_hash'],row['source_text'])).rowcount
+                if changed!=1:
+                    skipped.append({'entry_id':row['entry_id'],'state':'source_changed_during_fulltext'})
+                    continue
+                refreshed.update(source_text=fulltext['source_text'],source_chars=len(fulltext['source_text']),
+                                 input_chars=len(fulltext['source_text']),truncated=False,
+                                 content_hash=worker.hash_text(entry.get('content') or ''),state='waiting_model',
+                                 content_source='original_url_site_rule',fulltext_receipt=fulltext['receipt'])
             cards.enqueue([entry])
             with core.connect() as db:
                 card=db.execute('SELECT * FROM card_translations WHERE entry_id=?',(row['entry_id'],)).fetchone()
