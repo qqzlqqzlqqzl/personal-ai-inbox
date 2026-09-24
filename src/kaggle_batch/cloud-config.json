@@ -13,5 +13,7 @@
   "context_size": 65536,
   "parallel_requests": 2,
   "interval_hours": 6,
-  "schedule_enabled": false
+  "schedule_enabled": false,
+  "split_mode": "tensor",
+  "ubatch_size": 512
 }
