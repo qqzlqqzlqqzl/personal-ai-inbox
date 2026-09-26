@@ -282,13 +282,13 @@ def status_summary(user_id):
         ]
         reading_row = c.execute(
             """SELECT COUNT(*) raw_sessions,
-                      SUM(CASE WHEN active_ms>=250 THEN 1 ELSE 0 END) sessions,
+                      COALESCE(SUM(CASE WHEN active_ms>=250 THEN 1 ELSE 0 END),0) sessions,
                       COUNT(DISTINCT CASE WHEN active_ms>=250 THEN entry_id END) entries,
                       COALESCE(SUM(CASE WHEN active_ms>=250 THEN active_ms ELSE 0 END),0) active_ms,
                       COALESCE(AVG(CASE WHEN active_ms>=250 THEN active_ms END),0) avg_active_ms,
                       COALESCE(AVG(CASE WHEN active_ms>=250 THEN max_scroll_pct END),0) avg_scroll_pct,
-                      SUM(CASE WHEN active_ms>=250 AND active_ms<3000 THEN 1 ELSE 0 END) bounces,
-                      SUM(CASE WHEN active_ms>=30000 AND max_scroll_pct>=50 THEN 1 ELSE 0 END) deep_reads
+                      COALESCE(SUM(CASE WHEN active_ms>=250 AND active_ms<3000 THEN 1 ELSE 0 END),0) bounces,
+                      COALESCE(SUM(CASE WHEN active_ms>=30000 AND max_scroll_pct>=50 THEN 1 ELSE 0 END),0) deep_reads
                FROM reading_sessions WHERE user_id=?""",
             (user_id,),
         ).fetchone()
