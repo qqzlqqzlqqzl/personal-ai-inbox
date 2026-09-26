@@ -1,8 +1,11 @@
-import { map } from "nanostores"
+import { persistentJSON } from "@nanostores/persistent"
 
 export const AI_PAGE_SIZE = 24
 
-export const aiState = map({ mode: "recommended", minimum: 6, sort: "score", hydrated: false })
+const initialAiState = { mode: "recommended", minimum: 6, sort: "score", hydrated: false }
+export const aiState = persistentJSON("ai-view-state", initialAiState)
+aiState.setKey = (key, value) => aiState.set({ ...aiState.get(), [key]: value })
+aiState.set({ ...aiState.get(), hydrated: false })
 
 export const getAiQuery = () => {
   const { mode, minimum, sort } = aiState.get()
