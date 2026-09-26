@@ -44,18 +44,20 @@ patch('src/components/Article/ArticleListItem.jsx',
       'const listSummary = getListSummary(previewContent)',
       'const listSummary = getListSummary(entry.card?.summary || entry.ai?.summary || previewContent)')
 
-patch('src/components/Article/SearchAndSortBar.jsx',
-      'import { settingsState, updateSettings } from "@/store/settingsState"',
-      'import { settingsState, updateSettings } from "@/store/settingsState"\nimport { aiState } from "@/store/aiState"')
-patch('src/components/Article/SearchAndSortBar.jsx',
-      '  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })',
-      '  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })\n  const ai = useStore(aiState)\n  const scoreOrder = infoFrom === "all" && ai.mode === "recommended" && ai.sort !== "time"')
-patch('src/components/Article/SearchAndSortBar.jsx',
-      '''  const sortLabel =
+search_sort = (WEB / 'src/components/Article/SearchAndSortBar.jsx').read_text()
+if 'const aiList = infoFrom === "all" && ai.mode !== "all"' not in search_sort:
+    patch('src/components/Article/SearchAndSortBar.jsx',
+          'import { settingsState, updateSettings } from "@/store/settingsState"',
+          'import { settingsState, updateSettings } from "@/store/settingsState"\nimport { aiState } from "@/store/aiState"')
+    patch('src/components/Article/SearchAndSortBar.jsx',
+          '  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })',
+          '  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })\n  const ai = useStore(aiState)\n  const scoreOrder = infoFrom === "all" && ai.mode === "recommended" && ai.sort !== "time"')
+    patch('src/components/Article/SearchAndSortBar.jsx',
+          '''  const sortLabel =
     orderDirection === "desc"
       ? polyglot.t("article_list.sort_direction_desc")
       : polyglot.t("article_list.sort_direction_asc")''',
-      '''  const sortLabel = scoreOrder
+          '''  const sortLabel = scoreOrder
     ? (orderDirection === "desc" ? "高分优先" : "低分优先")
     : (orderDirection === "desc"
       ? polyglot.t("article_list.sort_direction_desc")
