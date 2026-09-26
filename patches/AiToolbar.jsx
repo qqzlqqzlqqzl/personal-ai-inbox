@@ -46,6 +46,9 @@ export default function AiToolbar({ source }) {
   }, [])
   const change = (value) => {
     aiState.set({ ...aiState.get(), ...value })
+    if (Object.hasOwn(value, "minimum")) {
+      void apiClient.put("/v1/ai/settings", { minimum_score: value.minimum }).catch(() => {})
+    }
     setUpdatesAvailable(false)
     invalidateArticleList()
     if (source !== "all") navigate("/all")
