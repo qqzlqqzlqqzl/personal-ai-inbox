@@ -18,12 +18,16 @@ export default function AiPanel({ onClose }) {
   const [search, setSearch] = useState("")
   const [xHandle, setXHandle] = useState("@OpenAI")
   const [xProbe, setXProbe] = useState(null)
+  const [xRoster, setXRoster] = useState(null)
   const { refreshFeedData } = useAppData()
   const load = async () => {
     try {
-      const [c, s, f, t] = await Promise.all(["settings", "status", "catalog", "tools"].map(p => apiClient.get(`/v1/ai/${p}`)))
+      const [c, s, f, t, xr] = await Promise.all([
+        ...["settings", "status", "catalog", "tools"].map(p => apiClient.get(`/v1/ai/${p}`)),
+        apiClient.get("/v1/ai/x/roster"),
+      ])
       if (!alive.current) return
-      setConfig(c); setStatus(s); setSources(f); setTools(t); setToolText(JSON.stringify(t, null, 2))
+      setConfig(c); setStatus(s); setSources(f); setTools(t); setToolText(JSON.stringify(t, null, 2)); setXRoster(xr)
     } catch (e) { if (alive.current) setMessage(e.message) }
   }
   useEffect(() => { alive.current = true; dialog.current?.showModal(); load(); return () => { alive.current = false } }, [])
@@ -75,11 +79,13 @@ export default function AiPanel({ onClose }) {
       <button disabled={busy} onClick={()=>run(async()=>{const r=await apiClient.post("/v1/ai/retry",{});setMessage(`已重排 ${r.queued} 个失败任务`);await load()})}>重试失败任务</button>
       <button disabled={busy} onClick={load}>刷新状态</button>
       <h3>中文卡片</h3><p>{Object.entries(status.translations?.counts || {}).map(([k,v])=>`${k}: ${v}`).join(" · ")}</p>
+      {status.reading && <><h3>阅读行为</h3><p>打开 {status.reading.sessions} 次 · {status.reading.entries} 篇 · 有效前台阅读 {Math.round(status.reading.active_ms/1000)} 秒 · 深度阅读 {status.reading.deep_reads || 0} 次 · 平均滚动 {Math.round(status.reading.avg_scroll_pct || 0)}%</p>{status.reading.recent?.slice(0,6).map((r,i)=><p className="ai-event" key={`${r.entry_id}-${r.opened_at}-${i}`}>{new Date(r.opened_at*1000).toLocaleString()} · {Math.round((r.active_ms || 0)/1000)} 秒 · 滚动 {Math.round(r.max_scroll_pct || 0)}% · {r.starred ? "已收藏" : "未收藏"} · {r.title || `#${r.entry_id}`}</p>)}</>}
       <h3>用量记录（UTC 日期，评分与翻译合计）</h3>{status.usage.map(u=><p key={u.day}>{u.day} · {u.calls} 次请求 · {u.tokens} Token（失败请求保留预留预算）</p>)}
       <h3>近期处理日志</h3>{status.events.map((e,i)=><p className="ai-event" key={i}>{new Date(e.at*1000).toLocaleString()} · {e.kind} · {e.detail}</p>)}
     </section>}
     {tab === "sources" && <section>
       <p>先广泛收录，再按实际阅读价值裁剪。以下“可用”只表示本次成功解析订阅 XML，不代表每篇原文都能抓到。</p>
+      {xRoster && <details><summary>X 正式名单：{xRoster.counts.total} 个 · 稳定替代源已启用 {xRoster.counts.fallback_active} · 等待 X Provider {xRoster.counts.pending_x_provider}</summary><div className="ai-source-list">{xRoster.sources.map(s=><div key={s.handle}><div><strong>@{s.handle}</strong><small>{s.category} · {s.status === "fallback_active" ? "RSS/GitHub 替代源已启用" : "等待 X 抓取链恢复"}</small></div></div>)}</div></details>}
       <input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} />
       <button disabled={busy} onClick={()=>add(filtered.filter(s=>s.status==="ok" && !s.subscribed && s.analysis_supported !== false))}>添加当前可用来源</button>
       <p className="ai-notice">社交平台接入：X 可用账号授权或第三方服务，先检查是否真的取得帖子；Instagram 需相应账号或 Cookie；Telegram 公开频道可尝试网页路由。Facebook 未经本实例验证。不要把这些入口当成已经接通。</p>

@@ -923,5 +923,41 @@
     "bytes": 92625,
     "final_url": "https://ursb.me/reading/feed.xml",
     "elapsed_seconds": 2.61
+  },
+  {
+    "category": "电机与控制",
+    "name": "SimpleFOC Releases",
+    "url": "https://github.com/simplefoc/Arduino-FOC/releases.atom",
+    "status": "ok",
+    "original_text_verified": false,
+    "http_status": 200,
+    "checked_at": "2026-09-26T08:49:59.829656+00:00"
+  },
+  {
+    "category": "电机与控制",
+    "name": "moteus Releases",
+    "url": "https://github.com/mjbots/moteus/releases.atom",
+    "status": "ok",
+    "original_text_verified": false,
+    "http_status": 200,
+    "checked_at": "2026-09-26T08:49:59.829656+00:00"
+  },
+  {
+    "category": "电机与控制",
+    "name": "ODriveArduino Commits",
+    "url": "https://github.com/odriverobotics/ODriveArduino/commits/master.atom",
+    "status": "ok",
+    "original_text_verified": false,
+    "http_status": 200,
+    "checked_at": "2026-09-26T08:49:59.829656+00:00"
+  },
+  {
+    "category": "开源发布",
+    "name": "Zephyr Releases",
+    "url": "https://github.com/zephyrproject-rtos/zephyr/releases.atom",
+    "status": "ok",
+    "original_text_verified": false,
+    "http_status": 200,
+    "checked_at": "2026-09-26T08:49:59.829656+00:00"
   }
 ]

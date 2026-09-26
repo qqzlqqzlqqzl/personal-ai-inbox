@@ -51,7 +51,14 @@ def init_db():
   CREATE INDEX IF NOT EXISTS analyses_state ON analyses(state,next_try);
   CREATE INDEX IF NOT EXISTS analyses_score ON analyses(user_id,score DESC);
   CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at REAL, kind TEXT, entry_id INTEGER, detail TEXT);
-  CREATE TABLE IF NOT EXISTS feedback (entry_id INTEGER PRIMARY KEY, value TEXT, updated_at REAL);""")
+  CREATE TABLE IF NOT EXISTS feedback (entry_id INTEGER PRIMARY KEY, value TEXT, updated_at REAL);
+  CREATE TABLE IF NOT EXISTS reading_sessions (
+   session_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, entry_id INTEGER NOT NULL,
+   opened_at REAL NOT NULL, last_seen_at REAL NOT NULL, closed_at REAL,
+   active_ms INTEGER NOT NULL DEFAULT 0, max_scroll_pct REAL NOT NULL DEFAULT 0,
+   starred INTEGER, read_status TEXT);
+  CREATE INDEX IF NOT EXISTS reading_sessions_user_entry
+   ON reading_sessions(user_id,entry_id,opened_at DESC);""")
 
 
 def settings():
@@ -273,6 +280,30 @@ def status_summary(user_id):
                 "SELECT day,COUNT(*) calls,SUM(COALESCE(actual,reserved)) tokens FROM usage GROUP BY day ORDER BY day DESC LIMIT 7"
             )
         ]
+        reading_row = c.execute(
+            """SELECT COUNT(*) raw_sessions,
+                      SUM(CASE WHEN active_ms>=250 THEN 1 ELSE 0 END) sessions,
+                      COUNT(DISTINCT CASE WHEN active_ms>=250 THEN entry_id END) entries,
+                      COALESCE(SUM(CASE WHEN active_ms>=250 THEN active_ms ELSE 0 END),0) active_ms,
+                      COALESCE(AVG(CASE WHEN active_ms>=250 THEN active_ms END),0) avg_active_ms,
+                      COALESCE(AVG(CASE WHEN active_ms>=250 THEN max_scroll_pct END),0) avg_scroll_pct,
+                      SUM(CASE WHEN active_ms>=250 AND active_ms<3000 THEN 1 ELSE 0 END) bounces,
+                      SUM(CASE WHEN active_ms>=30000 AND max_scroll_pct>=50 THEN 1 ELSE 0 END) deep_reads
+               FROM reading_sessions WHERE user_id=?""",
+            (user_id,),
+        ).fetchone()
+        recent_reading = [
+            dict(x)
+            for x in c.execute(
+                """SELECT r.entry_id,a.title,r.opened_at,r.closed_at,r.active_ms,
+                          r.max_scroll_pct,r.starred,r.read_status
+                   FROM reading_sessions r
+                   LEFT JOIN analyses a ON a.entry_id=r.entry_id AND a.user_id=r.user_id
+                   WHERE r.user_id=? AND r.active_ms>=250
+                   ORDER BY r.opened_at DESC LIMIT 12""",
+                (user_id,),
+            )
+        ]
     return {
         "counts": counts,
         "translations": translation_status(user_id),
@@ -281,6 +312,7 @@ def status_summary(user_id):
         "preview_heartbeat": get_meta("preview_heartbeat"),
         "events": recent,
         "usage": usage,
+        "reading": {**dict(reading_row), "recent": recent_reading},
         "model_configured": bool(os.environ.get("ARK_API_KEY")),
         "reader_configured": bool(os.environ.get("MINIFLUX_API_KEY")),
         "worker_heartbeat": get_meta("worker_heartbeat"),

@@ -1,0 +1,357 @@
+{
+  "version": 1,
+  "updated_at": "2026-09-26",
+  "policy": "Primary X roster. fallback_active means a stable RSS/GitHub source is already subscribed; pending_x_provider is not claimed as live until a provider returns real posts.",
+  "sources": [
+    {
+      "category": "AI/LLM",
+      "handle": "simonw",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://simonwillison.net/atom/everything/"
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "karpathy",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://karpathy.github.io/feed.xml"
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "rasbt",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "natolambert",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "fchollet",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "ClementDelangue",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "huggingface",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://github.com/huggingface/transformers/releases.atom"
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "Alibaba_Qwen",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "deepseek_ai",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "vllm_project",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://github.com/vllm-project/vllm/releases.atom"
+    },
+    {
+      "category": "AI/LLM",
+      "handle": "ollama",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://github.com/ollama/ollama/releases.atom"
+    },
+    {
+      "category": "Agent",
+      "handle": "HamelHusain",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "Agent",
+      "handle": "hwchase17",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "Agent",
+      "handle": "mitchellh",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "Agent",
+      "handle": "thorstenball",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "Agent",
+      "handle": "chipro",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "Agent",
+      "handle": "eugeneyan",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "Agent",
+      "handle": "swyx",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "AI雷达",
+      "handle": "_akhaliq",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "机器人",
+      "handle": "DrJimFan",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "机器人",
+      "handle": "pabbeel",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "机器人",
+      "handle": "NVIDIARobotics",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "机器人",
+      "handle": "OpenRoboticsOrg",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "机器人",
+      "handle": "rosorg",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "电机与控制",
+      "handle": "ODriveRobotics",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://github.com/odriverobotics/ODriveArduino/commits/master.atom"
+    },
+    {
+      "category": "电机与控制",
+      "handle": "mjbotsrs",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://github.com/mjbots/moteus/releases.atom"
+    },
+    {
+      "category": "电机与控制",
+      "handle": "XRobotsUK",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "嵌入式",
+      "handle": "McuOnEclipse",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "嵌入式",
+      "handle": "Memfault",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://interrupt.memfault.com/feed.xml"
+    },
+    {
+      "category": "嵌入式",
+      "handle": "bootlincom",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "嵌入式",
+      "handle": "ZephyrIoT",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://github.com/zephyrproject-rtos/zephyr/releases.atom"
+    },
+    {
+      "category": "嵌入式",
+      "handle": "geerlingguy",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://www.jeffgeerling.com/blog.xml"
+    },
+    {
+      "category": "嵌入式",
+      "handle": "EspressifSystem",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://developer.espressif.com/blog/index.xml"
+    },
+    {
+      "category": "嵌入式",
+      "handle": "ST_World",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://blog.st.com/feed/"
+    },
+    {
+      "category": "嵌入式",
+      "handle": "NordicTweets",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "边缘AI",
+      "handle": "edgeimpulse",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "边缘AI",
+      "handle": "petewarden",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "开源硬件",
+      "handle": "seeedstudio",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "开源硬件",
+      "handle": "M5Stack",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "开源硬件",
+      "handle": "SipeedIO",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "硬件工程",
+      "handle": "robertferanec",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "硬件工程",
+      "handle": "PhilsLab1",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "硬件工程",
+      "handle": "TheSignalPath",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "硬件工程",
+      "handle": "cnlohr",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "硬件工程",
+      "handle": "eevblog",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "硬件工程",
+      "handle": "bunniestudios",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "开源硬件雷达",
+      "handle": "hackaday",
+      "priority": "primary",
+      "status": "fallback_active",
+      "fallback_url": "https://hackaday.com/blog/feed/"
+    },
+    {
+      "category": "开源硬件雷达",
+      "handle": "crowd_supply",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "PCB",
+      "handle": "kicad_pcb",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    },
+    {
+      "category": "产品",
+      "handle": "levelsio",
+      "priority": "primary",
+      "status": "pending_x_provider",
+      "fallback_url": null
+    }
+  ]
+}

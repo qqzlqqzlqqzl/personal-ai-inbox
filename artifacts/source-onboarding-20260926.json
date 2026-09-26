@@ -1,0 +1,45 @@
+{
+  "at": "2026-09-26T08:49:59.829656+00:00",
+  "results": [
+    {
+      "name": "Ollama Releases",
+      "status_code": 201,
+      "result": "subscribed"
+    },
+    {
+      "name": "vLLM Releases",
+      "status_code": 201,
+      "result": "subscribed"
+    },
+    {
+      "name": "Transformers Releases",
+      "status_code": 201,
+      "result": "subscribed"
+    },
+    {
+      "name": "llama.cpp Releases",
+      "status_code": 201,
+      "result": "subscribed"
+    },
+    {
+      "name": "SimpleFOC Releases",
+      "status_code": 201,
+      "result": "subscribed"
+    },
+    {
+      "name": "moteus Releases",
+      "status_code": 201,
+      "result": "subscribed"
+    },
+    {
+      "name": "ODriveArduino Commits",
+      "status_code": 201,
+      "result": "subscribed"
+    },
+    {
+      "name": "Zephyr Releases",
+      "status_code": 201,
+      "result": "subscribed"
+    }
+  ]
+}

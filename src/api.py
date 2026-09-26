@@ -431,6 +431,64 @@ async def feedback(request: Request):
     return {"saved": True}
 
 
+@app.post("/mf/v1/ai/reading-session")
+async def reading_session(request: Request):
+    uid = await authorize(request)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Expected an object")
+    action = body.get("action")
+    if action not in ["open", "heartbeat", "close"]:
+        raise HTTPException(400, "Invalid reading action")
+    try:
+        sid = str(uuid.UUID(str(body.get("session_id", ""))))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(400, "Invalid reading session id")
+    eid = positive_id(body.get("entry_id", 0))
+    try:
+        active_ms = max(0, min(24 * 60 * 60 * 1000, int(body.get("active_ms", 0))))
+        scroll = max(0.0, min(100.0, float(body.get("max_scroll_pct", 0))))
+    except (ValueError, TypeError, OverflowError):
+        raise HTTPException(400, "Invalid reading metrics")
+    starred = body.get("starred")
+    if starred is not None and not isinstance(starred, bool):
+        raise HTTPException(400, "Invalid starred state")
+    read_status = body.get("read_status")
+    if read_status not in [None, "read", "unread"]:
+        raise HTTPException(400, "Invalid read status")
+    now = time.time()
+    with connect() as c:
+        c.execute(
+            """INSERT OR IGNORE INTO reading_sessions
+               (session_id,user_id,entry_id,opened_at,last_seen_at)
+               VALUES (?,?,?,?,?)""",
+            (sid, uid, eid, now, now),
+        )
+        c.execute(
+            """UPDATE reading_sessions
+               SET last_seen_at=?,
+                   closed_at=CASE WHEN ?='close' THEN ? ELSE closed_at END,
+                   active_ms=MAX(active_ms,?),
+                   max_scroll_pct=MAX(max_scroll_pct,?),
+                   starred=COALESCE(?,starred),
+                   read_status=COALESCE(?,read_status)
+               WHERE session_id=? AND user_id=? AND entry_id=?""",
+            (
+                now,
+                action,
+                now,
+                active_ms,
+                scroll,
+                None if starred is None else int(starred),
+                read_status,
+                sid,
+                uid,
+                eid,
+            ),
+        )
+    return {"saved": True}
+
+
 @app.get("/mf/v1/ai/catalog")
 async def catalog(request: Request):
     await authorize(request)
@@ -509,6 +567,22 @@ if ("serviceWorker" in navigator) {
 setTimeout(() => location.replace("/inbox/?updated=1"), 350);
 </script>"""
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/mf/v1/ai/x/roster")
+async def x_roster(request: Request):
+    await authorize(request)
+    path = ROOT / "x_sources.catalog.json"
+    data = json.loads(path.read_text()) if path.exists() else {"version": 1, "sources": []}
+    sources = data.get("sources", [])
+    return {
+        **data,
+        "counts": {
+            "total": len(sources),
+            "fallback_active": sum(x.get("status") == "fallback_active" for x in sources),
+            "pending_x_provider": sum(x.get("status") == "pending_x_provider" for x in sources),
+        },
+    }
 
 
 @app.post("/mf/v1/ai/x/probe")
