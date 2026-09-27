@@ -92,8 +92,11 @@ def save_settings(value):
     url = urlparse(clean.get("base_url", settings()["base_url"]))
     if url.scheme != "https" or not url.hostname or url.username or url.password:
         raise ValueError("模型接口必须使用无内嵌凭据的 HTTPS 地址")
-    merged = {**settings(), **clean}
     with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT value FROM settings WHERE name='preferences'").fetchone()
+        current = json.loads(row[0]) if row else {}
+        merged = {**DEFAULT_SETTINGS, **current, **clean}
         c.execute(
             "INSERT OR REPLACE INTO settings VALUES ('preferences',?)",
             (json.dumps(merged, ensure_ascii=False),),

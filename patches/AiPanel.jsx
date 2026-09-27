@@ -62,9 +62,10 @@ export default function AiPanel({ onClose }) {
     {message && <p className="ai-message" role="status">{message}</p>}
     {!config && <p>正在读取服务器配置……</p>}
     {tab === "settings" && config && <section className="ai-form">
+      <p className="ai-notice">当前主链路为 Kaggle；下方 API 设置仅用于停用中的备用服务，不代表 Kaggle 的 Token 预算。</p>
       <p className="ai-notice">模型密钥{config.api_key_configured ? "已配置，调用结果以处理状态为准" : "尚未配置"}。密钥仅从服务器环境读取，网页不接收或回显密钥。修改接口会改变原文与模型认证的发送目标，只填写可信服务。</p>
-      <label><input type="checkbox" checked={config.enabled} onChange={e=>change("enabled",e.target.checked)} /> 开启后台分析</label>
-      <label><input type="checkbox" checked={config.translation_enabled !== false} onChange={e=>change("translation_enabled",e.target.checked)} /> 卡片标题与简介中文化（DeepSeek）</label>
+      <label><input type="checkbox" disabled={status?.kaggle?.enabled} checked={config.enabled} onChange={e=>change("enabled",e.target.checked)} /> 开启后台分析</label>
+      <label><input type="checkbox" disabled={status?.kaggle?.enabled} checked={config.translation_enabled !== false} onChange={e=>change("translation_enabled",e.target.checked)} /> 卡片标题与简介中文化（DeepSeek）</label>
       <p className="ai-notice">中文卡片与价值评分独立，结果缓存在服务器；翻译与评分共用下面的每日请求与 Token 总上限。正文保留原文。</p>
       <label>接口地址<input value={config.base_url} onChange={e=>change("base_url",e.target.value)} /></label>
       <label>模型 ID<input value={config.model} onChange={e=>change("model",e.target.value)} /></label>

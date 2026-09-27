@@ -14,8 +14,17 @@ def authenticate(value):
 
 def status():
     scope=json.loads((STAGE/'scope.json').read_text())
-    ids=json.loads((STAGE/'allowlist.json').read_text())['entry_ids']
-    marks=','.join('?' for _ in ids)
+    historical_scope=dict(scope)
+    historical_ids=json.loads((STAGE/'allowlist.json').read_text())['entry_ids']
+    config=json.loads((ROOT/'src/kaggle_batch/cloud-config-month-primary.json').read_text())
+    from kaggle_batch.live_scope import resolve_entry_ids
+    live=config.get('queue_scope')=='all_enabled_feeds'
+    ids=(resolve_entry_ids(config) or []) if live else historical_ids
+    if live:
+        # A continuous queue has no fixed publication-date cutoff.
+        scope={**scope,'from':None,'to':None,'articles':len(ids),'unknown_date_excluded':0,
+               'scope_type':'all_enabled_feeds','scope_label':'持续增量 · 当前启用的订阅源'}
+    marks=','.join('?' for _ in ids) or 'NULL'
     with sqlite3.connect('file:'+str(ROOT/'state/analysis.sqlite3')+'?mode=ro',uri=True,timeout=10) as db:
         analyses=dict(db.execute(f'SELECT state,count(*) FROM analyses WHERE entry_id IN ({marks}) GROUP BY state',ids))
         cards=dict(db.execute(f'SELECT status,count(*) FROM card_translations WHERE entry_id IN ({marks}) GROUP BY status',ids))
@@ -37,7 +46,7 @@ def status():
     scheduler_file=ROOT/'state/kaggle-month-dispatch/scheduler.json'
     scheduler=json.loads(scheduler_file.read_text()) if scheduler_file.exists() else {'state':'not_started'}
     return {'scheduler':scheduler,'scope':{k:scope[k] for k in ['from','to','articles','unknown_date_excluded']} | {'scope_type':scope.get('scope_type','recent_month'),'label':scope.get('scope_label','最近一个月')},'enabled':enabled,
-        'analyses':analyses,'cards':cards,'lanes':lanes,'checked_at':time.time()}
+        'analyses':analyses,'cards':cards,'lanes':lanes,'historical_scope':{'articles':len(historical_ids),'from':historical_scope.get('from'),'to':historical_scope.get('to'),'label':'历史存量快照，仅用于审计与恢复'},'checked_at':time.time()}
 
 @router.get('/status')
 def get_status(x_vendor_refresh:str=Header(default='')):
@@ -66,6 +75,6 @@ def control(action:str,x_vendor_refresh:str=Header(default='')):
         # order, while preserving immutable outstanding claims.
         from kaggle_batch.lane_scheduler import tick
         scheduler=tick()
-        return {'action':action,'accepted':True,'scope':'current_allowlist',
+        return {'action':action,'accepted':True,'scope':'configured_queue_scope',
                 'gpu_cancellation':False,'scheduler':scheduler}
-    return {'action':action,'accepted':True,'scope':'current_allowlist','gpu_cancellation':False}
+    return {'action':action,'accepted':True,'scope':'configured_queue_scope','gpu_cancellation':False}

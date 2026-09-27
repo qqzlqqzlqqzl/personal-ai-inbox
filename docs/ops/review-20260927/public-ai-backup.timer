@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily verified NewAPI backup (retain seven completed runs)
+[Timer]
+OnCalendar=*-*-* 04:35:00
+Persistent=true
+RandomizedDelaySec=120
+Unit=public-ai-backup.service
+[Install]
+WantedBy=timers.target

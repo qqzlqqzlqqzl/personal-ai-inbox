@@ -42,29 +42,26 @@ async def test_cover_external_proxy_and_direct_miniflux(monkeypatch, proxy):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("proxy", [None, "http://127.0.0.1:17890"])
-async def test_x_network_proxy_does_not_proxy_local_rsshub(monkeypatch, proxy):
+async def test_x_adapter_uses_only_loopback_provider(monkeypatch, proxy):
     if proxy:
         monkeypatch.setenv("AI_NEWS_OUTBOUND_PROXY", proxy)
     else:
         monkeypatch.delenv("AI_NEWS_OUTBOUND_PROXY", raising=False)
-    monkeypatch.setattr(x_source, "read_env", lambda _: {})
     original = httpx.AsyncClient
     calls = []
     def factory(**kwargs):
-        selected = kwargs.pop("proxy", None)
+        assert kwargs.pop("proxy", None) is None
         assert kwargs["trust_env"] is False
         def respond(req):
-            calls.append((req.url.host, selected))
-            if req.url.host == "x.com":
-                assert selected == proxy
-                return httpx.Response(200, text="X page")
+            calls.append((req.url.host, req.url.port))
             assert req.url.host == "127.0.0.1"
-            assert selected is None
+            if req.url.port == 17910:
+                return httpx.Response(200, text='{"kind":"user"}\n')
             return httpx.Response(503)
         return original(transport=httpx.MockTransport(respond), **kwargs)
     monkeypatch.setattr(httpx, "AsyncClient", factory)
     result = await x_source.probe("OpenAI")
     assert result["network_reachable"] is True
     assert result["posts_returned"] is False
-    assert result["route_http"] == 503
-    assert sorted(calls) == sorted([("x.com", proxy), ("127.0.0.1", None)])
+    assert result["feed_http"] == 503
+    assert calls == [("127.0.0.1",17910),("127.0.0.1",17911)]

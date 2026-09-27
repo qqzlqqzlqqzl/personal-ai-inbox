@@ -1,4 +1,4 @@
-"""Health-aware Kaggle-only scheduler for the fixed recent-month campaign.
+"""Health-aware Kaggle scheduler for a live queue or explicit historical scope.
 
 It never submits a Kaggle job itself. It only starts the existing bounded lane
 services. Lane services keep immutable manifests and perform remote reconciliation.
@@ -10,11 +10,13 @@ import subprocess
 import time
 
 try:
+    from .live_scope import resolve_entry_ids
     from .batch_control import atomic_json
     from .exception_audit import Audit
     from .queue_dispatch import claimed_entries
     from .recovery_policy import effective_retry_at
 except ImportError:  # direct script/test execution
+    from live_scope import resolve_entry_ids
     from batch_control import atomic_json
     from exception_audit import Audit
     from queue_dispatch import claimed_entries
@@ -103,7 +105,7 @@ def snapshot_lanes(now,states):
 
 
 def due_entries(now,config):
-    allow=set(read_json(config['entry_allowlist'],{}).get('entry_ids',[]))
+    allow=set(resolve_entry_ids(config) or [])
     if not allow:return set(),set()
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         rows=db.execute("""SELECT DISTINCT a.entry_id FROM analyses a
@@ -137,7 +139,7 @@ def due_entries(now,config):
 
 
 def queue_summary(now,config):
-    ids=read_json(config['entry_allowlist'],{}).get('entry_ids',[])
+    ids=resolve_entry_ids(config) or []
     if not ids:return {'analyses':{},'cards':{},'next_item_retry':0,'total':0}
     marks=','.join('?' for _ in ids)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
@@ -212,7 +214,7 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
     else:state='idle'
     report={'state':state,'at':now,'started':started,'start_failures':failures,
             'due_unclaimed':len(due),'due_claimed':len(claimed),'next_retry_at':next_retry,
-            'cursor':new_cursor,'queue':summary,'lanes':{key:{'active':lane['active'],'ready':lane['ready'],
+            'cursor':new_cursor,'queue_scope':cfg.get('queue_scope','allowlist'),'queue':summary,'lanes':{key:{'active':lane['active'],'ready':lane['ready'],
                 'retry_at':lane['retry_at'],'outstanding_state':(lane['outstanding'] or {}).get('state'),
                 'cycle_state':lane['cycle'].get('state'),'pending_local':lane.get('pending_local',0),
                 'state_error':lane.get('state_error')} for key,lane in lanes.items()}}

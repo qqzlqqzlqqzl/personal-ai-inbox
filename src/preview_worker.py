@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import core
-from content_input import discover_original_cover
+from content_input import discover_original_cover, is_our_social_feed, first_image_src
 from worker import MF, worker_headers, discover_pending
 from media_repair import repair_entry, needs_repair
 
@@ -55,6 +55,12 @@ async def prepare_one(client, row):
                 if prepared.get(key):
                     fields[key] = prepared[key]
             result = "updated" if prepared.get("updated") or fields.get("cover_url") else "no_preview"
+        elif is_our_social_feed(entry.get("feed", {}).get("feed_url", "")):
+            cover = existing_cover or first_image_src(entry.get("content", ""))
+            if cover and not existing_cover:
+                fields.update(cover_url=cover, cover_source="social_post_media")
+            core.update(entry_id, **fields, preview_checked_at=time.time(), preview_error=None)
+            return {"entry_id": entry_id, "result": "updated" if cover else "text_only"}
         else:
             cover, source = (existing_cover, None) if existing_cover else await discover_original_cover(entry["url"], entry.get("title", ""), strict=True)
             if cover and not existing_cover:

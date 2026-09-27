@@ -1,0 +1,9 @@
+[Unit]
+Description=Verified private backup of NewAPI SQLite and secrets
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/public-ai-pool
+ExecStart=/usr/bin/python3 /home/ubuntu/public-ai-pool/src/backup.py
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=true

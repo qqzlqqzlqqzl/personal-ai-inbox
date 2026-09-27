@@ -14,6 +14,7 @@ import sqlite3
 
 from batch_control import Controller, TERMINAL, atomic_json, digest
 from build_manifest import build
+from live_scope import resolve_entry_ids
 from import_results import import_validated
 from validate_business import validate
 from queue_dispatch import claimed_entries, defer_unresolved
@@ -268,7 +269,7 @@ def main():
             extraction_backup.mkdir(mode=0o700)
             backup_before_import(config['database'],extraction_backup)
             claimed=claimed_entries(config.get('peer_state_roots',[str(root)]))
-            allowed=json.loads(Path(config['entry_allowlist']).read_text())['entry_ids'] if config.get('entry_allowlist') else None
+            allowed=resolve_entry_ids(config)
             sample=asyncio.run(prepare_sample(config['source'],args.limit,claimed,allowed,config.get('analysis_only',False)))
             if config.get('analysis_only',False):
                 for row in sample['samples']:

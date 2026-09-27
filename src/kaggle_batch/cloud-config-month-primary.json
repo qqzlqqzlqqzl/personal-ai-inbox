@@ -31,5 +31,7 @@
   "ubatch_size": 512,
   "independent_cards": true,
   "exception_audit_root": "/home/ubuntu/ai-news/state/qwen-exception-audit",
-  "qwen_exception_review": true
+  "qwen_exception_review": true,
+  "queue_scope": "all_enabled_feeds",
+  "scope_user_id": 1
 }

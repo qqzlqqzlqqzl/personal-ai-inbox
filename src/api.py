@@ -1,6 +1,6 @@
 """Same-origin reader gateway and authenticated AI extension API."""
 
-import asyncio, json, os, time, contextlib, logging, uuid, mimetypes
+import asyncio, json, os, time, contextlib, logging, uuid, mimetypes, math
 from contextlib import asynccontextmanager
 from pathlib import Path
 import httpx
@@ -35,10 +35,14 @@ async def lifespan(app):
     init_db()
     init_usage()
     migrate()
-    with connect() as c:
-        c.execute(
-            "UPDATE analyses SET state='pending' WHERE state IN ('fetching','analyzing')"
-        )
+    # Only the legacy worker may recover its old work at web startup.
+    # Live Kaggle preparations are managed by their own claim ledger.
+    if settings().get("enabled"):
+        with connect() as c:
+            c.execute(
+                "UPDATE analyses SET state='pending' WHERE state IN ('fetching','analyzing') AND updated_at<?",
+                (time.time()-600,),
+            )
     app.state.client = httpx.AsyncClient(
         timeout=80, follow_redirects=False, trust_env=False
     )
@@ -93,6 +97,8 @@ class NegotiatedGZipMiddleware(GZipMiddleware):
 
 
 app.add_middleware(NegotiatedGZipMiddleware, minimum_size=512, compresslevel=5)
+from request_limits import RequestLimits
+app.add_middleware(RequestLimits)
 
 
 def auth_headers(request):
@@ -103,7 +109,7 @@ def auth_headers(request):
     }
 
 
-async def authorize(request):
+async def authorize(request, *, admin=False):
     if not auth_headers(request):
         raise HTTPException(401, "请先登录阅读器")
     try:
@@ -114,7 +120,10 @@ async def authorize(request):
         raise HTTPException(503, "Miniflux 尚未完成连接配置")
     if r.status_code != 200:
         raise HTTPException(401, "认证失败")
-    return r.json()["id"]
+    identity = r.json()
+    if admin and identity.get("is_admin") is not True:
+        raise HTTPException(403, "仅管理员可以修改服务器全局配置")
+    return identity["id"]
 
 
 @app.middleware("http")
@@ -188,7 +197,7 @@ async def ready():
 
 @app.get("/mf/v1/ai/settings")
 async def get_settings(request: Request):
-    await authorize(request)
+    await authorize(request, admin=True)
     return {
         **settings(),
         "api_key_configured": bool(os.environ.get("ARK_API_KEY")),
@@ -198,10 +207,15 @@ async def get_settings(request: Request):
 
 @app.put("/mf/v1/ai/settings")
 async def put_settings(request: Request):
-    await authorize(request)
+    await authorize(request, admin=True)
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(400, "Expected an object")
+    campaign_config = ROOT / "src/kaggle_batch/cloud-config-month-primary.json"
+    if (body.get("enabled") is True or body.get("translation_enabled") is True) and campaign_config.exists():
+        campaign = json.loads(campaign_config.read_text())
+        if campaign.get("queue_scope") == "all_enabled_feeds":
+            raise HTTPException(409, "Kaggle 接管中，不能同时开启备用付费分析任务")
     if "api_key" in body:
         raise HTTPException(
             400, "密钥请在服务器受限环境配置中设置，接口不接收或回显密钥"
@@ -216,8 +230,10 @@ async def put_settings(request: Request):
 
 @app.get("/mf/v1/ai/status")
 async def ai_status(request: Request):
-    uid = await authorize(request)
-    return {**status_summary(uid), **(await health())}
+    uid = await authorize(request, admin=True)
+    from month_control import status as month_status
+    campaign = await asyncio.to_thread(month_status)
+    return {**status_summary(uid), **(await health()), "kaggle": campaign}
 
 
 @app.post("/mf/v1/ai/retry")
@@ -456,8 +472,22 @@ async def reading_session(request: Request):
     read_status = body.get("read_status")
     if read_status not in [None, "read", "unread"]:
         raise HTTPException(400, "Invalid read status")
+    if not math.isfinite(float(body.get("max_scroll_pct", 0))):
+        raise HTTPException(400, "Invalid reading metrics")
     now = time.time()
     with connect() as c:
+        if not c.execute("SELECT 1 FROM analyses WHERE entry_id=? AND user_id=?", (eid, uid)).fetchone():
+            raise HTTPException(404, "Article not found")
+        previous = c.execute("SELECT * FROM reading_sessions WHERE session_id=?", (sid,)).fetchone()
+        if previous and (previous['user_id'] != uid or previous['entry_id'] != eid):
+            raise HTTPException(409, "Reading session belongs to a different article")
+        if action == "open":
+            active_ms = 0
+        elif not previous:
+            raise HTTPException(409, "Open reading session first")
+        else:
+            # Never accept more active time than wall time since server-observed open.
+            active_ms = min(active_ms, max(0, int((now - previous['opened_at']) * 1000)))
         c.execute(
             """INSERT OR IGNORE INTO reading_sessions
                (session_id,user_id,entry_id,opened_at,last_seen_at)
@@ -491,7 +521,7 @@ async def reading_session(request: Request):
 
 @app.get("/mf/v1/ai/catalog")
 async def catalog(request: Request):
-    await authorize(request)
+    await authorize(request, admin=True)
     p = ROOT / "sources.catalog.json"
     rows = json.loads(p.read_text()) if p.exists() else []
     r = await app.state.client.get(MF + "/v1/feeds", headers=auth_headers(request))
@@ -511,7 +541,7 @@ async def catalog(request: Request):
 
 @app.get("/mf/v1/ai/tools")
 async def get_tools(request: Request):
-    await authorize(request)
+    await authorize(request, admin=True)
     with connect() as c:
         row = c.execute("SELECT value FROM settings WHERE name='tools'").fetchone()
     if row:
@@ -524,7 +554,7 @@ async def get_tools(request: Request):
 async def put_tools(request: Request):
     from urllib.parse import urlparse
 
-    await authorize(request)
+    await authorize(request, admin=True)
     body = await request.json()
     if not isinstance(body, list) or len(body) > 100:
         raise HTTPException(400, "工具列表格式错误")
@@ -571,7 +601,7 @@ setTimeout(() => location.replace("/inbox/?updated=1"), 350);
 
 @app.get("/mf/v1/ai/x/roster")
 async def x_roster(request: Request):
-    await authorize(request)
+    await authorize(request, admin=True)
     path = ROOT / "x_sources.catalog.json"
     data = json.loads(path.read_text()) if path.exists() else {"version": 1, "sources": []}
     sources = data.get("sources", [])
@@ -607,7 +637,7 @@ async def x_probe(request: Request):
 
 @app.post("/mf/v1/ai/subscribe")
 async def subscribe(request: Request):
-    await authorize(request)
+    await authorize(request, admin=True)
     body = await request.json()
     if not isinstance(body, dict) or not isinstance(body.get("category_id"), int):
         raise HTTPException(400, "Invalid subscription")
@@ -648,6 +678,8 @@ async def subscribe(request: Request):
 )
 async def proxy(path: str, request: Request):
     try:
+        if request.method not in ("GET", "HEAD", "OPTIONS") and path.startswith(("v1/feeds", "v1/import")):
+            await authorize(request, admin=True)
         if (
             path == "v1/entries"
             and request.method == "GET"
@@ -798,3 +830,7 @@ def positive_id(value):
         return n
     except (ValueError, TypeError, OverflowError):
         raise HTTPException(400, "Invalid entry id")
+
+
+from month_control import router as month_control_router
+app.include_router(month_control_router)

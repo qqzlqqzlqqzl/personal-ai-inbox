@@ -11,7 +11,7 @@ async def browser_api(db, monkeypatch, entry):
     def upstream(req):
         if req.url.path.endswith("/v1/me"):
             return (
-                httpx.Response(200, json={"id": 1})
+                httpx.Response(200, json={"id": 1, "is_admin": True})
                 if req.headers.get("x-auth-token") == "test-session"
                 else httpx.Response(401)
             )
@@ -246,7 +246,7 @@ async def test_basic_list_reuses_only_same_user_token(browser_api, monkeypatch, 
         calls.append(req)
         if req.url.path.endswith("/v1/me"):
             if req.headers.get("authorization") == basic:
-                return httpx.Response(200, json={"id": 1})
+                return httpx.Response(200, json={"id": 1, "is_admin": True})
             if worker_uid is None:
                 return httpx.Response(401)
             return httpx.Response(200, json={"id": worker_uid})

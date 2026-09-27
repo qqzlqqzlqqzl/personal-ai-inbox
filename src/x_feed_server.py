@@ -55,6 +55,8 @@ async def fetch_timeline(handle):
             row = json.loads(line)
         except ValueError:
             continue
+        if row.get("kind") == "error":
+            raise httpx.HTTPError("X upstream returned an error record")
         author = row.get("author") or {}
         if row.get("kind") != "tweet":
             continue
@@ -76,6 +78,8 @@ async def timeline(handle, force=False):
         return cached, "fresh-cache"
     try:
         tweets = await fetch_timeline(handle)
+        if not tweets and cached and cached.get("tweets"):
+            return cached, "stale-empty-upstream"
         return save_cache(handle, tweets), "live"
     except (httpx.HTTPError, ValueError):
         if cached:

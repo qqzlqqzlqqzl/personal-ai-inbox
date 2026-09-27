@@ -1,0 +1,13 @@
+--- a/src/backup.py
++++ b/src/backup.py
+@@ -24,3 +24,10 @@
+ report={'created_at':time.strftime('%Y-%m-%dT%H:%M:%S%z'),'private_backup':True,'contains_credentials':True,'databases':results}
+ (dest/'manifest.json').write_text(json.dumps(report,indent=2))
+ print(json.dumps({'status':'backup_verified','directory':str(dest),'databases':results,'warning':'Private backup contains credentials. Do not publish or commit.'}))
++
++# Retain only completed backups. Never prune incomplete evidence or the current run.
++completed = sorted((p for p in dest.parent.iterdir() if p.is_dir() and not p.is_symlink()
++                    and (p/'manifest.json').is_file()), key=lambda p:p.name, reverse=True)
++for old in completed[7:]:
++    if old != dest:
++        shutil.rmtree(old)

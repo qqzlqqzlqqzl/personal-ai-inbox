@@ -26,7 +26,7 @@ async def probe(value):
         "post_count": 0,
         "route": f"/x/user/{name}",
         "feed_url": feed_url,
-        "experimental": False,
+        "experimental": True,
     }
     async with httpx.AsyncClient(timeout=35, follow_redirects=False, trust_env=False) as client:
         try:
@@ -49,7 +49,7 @@ async def probe(value):
             result["feed_error"] = type(exc).__name__
 
     if result["posts_returned"]:
-        result["message"] = f"X guest Provider 正常，本次取得 {result['post_count']} 条公开帖子，可直接订阅。"
+        result["message"] = f"X guest Provider 正常，本次取得 {result['post_count']} 条公开帖子，可订阅；匿名窗口可能是采样结果，不保证最新或完整。"
     elif result["feed_ready"] and result["profile_valid"]:
         result["message"] = "X guest Provider 正常；账号有效，但当前时间线窗口为空或处于限流缓存期，订阅仍可创建。"
     elif not result["profile_valid"]:
