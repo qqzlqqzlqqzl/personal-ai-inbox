@@ -85,19 +85,19 @@ export default function AiPanel({ onClose }) {
     </section>}
     {tab === "sources" && <section>
       <p>先广泛收录，再按实际阅读价值裁剪。以下“可用”只表示本次成功解析订阅 XML，不代表每篇原文都能抓到。</p>
-      {xRoster && <details><summary>X 正式名单：{xRoster.counts.total} 个 · 稳定替代源已启用 {xRoster.counts.fallback_active} · 等待 X Provider {xRoster.counts.pending_x_provider}</summary><div className="ai-source-list">{xRoster.sources.map(s=><div key={s.handle}><div><strong>@{s.handle}</strong><small>{s.category} · {s.status === "fallback_active" ? "RSS/GitHub 替代源已启用" : "等待 X 抓取链恢复"}</small></div></div>)}</div></details>}
+      {xRoster && <details><summary>X 核心名单：{xRoster.counts.total} 个 · timeline 有内容 {xRoster.counts.timeline_nonempty} · 空 {xRoster.counts.timeline_empty}（其中 {xRoster.counts.empty_with_fallback} 个已有稳定替代源）</summary><div className="ai-source-list">{xRoster.sources.map(s=><div key={s.handle}><div><strong>@{s.handle}</strong><small>{s.category} · {s.timeline_status === "nonempty" ? `X 已抓到 ${s.timeline_entries || 0} 条` : "X timeline 暂空"}{s.status === "fallback_active" ? " · 稳定替代源已启用" : ""}</small></div></div>)}</div></details>}
       <input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} />
       <button disabled={busy} onClick={()=>add(filtered.filter(s=>s.status==="ok" && !s.subscribed && s.analysis_supported !== false))}>添加当前可用来源</button>
-      <p className="ai-notice">社交平台接入：X 可用账号授权或第三方服务，先检查是否真的取得帖子；Instagram 需相应账号或 Cookie；Telegram 公开频道可尝试网页路由。Facebook 未经本实例验证。不要把这些入口当成已经接通。</p>
+      <p className="ai-notice">X 已使用本机 x-cli guest Provider，无需登录、Cookie 或 API Key；上游限流时优先读取本地缓存。Instagram/Telegram 等其他社交源仍按各自适配器状态处理。</p>
       <form onSubmit={e=>{e.preventDefault();run(async()=>{const result=await apiClient.post("/v1/ai/x/probe",{handle:xHandle});setXProbe(result);setMessage(result.message)})}}>
         <label>X 用户名<input value={xHandle} onChange={e=>{setXHandle(e.target.value);setXProbe(null)}} placeholder="@OpenAI" required /></label>
         <button disabled={busy}>检查 X 来源</button>
-        <button type="button" disabled={busy || !xProbe?.posts_returned} onClick={()=>run(async()=>{
+        <button type="button" disabled={busy || !xProbe?.feed_ready || !xProbe?.profile_valid} onClick={()=>run(async()=>{
           const categories=await apiClient.get("/v1/categories")
-          const category=categories.find(c=>c.title==="社交动态") || categories[0]
-          if (!category) throw new Error("请先添加订阅分类")
+          let category=categories.find(c=>c.title==="X 作者")
+          if (!category) category=await apiClient.post("/v1/categories",{title:"X 作者"})
           await apiClient.post("/v1/ai/subscribe",{x_handle:xHandle,category_id:category.id})
-          await refreshFeedData();invalidateArticleList();setMessage("已订阅 X 来源；长期稳定性仍待验证")
+          await refreshFeedData();invalidateArticleList();setMessage("已订阅 X guest 来源")
         })}>订阅 X 来源</button>
       </form>
       {xProbe && <p className="ai-notice">适配器：{xProbe.adapter_configured ? "已配置" : "未配置"} · 直连 X：{xProbe.network_reachable ? "有 HTTP 响应" : "不可达"} · 本次帖子：{xProbe.post_count}。{xProbe.message}</p>}

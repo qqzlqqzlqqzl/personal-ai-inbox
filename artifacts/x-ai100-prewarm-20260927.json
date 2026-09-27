@@ -1,0 +1,359 @@
+[
+  {
+    "handle": "SipeedLab",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 0.11
+  },
+  {
+    "handle": "ylecun",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 3.11
+  },
+  {
+    "handle": "AndrewYNg",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.85
+  },
+  {
+    "handle": "JeffDean",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.64
+  },
+  {
+    "handle": "ch402",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.05
+  },
+  {
+    "handle": "drfeifei",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.68
+  },
+  {
+    "handle": "ilyasut",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 1.92
+  },
+  {
+    "handle": "goodfellow_ian",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.22
+  },
+  {
+    "handle": "hardmaru",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 1.98
+  },
+  {
+    "handle": "geoffreyhinton",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 1.94
+  },
+  {
+    "handle": "jackclarkSF",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 32.93
+  },
+  {
+    "handle": "percyliang",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.14
+  },
+  {
+    "handle": "DarioAmodei",
+    "status_code": 200,
+    "items": 4,
+    "source": "live",
+    "seconds": 1.96
+  },
+  {
+    "handle": "AmandaAskell",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 0.07
+  },
+  {
+    "handle": "alexalbert__",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.01
+  },
+  {
+    "handle": "janleike",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.2
+  },
+  {
+    "handle": "johnschulman2",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.06
+  },
+  {
+    "handle": "_jasonwei",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 1.99
+  },
+  {
+    "handle": "lateinteraction",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.19
+  },
+  {
+    "handle": "tri_dao",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.49
+  },
+  {
+    "handle": "jerryjliu0",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 3.16
+  },
+  {
+    "handle": "jxnlco",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 1.96
+  },
+  {
+    "handle": "ShunyuYao14",
+    "status_code": 200,
+    "items": 0,
+    "source": "live",
+    "seconds": 1.85
+  },
+  {
+    "handle": "polynoamial",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.55
+  },
+  {
+    "handle": "demishassabis",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.95
+  },
+  {
+    "handle": "emollick",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.19
+  },
+  {
+    "handle": "dylan522p",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.22
+  },
+  {
+    "handle": "ID_AA_Carmack",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.04
+  },
+  {
+    "handle": "realGeorgeHotz",
+    "status_code": 200,
+    "items": 0,
+    "source": "live",
+    "seconds": 1.19
+  },
+  {
+    "handle": "bcherny",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 1.94
+  },
+  {
+    "handle": "steipete",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.16
+  },
+  {
+    "handle": "amanrsanger",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.76
+  },
+  {
+    "handle": "AravSrinivas",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.03
+  },
+  {
+    "handle": "aidangomez",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.01
+  },
+  {
+    "handle": "arthurmensch",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.28
+  },
+  {
+    "handle": "mli65",
+    "status_code": 200,
+    "items": 0,
+    "source": "live",
+    "seconds": 1.42
+  },
+  {
+    "handle": "kaifulee",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.05
+  },
+  {
+    "handle": "svlevine",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.09
+  },
+  {
+    "handle": "chelseabfinn",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.21
+  },
+  {
+    "handle": "deepakpathak",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 0.1
+  },
+  {
+    "handle": "pulkitology",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.49
+  },
+  {
+    "handle": "RussTedrake",
+    "status_code": 200,
+    "items": 13,
+    "source": "live",
+    "seconds": 1.73
+  },
+  {
+    "handle": "Ken_Goldberg",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.29
+  },
+  {
+    "handle": "jiajunwu_cs",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.08
+  },
+  {
+    "handle": "NeelNanda5",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.39
+  },
+  {
+    "handle": "RichardMCNgo",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.16
+  },
+  {
+    "handle": "rohinmshah",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 3.02
+  },
+  {
+    "handle": "ggerganov",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 2.08
+  },
+  {
+    "handle": "Tim_Dettmers",
+    "status_code": 200,
+    "items": 20,
+    "source": "live",
+    "seconds": 3.16
+  },
+  {
+    "handle": "SebastienBubeck",
+    "status_code": 200,
+    "items": 0,
+    "source": "deferred-empty",
+    "seconds": 1.29
+  },
+  {
+    "handle": "srush_nlp",
+    "status_code": 200,
+    "items": 0,
+    "source": "deferred-empty",
+    "seconds": 1.21
+  }
+]

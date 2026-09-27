@@ -579,8 +579,15 @@ async def x_roster(request: Request):
         **data,
         "counts": {
             "total": len(sources),
+            "x_active": sum(x.get("x_status") == "active" for x in sources),
+            "timeline_nonempty": sum(x.get("timeline_status") == "nonempty" for x in sources),
+            "timeline_empty": sum(x.get("timeline_status") == "empty" for x in sources),
+            "empty_with_fallback": sum(
+                x.get("timeline_status") == "empty" and x.get("status") == "fallback_active"
+                for x in sources
+            ),
+            "profile_unavailable": sum(x.get("x_status") == "profile_unavailable" for x in sources),
             "fallback_active": sum(x.get("status") == "fallback_active" for x in sources),
-            "pending_x_provider": sum(x.get("status") == "pending_x_provider" for x in sources),
         },
     }
 
@@ -611,9 +618,9 @@ async def subscribe(request: Request):
             checked = await probe(body["x_handle"])
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-        if not checked["posts_returned"]:
+        if not checked.get("feed_ready") or not checked.get("profile_valid"):
             return JSONResponse({"error_message": checked["message"], "probe": checked}, status_code=409)
-        url = "http://127.0.0.1:1200" + checked["route"]
+        url = checked["feed_url"]
     from urllib.parse import urlparse
 
     if urlparse(url).scheme not in ["http", "https"]:

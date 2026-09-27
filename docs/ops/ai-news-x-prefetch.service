@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh a bounded batch of Personal AI Inbox X feeds
+Requires=ai-news-x-feed.service
+After=ai-news-x-feed.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/ai-news
+ExecStart=/home/ubuntu/ai-news/runtime/venv/bin/python /home/ubuntu/ai-news/src/x_feed_prefetch.py

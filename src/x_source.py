@@ -1,7 +1,9 @@
-"""X connectivity and real timeline preflight; never equate configuration with posts."""
-import asyncio, os, re, time, xml.etree.ElementTree as ET
+"""X preflight through the local x-cli guest provider and Atom adapter."""
+import re, time, xml.etree.ElementTree as ET
 import httpx
-from initialize_secrets import read_env
+
+PROVIDER = "http://127.0.0.1:17910"
+FEEDS = "http://127.0.0.1:17911"
 
 def handle(value):
     value = str(value or "").strip().lstrip("@")
@@ -11,48 +13,47 @@ def handle(value):
 
 async def probe(value):
     name = handle(value)
-    cfg = read_env("rsshub.env")
-    third = bool(cfg.get("TWITTER_THIRD_PARTY_API"))
-    configured = third or bool(cfg.get("TWITTER_AUTH_TOKEN")) or bool(cfg.get("TWITTER_CONSUMER_KEY") and cfg.get("TWITTER_CONSUMER_SECRET"))
-    result = {"at":time.time(), "handle":name, "adapter_configured":configured,
-              "adapter":"third_party" if third else "account" if configured else "unconfigured",
-              "network_reachable":False, "posts_returned":False, "post_count":0,
-              "route":"/twitter/user/"+name, "experimental":True}
-    async with (
-        httpx.AsyncClient(timeout=12, follow_redirects=True, trust_env=False,
-                          proxy=os.environ.get("AI_NEWS_OUTBOUND_PROXY") or None) as external,
-        httpx.AsyncClient(timeout=12, follow_redirects=True, trust_env=False) as c,
-    ):
-        async def network():
-            try:
-                async with external.stream("GET", "https://x.com/"+name) as r:
-                    result.update(network_reachable=True,network_http=r.status_code)
-            except httpx.HTTPError as e:
-                result["network_error"]=type(e).__name__
-        async def timeline():
-            try:
-                async with c.stream("GET","http://127.0.0.1:1200"+result["route"]) as r:
-                    result["route_http"]=r.status_code
-                    if r.status_code!=200: return
-                    body=b""
-                    async for chunk in r.aiter_bytes():
-                        body+=chunk
-                        if len(body)>2*1024*1024: return
-                root=ET.fromstring(body)
-                valid=[i for i in root.findall("./channel/item") if re.search(r"https://(?:x|twitter)\.com/[^/]+/status/\d+", i.findtext("link") or "")]
-                result.update(post_count=len(valid),posts_returned=bool(valid))
-            except (httpx.HTTPError,ET.ParseError) as e:
-                result["route_error"]=type(e).__name__
+    feed_url = f"{FEEDS}/x/user/{name}"
+    result = {
+        "at": time.time(),
+        "handle": name,
+        "adapter_configured": True,
+        "adapter": "x_cli_guest",
+        "network_reachable": False,
+        "profile_valid": False,
+        "feed_ready": False,
+        "posts_returned": False,
+        "post_count": 0,
+        "route": f"/x/user/{name}",
+        "feed_url": feed_url,
+        "experimental": False,
+    }
+    async with httpx.AsyncClient(timeout=35, follow_redirects=False, trust_env=False) as client:
         try:
-            await asyncio.wait_for(asyncio.gather(network(),timeline()),timeout=18)
-        except asyncio.TimeoutError:
-            result["probe_timeout"]=True
+            profile = await client.get(f"{PROVIDER}/v1/user/{name}")
+            result["profile_http"] = profile.status_code
+            result["profile_valid"] = profile.status_code == 200
+            result["network_reachable"] = profile.status_code in (200, 404)
+        except httpx.HTTPError as exc:
+            result["profile_error"] = type(exc).__name__
+        try:
+            feed = await client.get(feed_url)
+            result["feed_http"] = feed.status_code
+            if feed.status_code == 200:
+                root = ET.fromstring(feed.content)
+                ns = {"a": "http://www.w3.org/2005/Atom"}
+                entries = root.findall("a:entry", ns)
+                result.update(feed_ready=True, post_count=len(entries), posts_returned=bool(entries))
+                result["feed_source"] = feed.headers.get("x-x-feed-source")
+        except (httpx.HTTPError, ET.ParseError) as exc:
+            result["feed_error"] = type(exc).__name__
+
     if result["posts_returned"]:
-        result["message"]="本次已取得公开帖子，可尝试订阅；长期稳定性仍待验证。"
-    elif not configured:
-        result["message"]="X 适配器未配置。可接第三方服务以免提供 X 账号 Token；尚未取得帖子。"
+        result["message"] = f"X guest Provider 正常，本次取得 {result['post_count']} 条公开帖子，可直接订阅。"
+    elif result["feed_ready"] and result["profile_valid"]:
+        result["message"] = "X guest Provider 正常；账号有效，但当前时间线窗口为空或处于限流缓存期，订阅仍可创建。"
+    elif not result["profile_valid"]:
+        result["message"] = "未能从 X guest Provider 验证该账号，暂不创建 X 订阅。"
     else:
-        result["message"]="适配器已配置，但本次未取得帖子，未创建订阅。"
-    if not result["network_reachable"]:
-        result["message"] += " 服务器到 X 的连接失败；请检查当前出站网络或代理。"
+        result["message"] = "X guest Provider 暂不可用，请查看本地 Provider 健康状态。"
     return result

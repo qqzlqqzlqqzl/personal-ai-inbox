@@ -1,0 +1,17 @@
+[Unit]
+Description=Personal AI Inbox X Atom feeds
+Requires=ai-news-x-provider.service
+After=ai-news-x-provider.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/ai-news/src
+Environment="AI_NEWS_ROOT=/home/ubuntu/ai-news"
+Environment="X_PROVIDER_URL=http://127.0.0.1:17910"
+Environment="X_FEED_CACHE_TTL=7200"
+ExecStart=/home/ubuntu/ai-news/runtime/venv/bin/python -m uvicorn x_feed_server:app --host 127.0.0.1 --port 17911 --no-access-log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

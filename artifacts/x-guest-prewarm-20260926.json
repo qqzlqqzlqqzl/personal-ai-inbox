@@ -1,0 +1,397 @@
+{
+  "at": 1790422531.4730203,
+  "results": [
+    {
+      "handle": "simonw",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-09-23T20:23:18Z",
+      "source": "live",
+      "seconds": 3.56
+    },
+    {
+      "handle": "karpathy",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-11-12T20:28:01Z",
+      "source": "live",
+      "seconds": 3.78
+    },
+    {
+      "handle": "rasbt",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-09T13:26:10Z",
+      "source": "fresh-cache",
+      "seconds": 0.0
+    },
+    {
+      "handle": "natolambert",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-25T13:12:52Z",
+      "source": "live",
+      "seconds": 3.14
+    },
+    {
+      "handle": "fchollet",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-05-04T18:35:59Z",
+      "source": "live",
+      "seconds": 2.89
+    },
+    {
+      "handle": "ClementDelangue",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-18T15:07:41Z",
+      "source": "live",
+      "seconds": 2.65
+    },
+    {
+      "handle": "huggingface",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-08-05T17:28:35Z",
+      "source": "live",
+      "seconds": 2.84
+    },
+    {
+      "handle": "Alibaba_Qwen",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-23T11:50:58Z",
+      "source": "live",
+      "seconds": 4.83
+    },
+    {
+      "handle": "deepseek_ai",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-09-29T10:10:00Z",
+      "source": "live",
+      "seconds": 3.08
+    },
+    {
+      "handle": "vllm_project",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-11-13T04:51:40Z",
+      "source": "live",
+      "seconds": 3.33
+    },
+    {
+      "handle": "ollama",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-24T20:06:47Z",
+      "source": "live",
+      "seconds": 3.96
+    },
+    {
+      "handle": "HamelHusain",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-23T17:08:00Z",
+      "source": "live",
+      "seconds": 3.84
+    },
+    {
+      "handle": "hwchase17",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-08-07T17:28:06Z",
+      "source": "live",
+      "seconds": 3.04
+    },
+    {
+      "handle": "mitchellh",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-10-26T21:26:21Z",
+      "source": "live",
+      "seconds": 3.49
+    },
+    {
+      "handle": "thorstenball",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-19T13:40:20Z",
+      "source": "live",
+      "seconds": 4.01
+    },
+    {
+      "handle": "chipro",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-11-14T18:46:51Z",
+      "source": "live",
+      "seconds": 2.75
+    },
+    {
+      "handle": "eugeneyan",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-06-25T00:38:00Z",
+      "source": "live",
+      "seconds": 3.36
+    },
+    {
+      "handle": "swyx",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-10-07T23:55:07Z",
+      "source": "live",
+      "seconds": 3.99
+    },
+    {
+      "handle": "_akhaliq",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-03-20T13:31:24Z",
+      "source": "live",
+      "seconds": 2.87
+    },
+    {
+      "handle": "DrJimFan",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-05-08T14:32:53Z",
+      "source": "live",
+      "seconds": 3.28
+    },
+    {
+      "handle": "pabbeel",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-10-01T16:36:11Z",
+      "source": "live",
+      "seconds": 3.13
+    },
+    {
+      "handle": "NVIDIARobotics",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-11-18T21:17:02Z",
+      "source": "live",
+      "seconds": 2.81
+    },
+    {
+      "handle": "OpenRoboticsOrg",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-24T22:40:13Z",
+      "source": "live",
+      "seconds": 2.66
+    },
+    {
+      "handle": "rosorg",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-08-25T18:50:09Z",
+      "source": "live",
+      "seconds": 3.01
+    },
+    {
+      "handle": "ODriveRobotics",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.52
+    },
+    {
+      "handle": "mjbotsrs",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.37
+    },
+    {
+      "handle": "XRobotsUK",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.76
+    },
+    {
+      "handle": "McuOnEclipse",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "fresh-cache",
+      "seconds": 0.0
+    },
+    {
+      "handle": "Memfault",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-06-24T15:11:04Z",
+      "source": "live",
+      "seconds": 2.85
+    },
+    {
+      "handle": "bootlincom",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.31
+    },
+    {
+      "handle": "ZephyrIoT",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.79
+    },
+    {
+      "handle": "geerlingguy",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-10-20T09:40:39Z",
+      "source": "live",
+      "seconds": 3.61
+    },
+    {
+      "handle": "EspressifSystem",
+      "ok": true,
+      "items": 20,
+      "latest": "2024-06-09T16:58:18Z",
+      "source": "live",
+      "seconds": 2.87
+    },
+    {
+      "handle": "ST_World",
+      "ok": true,
+      "items": 20,
+      "latest": "2023-01-11T11:13:02Z",
+      "source": "live",
+      "seconds": 2.72
+    },
+    {
+      "handle": "NordicTweets",
+      "ok": true,
+      "items": 20,
+      "latest": "2024-01-10T23:56:28Z",
+      "source": "live",
+      "seconds": 2.94
+    },
+    {
+      "handle": "edgeimpulse",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.96
+    },
+    {
+      "handle": "petewarden",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.7
+    },
+    {
+      "handle": "seeedstudio",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-05T07:30:00Z",
+      "source": "live",
+      "seconds": 3.23
+    },
+    {
+      "handle": "M5Stack",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-07-17T09:02:38Z",
+      "source": "live",
+      "seconds": 3.52
+    },
+    {
+      "handle": "SipeedIO",
+      "ok": false,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable",
+      "seconds": 1.51
+    },
+    {
+      "handle": "robertferanec",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "live",
+      "seconds": 2.08
+    },
+    {
+      "handle": "PhilsLab1",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "fresh-cache",
+      "seconds": 0.0
+    },
+    {
+      "handle": "TheSignalPath",
+      "ok": true,
+      "items": 0,
+      "latest": null,
+      "source": "fresh-cache",
+      "seconds": 0.0
+    },
+    {
+      "handle": "cnlohr",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-08-20T23:11:24Z",
+      "source": "live",
+      "seconds": 3.34
+    },
+    {
+      "handle": "eevblog",
+      "ok": true,
+      "items": 20,
+      "latest": "2026-09-15T01:28:09Z",
+      "source": "live",
+      "seconds": 3.9
+    },
+    {
+      "handle": "bunniestudios",
+      "ok": true,
+      "items": 20,
+      "latest": "2023-12-08T15:36:43Z",
+      "source": "live",
+      "seconds": 2.93
+    },
+    {
+      "handle": "hackaday",
+      "ok": true,
+      "items": 20,
+      "latest": "2025-10-03T01:08:11Z",
+      "source": "live",
+      "seconds": 2.98
+    },
+    {
+      "handle": "crowd_supply",
+      "ok": false,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable",
+      "seconds": 1.84
+    },
+    {
+      "handle": "kicad_pcb",
+      "ok": false,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable",
+      "seconds": 1.92
+    },
+    {
+      "handle": "levelsio",
+      "ok": false,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable",
+      "seconds": 2.23
+    }
+  ]
+}

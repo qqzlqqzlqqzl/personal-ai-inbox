@@ -9,13 +9,11 @@ SOCIAL_ROUTES = ("/telegram/channel/", "/twitter/user/", "/instagram/2/")
 
 def is_our_social_feed(feed_url):
     u = urlsplit(feed_url)
-    return (
-        u.scheme == "http"
-        and u.hostname == "127.0.0.1"
-        and u.port == 1200
-        and u.path.startswith(SOCIAL_ROUTES)
-        and not u.username
-    )
+    if u.scheme != "http" or u.hostname != "127.0.0.1" or u.username:
+        return False
+    rsshub_social = u.port == 1200 and u.path.startswith(SOCIAL_ROUTES)
+    x_guest_feed = u.port == 17911 and u.path.startswith("/x/user/")
+    return rsshub_social or x_guest_feed
 
 
 def content_text(html):

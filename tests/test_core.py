@@ -74,9 +74,11 @@ def test_budget_counts_requests_and_survives_restart(db):
 
 def test_adapter_whitelist():
     assert is_our_social_feed("http://127.0.0.1:1200/telegram/channel/telegram")
+    assert is_our_social_feed("http://127.0.0.1:17911/x/user/karpathy")
     assert not is_our_social_feed("https://example.org/telegram/channel/telegram")
     assert not is_our_social_feed("http://127.0.0.1:1200/arbitrary/blog")
     assert not is_our_social_feed("http://127.0.0.1:8092/telegram/channel/telegram")
+    assert not is_our_social_feed("http://example.org:17911/x/user/karpathy")
 
 
 def test_failed_source_cannot_starve_other_sources(db, entry):
