@@ -1,11 +1,13 @@
 import { useStore } from "@nanostores/react"
-import { useState, useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { aiState } from "@/store/aiState"
-import { settingsState, updateSettings } from "@/store/settingsState"
-import { invalidateArticleList } from "@/store/contentState"
+
 import AiPanel from "./AiPanel"
+
 import apiClient from "@/apis/ofetch"
+import { aiState } from "@/store/aiState"
+import { invalidateArticleList } from "@/store/contentState"
+import { settingsState, updateSettings } from "@/store/settingsState"
 import "./AiNews.css"
 
 export default function AiToolbar({ source }) {
@@ -33,18 +35,18 @@ export default function AiToolbar({ source }) {
           const minimum = Number(c.minimum_score)
           const changed = current.minimum !== minimum
           aiState.set({ ...current, minimum, hydrated: true })
-          if (changed) invalidateArticleList()
+          if (changed) {invalidateArticleList()}
         }
         if (active) {
           const count = `${s.translations?.counts?.done || 0}:${s.counts?.done || 0}`
           // A background completion must never replace the current reading snapshot.
-          if (completedCards.current !== null && completedCards.current !== count) setUpdatesAvailable(true)
+          if (completedCards.current !== null && completedCards.current !== count) {setUpdatesAvailable(true)}
           completedCards.current = count
           setProgress(s)
         }
       } catch { /* Native reader remains usable if the add-on is unavailable. */ }
     }
-    load(); const timer = setInterval(load,30000)
+    load(); const timer = setInterval(load,30_000)
     return () => { active=false; clearInterval(timer) }
   }, [])
   const change = (value) => {
@@ -58,14 +60,14 @@ export default function AiToolbar({ source }) {
     }
     setUpdatesAvailable(false)
     invalidateArticleList()
-    if (source !== "all") navigate("/all")
+    if (source !== "all") {navigate("/all")}
   }
   return <div className="ai-toolbar">
-    <div className="ai-modes">{[["all", "全部原始"], ["recommended", "AI 精选"], ["pending", "待处理 / 异常"]].map(([mode, label]) =>
+    <div className="ai-modes">{[["all", "全部原始"], ["recommended", "AI 精选"], ["notes", "有笔记"], ["pending", "待处理 / 异常"]].map(([mode, label]) =>
       <button key={mode} aria-pressed={source === "all" && state.mode === mode} onClick={() => change({ mode })}>{label}</button>)}</div>
     {state.mode === "recommended" && source === "all" && <>
       <label>最低分 <select value={state.minimum} onChange={e => change({ minimum: Number(e.target.value) })}>{[0,3,5,6,7,8,9].map(n => <option key={n}>{n}</option>)}</select></label>
-      <select aria-label="AI 排序" value={state.sort === "time" ? `time_${orderDirection}` : state.sort} onChange={e => { const value = e.target.value; updateSettings({ orderDirection: value === "time_asc" ? "asc" : "desc" }); change({ sort: value.startsWith("time_") ? "time" : value }) }}><option value="score">推荐优先</option><option value="technical">技术价值</option><option value="business">商业启发</option><option value="time_desc">最新优先</option><option value="time_asc">最旧优先</option></select>
+      <select aria-label="AI 排序" value={state.sort === "time" ? `time_${orderDirection}` : state.sort} onChange={e => { const {value} = e.target; updateSettings({ orderDirection: value === "time_asc" ? "asc" : "desc" }); change({ sort: value.startsWith("time_") ? "time" : value }) }}><option value="score">推荐优先</option><option value="technical">技术价值</option><option value="business">商业启发</option><option value="time_desc">最新优先</option><option value="time_asc">最旧优先</option></select>
     </>}
     {saveStatus && <span role="status">{saveStatus}</span>}
     {progress && <span className="ai-progress">已分析 {progress.counts.done || 0} / {Object.values(progress.counts).reduce((a,b)=>a+b,0)} · {progress.kaggle?.enabled ? "Kaggle 持续增量处理" : "处理已暂停"}</span>}

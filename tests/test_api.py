@@ -311,3 +311,55 @@ async def test_gzip_negotiation_static_and_dynamic(browser_api, monkeypatch, db,
     assert r.status_code == 200
     assert len(r.content) > 512
     assert (r.headers.get("content-encoding") == "gzip") is compressed
+
+
+@pytest.mark.asyncio
+async def test_personal_note_crud_and_notes_view(browser_api, entry):
+    core.discover([entry])
+    h = {"X-Auth-Token": "test-session"}
+    note = "这篇的缓存思路可以复用到我的嵌入式数据链路。\n第二行。"
+    saved = await browser_api.put("/mf/v1/ai/notes/1", headers=h, json={"note": note})
+    assert saved.status_code == 200 and saved.json()["has_note"] is True
+    loaded = await browser_api.get("/mf/v1/ai/notes/1", headers=h)
+    assert loaded.status_code == 200 and loaded.json()["note"] == note
+    assert core.decorate(entry, 1)["ai"]["has_note"] is True
+
+    listed = await browser_api.get("/mf/v1/entries?ai_view=notes", headers=h)
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["entries"][0]["ai"]["has_note"] is True
+
+    cleared = await browser_api.put("/mf/v1/ai/notes/1", headers=h, json={"note": "   "})
+    assert cleared.status_code == 200 and cleared.json()["has_note"] is False
+    listed = await browser_api.get("/mf/v1/entries?ai_view=notes", headers=h)
+    assert listed.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_note_validation_and_article_ownership(browser_api, entry):
+    core.discover([entry])
+    h = {"X-Auth-Token": "test-session"}
+    assert (
+        await browser_api.put("/mf/v1/ai/notes/1", headers=h, json={"note": "x" * 20001})
+    ).status_code == 400
+    assert (
+        await browser_api.put("/mf/v1/ai/notes/999", headers=h, json={"note": "private"})
+    ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_minimum_score_is_effective_even_when_model_flag_is_false(
+    browser_api, entry, model_result
+):
+    core.discover([entry])
+    core.update(
+        1,
+        state="done",
+        score=5,
+        result=json.dumps({**model_result, "score": 5, "worth_reading": False}),
+    )
+    h = {"X-Auth-Token": "test-session"}
+    low = await browser_api.get("/mf/v1/entries?ai_view=recommended&ai_min=5", headers=h)
+    high = await browser_api.get("/mf/v1/entries?ai_view=recommended&ai_min=6", headers=h)
+    assert low.status_code == 200 and low.json()["total"] == 1
+    assert high.status_code == 200 and high.json()["total"] == 0

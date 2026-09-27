@@ -25,3 +25,12 @@
 .card-language-status{display:inline-block;flex:0 1 auto;max-width:100%;padding:0 6px;border-radius:4px;font-size:11px;line-height:18px;color:var(--color-text-3,#667085);background:var(--color-fill-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.grid-card-footer .card-language-status{margin-right:8px}.card-header .card-language-status{margin-top:6px}
 
 .article-source-footer{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 12px;margin-top:28px;border-top:1px solid var(--color-border-2);text-align:center}.article-source-footer a{display:inline-block;padding:10px 16px;border:1px solid var(--color-border-3);border-radius:8px;color:var(--color-link,#2563eb);text-decoration:underline;text-underline-offset:3px}.article-source-footer span{font-size:12px;color:var(--color-text-3)}
+
+
+.ai-note-chip{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;background:var(--color-fill-2,#eef3fa);color:var(--color-text-2,#475569);font-size:11px;font-weight:500}
+.ai-pending>.ai-note-chip{margin-right:7px}
+.article-note{box-sizing:border-box;margin:28px 0 8px;padding:16px;border:1px solid var(--color-border-2,#dce3ed);border-radius:12px;background:var(--color-bg-2,#fff)}
+.article-note-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:10px}.article-note-head>div{display:flex;flex-direction:column;gap:3px}.article-note-head strong{font-size:15px;color:var(--color-text-1,#223)}.article-note-head span,.article-note-head small,.article-note-foot{font-size:12px;color:var(--color-text-3,#667085)}
+.article-note textarea{box-sizing:border-box;width:100%;min-height:116px;padding:11px 12px;resize:vertical;border:1px solid var(--color-border-2,#ccd);border-radius:9px;background:var(--color-bg-1,#fff);color:var(--color-text-1,#223);font:inherit;line-height:1.65}.article-note textarea:focus{outline:2px solid rgb(var(--primary-4));outline-offset:1px}.article-note textarea:disabled{opacity:.65}
+.article-note-foot{display:flex;justify-content:space-between;gap:12px;margin-top:7px}
+@media(max-width:600px){.article-note{padding:12px}.article-note-head,.article-note-foot{flex-direction:column;gap:4px}}

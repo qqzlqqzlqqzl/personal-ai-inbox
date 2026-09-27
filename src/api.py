@@ -293,7 +293,7 @@ async def list_upstream_headers(request, uid):
 
 async def ai_entries(request, uid):
     p = request.query_params
-    if p.get("ai_view") not in ["recommended", "pending"]:
+    if p.get("ai_view") not in ["recommended", "pending", "notes"]:
         raise HTTPException(400, "Invalid AI view")
     if p.get("status") and p["status"] not in ["read", "unread"]:
         raise HTTPException(400, "Invalid status")
@@ -348,29 +348,46 @@ async def ai_entries(request, uid):
             values.append(stamp)
     if p.get("ai_view") == "pending":
         where.append("state NOT IN ('done','removed')")
+    elif p.get("ai_view") == "notes":
+        where.append("""EXISTS (
+            SELECT 1 FROM entry_notes n
+            WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id
+              AND length(trim(n.note))>0
+        )""")
     else:
-        where += [
-            "state='done'",
-            "json_extract(result,'$.worth_reading')=1",
-            "score>=?",
-        ]
+        # minimum_score is the effective user threshold. Requiring
+        # worth_reading=true here would make scores 4-6 impossible to surface.
+        where += ["state='done'", "score>=?"]
         values.append(minimum)
     if p.get("search"):
-        where.append("(title LIKE ? OR result LIKE ?)")
-        values += ["%" + p["search"][:200] + "%"] * 2
+        term = "%" + p["search"][:200] + "%"
+        if p.get("ai_view") == "notes":
+            where.append("""(title LIKE ? OR EXISTS (
+                SELECT 1 FROM entry_notes n
+                WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id
+                  AND n.note LIKE ?
+            ))""")
+        else:
+            where.append("(title LIKE ? OR result LIKE ?)")
+        values += [term, term]
     sort_key = p.get("ai_sort", "score")
     direction = p.get("direction", "desc")
     if sort_key not in {"score", "technical", "business", "time"} or direction not in {"asc", "desc"}:
         raise HTTPException(400, "Invalid sort field or direction")
-    # Pending items have no meaningful score. Dates must compare instants, not ISO strings.
+    # Pending items have no meaningful score. Notes are ordered by last edit.
     if p.get("ai_view") == "pending":
         sort_key = "time"
-    order = {
-        "score": "score",
-        "technical": "technical_score",
-        "business": "business_score",
-        "time": "julianday(published_at)",
-    }[sort_key]
+    if p.get("ai_view") == "notes":
+        order = """COALESCE((SELECT n.updated_at FROM entry_notes n
+                   WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id),0)"""
+        direction = "desc"
+    else:
+        order = {
+            "score": "score",
+            "technical": "technical_score",
+            "business": "business_score",
+            "time": "julianday(published_at)",
+        }[sort_key]
     sql_direction = direction.upper()
     with connect() as c:
         candidates = [
@@ -517,6 +534,74 @@ async def reading_session(request: Request):
             ),
         )
     return {"saved": True}
+
+
+@app.get("/mf/v1/ai/notes/{entry_id}")
+async def get_note(entry_id: int, request: Request):
+    uid = await authorize(request)
+    eid = positive_id(entry_id)
+    with connect() as c:
+        if not c.execute(
+            "SELECT 1 FROM analyses WHERE entry_id=? AND user_id=?", (eid, uid)
+        ).fetchone():
+            raise HTTPException(404, "Article not found")
+        row = c.execute(
+            "SELECT note,created_at,updated_at FROM entry_notes WHERE user_id=? AND entry_id=?",
+            (uid, eid),
+        ).fetchone()
+    return {
+        "entry_id": eid,
+        "note": row["note"] if row else "",
+        "created_at": row["created_at"] if row else None,
+        "updated_at": row["updated_at"] if row else None,
+        "has_note": bool(row and row["note"].strip()),
+    }
+
+
+@app.put("/mf/v1/ai/notes/{entry_id}")
+async def put_note(entry_id: int, request: Request):
+    uid = await authorize(request)
+    eid = positive_id(entry_id)
+    body = await request.json()
+    if (
+        not isinstance(body, dict)
+        or set(body) != {"note"}
+        or not isinstance(body.get("note"), str)
+    ):
+        raise HTTPException(400, "Expected a note string")
+    note = body["note"].replace("\r\n", "\n").replace("\r", "\n")
+    if "\x00" in note or len(note) > 20000:
+        raise HTTPException(400, "笔记最多 20000 字符，且不能包含空字符")
+    now = time.time()
+    with connect() as c:
+        if not c.execute(
+            "SELECT 1 FROM analyses WHERE entry_id=? AND user_id=?", (eid, uid)
+        ).fetchone():
+            raise HTTPException(404, "Article not found")
+        if not note.strip():
+            c.execute("DELETE FROM entry_notes WHERE user_id=? AND entry_id=?", (uid, eid))
+            return {"saved": True, "entry_id": eid, "has_note": False, "updated_at": now}
+        c.execute(
+            """INSERT INTO entry_notes(user_id,entry_id,note,created_at,updated_at)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(user_id,entry_id) DO UPDATE SET
+                 note=excluded.note,updated_at=excluded.updated_at""",
+            (uid, eid, note, now, now),
+        )
+    return {"saved": True, "entry_id": eid, "has_note": True, "updated_at": now}
+
+
+@app.delete("/mf/v1/ai/notes/{entry_id}")
+async def delete_note(entry_id: int, request: Request):
+    uid = await authorize(request)
+    eid = positive_id(entry_id)
+    with connect() as c:
+        if not c.execute(
+            "SELECT 1 FROM analyses WHERE entry_id=? AND user_id=?", (eid, uid)
+        ).fetchone():
+            raise HTTPException(404, "Article not found")
+        c.execute("DELETE FROM entry_notes WHERE user_id=? AND entry_id=?", (uid, eid))
+    return {"saved": True, "entry_id": eid, "has_note": False}
 
 
 @app.get("/mf/v1/ai/catalog")

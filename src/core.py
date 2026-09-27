@@ -58,7 +58,13 @@ def init_db():
    active_ms INTEGER NOT NULL DEFAULT 0, max_scroll_pct REAL NOT NULL DEFAULT 0,
    starred INTEGER, read_status TEXT);
   CREATE INDEX IF NOT EXISTS reading_sessions_user_entry
-   ON reading_sessions(user_id,entry_id,opened_at DESC);""")
+   ON reading_sessions(user_id,entry_id,opened_at DESC);
+  CREATE TABLE IF NOT EXISTS entry_notes (
+   user_id INTEGER NOT NULL, entry_id INTEGER NOT NULL, note TEXT NOT NULL,
+   created_at REAL NOT NULL, updated_at REAL NOT NULL,
+   PRIMARY KEY(user_id,entry_id));
+  CREATE INDEX IF NOT EXISTS entry_notes_user_updated
+   ON entry_notes(user_id,updated_at DESC);""")
 
 
 def settings():
@@ -185,33 +191,44 @@ def decorate(entry, user_id):
     from card_translation import attach
     with connect() as c:
         r = c.execute(
-            "SELECT * FROM analyses WHERE entry_id=? AND user_id=?",
+            """SELECT a.*,
+                      CASE WHEN n.note IS NOT NULL AND length(trim(n.note))>0 THEN 1 ELSE 0 END AS has_note,
+                      n.updated_at AS note_updated_at
+               FROM analyses a
+               LEFT JOIN entry_notes n ON n.entry_id=a.entry_id AND n.user_id=a.user_id
+               WHERE a.entry_id=? AND a.user_id=?""",
             (entry["id"], user_id),
         ).fetchone()
     if not r:
         return attach({**entry, "ai": {"state": "pending"}}, user_id)
     row = dict(r)
     result = json.loads(row.pop("result") or "{}")
+    has_note = bool(row.pop("has_note", 0))
+    note_updated_at = row.pop("note_updated_at", None)
     metadata = {
-        k: row[k]
-        for k in [
-            "state",
-            "input_chars",
-            "image_count",
-            "truncated",
-            "model",
-            "error",
-            "tokens",
-            "extracted_at",
-            "analyzed_at",
-            "source_chars",
-            "content_source",
-            "duplicate_of",
-            "cover_url",
-            "cover_source",
-            "preview_checked_at",
-            "preview_error",
-        ]
+        **{
+            k: row[k]
+            for k in [
+                "state",
+                "input_chars",
+                "image_count",
+                "truncated",
+                "model",
+                "error",
+                "tokens",
+                "extracted_at",
+                "analyzed_at",
+                "source_chars",
+                "content_source",
+                "duplicate_of",
+                "cover_url",
+                "cover_source",
+                "preview_checked_at",
+                "preview_error",
+            ]
+        },
+        "has_note": has_note,
+        "note_updated_at": note_updated_at,
     }
     return attach({**entry, "ai": {**result, **metadata}}, user_id)
 

@@ -8,9 +8,10 @@ const labels = {
 
 export default function AiBadge({ entry, detailed = false }) {
   const ai = entry?.ai
-  if (!ai || ai.state !== "done") return <div className="ai-pending" title={ai?.error || ""}>{labels[ai?.state || "pending"] || ai?.state}{detailed && ai?.error && <p>处理详情：{ai.error}</p>}</div>
+  const note = ai?.has_note ? <span className="ai-note-chip">📝 有笔记</span> : null
+  if (!ai || ai.state !== "done") {return <div className="ai-pending" title={ai?.error || ""}>{note}{labels[ai?.state || "pending"] || ai?.state}{detailed && ai?.error && <p>处理详情：{ai.error}</p>}</div>}
   return <div className={detailed ? "ai-verdict ai-verdict-detail" : "ai-verdict"}>
-    <div className="ai-scoreline"><strong>推荐 {ai.score}/10</strong><span>技术 {ai.technical_score}</span><span>商业启发 {ai.business_score}</span></div>
+    <div className="ai-scoreline"><strong>推荐 {ai.score}/10</strong><span>技术 {ai.technical_score}</span><span>商业启发 {ai.business_score}</span>{note}</div>
     <p className="ai-reason">{ai.reason}</p>
     <div className="ai-tags">{ai.tags?.map(tag => <span key={tag}>{tag}</span>)}</div>
     {detailed && <>
