@@ -36,7 +36,7 @@ def login(page):
     page.goto(APP+"/login",wait_until="domcontentloaded")
     page.locator("#password_input").fill(pw)
     page.get_by_role("button",name="登录",exact=True).click()
-    page.wait_for_url("**/all",timeout=30000)
+    page.wait_for_url("**/today",timeout=30000)
     page.locator(".article-entry").first.wait_for(timeout=40000)
 
 with client() as api:
@@ -79,16 +79,23 @@ with client() as api:
                 viewport={"width":1440,"height":1000}, locale="zh-CN",
                 timezone_id="Asia/Singapore", service_workers="block"
             )
-            ctx.add_init_script("""localStorage.setItem('settings',JSON.stringify({
+            ctx.add_init_script("""() => {
+              localStorage.setItem('settings',JSON.stringify({
                 ...JSON.parse(localStorage.getItem('settings')||'{}'),
-                showStatus:'all',markReadOnScroll:false,pageSize:20,
+                homePage:'all',showStatus:'all',markReadOnScroll:false,pageSize:20,
                 skipMarkAllReadConfirmation:true,orderBy:'published_at',orderDirection:'desc'
-            }))""")
+              }))
+              localStorage.setItem('ai-view-state',JSON.stringify({
+                mode:'all',auxiliary:'none',minimum:6,sort:'time',direction:'desc',hydrated:true
+              }))
+            }""")
             page=ctx.new_page()
             page.on("pageerror",lambda e: errors.append(str(e)))
             login(page)
-            expect(page.locator(".page-info")).to_contain_text("全部 · AI精选")
-            ck("all_ai_default",page.url.endswith("/all"))
+            expect(page.locator(".page-info")).to_contain_text("今天 · AI精选")
+            ck("today_ai_default",page.url.endswith("/today"))
+            ck("legacy_all_lens_migrated",
+               page.get_by_role("button",name="AI 精选",exact=True).get_attribute("aria-pressed")=="true")
 
             # Today is a natural local day and keeps AI.
             with page.expect_response(lambda r:is_list_response(r,"/mf/v1/entries","recommended") and "published_after" in qdict(r.url),timeout=30000) as pending:
@@ -99,6 +106,21 @@ with client() as api:
             midnight=int(datetime.now(ZoneInfo("Asia/Singapore")).replace(hour=0,minute=0,second=0,microsecond=0).timestamp())
             ck("today_keeps_ai",page.url.endswith("/today") and "今天 · AI精选" in page.locator(".page-info").inner_text())
             ck("today_uses_local_midnight",int(q["published_after"][0])==midnight,{"sent":q.get("published_after"),"expected":midnight})
+            ai_today_total=today_response.json()["total"]
+            selected_count=page.locator(".arco-menu-selected .item-count").first
+            expect(selected_count).to_have_text(str(ai_today_total),timeout=15000)
+            ck("today_sidebar_matches_ai_total",True,ai_today_total)
+            with page.expect_response(lambda r:is_list_response(r,"/mf/v1/entries",None) and "published_after" in qdict(r.url),timeout=30000) as raw_pending:
+                page.get_by_role("button",name="全部原始",exact=True).click()
+            raw_today_total=raw_pending.value.json()["total"]
+            expect(selected_count).to_have_text(str(raw_today_total),timeout=15000)
+            with page.expect_response(lambda r:is_list_response(r,"/mf/v1/entries","recommended") and "published_after" in qdict(r.url),timeout=30000) as ai_pending:
+                page.get_by_role("button",name="AI 精选",exact=True).click()
+            restored_ai_total=ai_pending.value.json()["total"]
+            expect(selected_count).to_have_text(str(restored_ai_total),timeout=15000)
+            ck("today_sidebar_restores_ai_total_after_raw_toggle",
+               restored_ai_total==ai_today_total,
+               {"ai":ai_today_total,"raw":raw_today_total,"restored":restored_ai_total})
 
             # Category and feed preserve the lens instead of redirecting /all.
             category_path=f"/mf/v1/categories/{category_id}/entries"

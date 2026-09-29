@@ -40,7 +40,7 @@ try:
   })()""")
   page.goto(BASE+"/inbox/login",wait_until="domcontentloaded")
   _,password=local_admin();page.locator("#password_input").fill(password)
-  page.get_by_role("button",name="登录",exact=True).click();page.wait_for_url("**/all")
+  page.get_by_role("button",name="登录",exact=True).click();page.wait_for_url("**/today")
   page.goto(BASE+"/inbox/feed/"+str(entries[0]["feed_id"]),wait_until="domcontentloaded")
   for entry in entries:
    title=page.locator(".grid-card-title,.card-title").filter(has_text=entry["title"]).first

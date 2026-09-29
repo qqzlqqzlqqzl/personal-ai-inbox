@@ -55,12 +55,17 @@ def test_tools_tab_removed_from_ai_panel():
     assert "/v1/ai/tools" not in panel
 
 
-def test_native_sidebar_counts_are_not_overwritten_by_ai_lens():
+def test_active_sidebar_count_uses_filtered_total_without_corrupting_native_counts():
     entries = read("apis/entries.js")
     article_list = read("hooks/useArticleList.js")
+    sidebar = read("components/Sidebar/Sidebar.jsx")
     assert 'fetchTodayEntries("unread", { limit: 1 }, false, false)' in entries
     assert 'fetchStarredEntries(status, { limit: 1 }, false, false)' in entries
     assert '!content.filterString && !aiFilterEnabled()' in article_list
+    assert "const activeScopeCount = useStore(dynamicCountState)" in sidebar
+    assert 'count={scopedCount("today", unreadTodayCount)}' in sidebar
+    assert 'activeScope === "feed"' in sidebar
+    assert 'activeScope === "category"' in sidebar
 
 
 def test_ai_sort_direction_does_not_mutate_native_direction():
@@ -70,3 +75,17 @@ def test_ai_sort_direction_does_not_mutate_native_direction():
     assert 'const sortDirection = aiList ? (ai.direction || "desc") : orderDirection' in search
     assert 'if (aiList) {' in search
     assert 'direction,' in search
+
+
+def test_inbox_root_starts_today_with_ai_picks():
+    home = read("components/HomeRedirect.jsx")
+    home_utils = read("utils/home-page.js")
+    settings = read("utils/settings-schema.js")
+    ai_state = read("store/aiState.js")
+    assert 'id: "today"' in home_utils.splitlines()[1]
+    assert 'homePage: enumSetting("today"' in settings
+    assert 'target.id === "all" ? "/today"' in home
+    assert 'setCurrentHomeTarget(createViewHomeTarget("today"))' in home
+    assert "resetInboxLandingView()" in home
+    assert 'mode: "recommended"' in ai_state
+    assert 'auxiliary: "none"' in ai_state

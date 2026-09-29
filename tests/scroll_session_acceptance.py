@@ -43,7 +43,7 @@ try:
     route.continue_()
    ctx.route('**/mf/v1/entries?*',lr)
    page=ctx.new_page();page.on('pageerror',lambda e:state['errors'].append(str(e)))
-   page.goto(BASE+'/inbox/login',wait_until='domcontentloaded');page.locator('#password_input').fill(pw);page.get_by_role('button',name='登录',exact=True).click();page.wait_for_url('**/all',timeout=40000);page.locator('[data-entry-id]').first.wait_for(timeout=40000);page.locator('.load-more-container[data-loaded-count]').wait_for()
+   page.goto(BASE+'/inbox/login',wait_until='domcontentloaded');page.locator('#password_input').fill(pw);page.get_by_role('button',name='登录',exact=True).click();page.wait_for_url('**/today',timeout=40000);page.goto(BASE+'/inbox/all',wait_until='domcontentloaded');page.locator('[data-entry-id]').first.wait_for(timeout=40000);page.locator('.load-more-container[data-loaded-count]').wait_for()
    initial=geo(page);ck(tag+'_initial_batch',initial['count']>=12,initial['count'])
    page.wait_for_timeout(1800);ck(tag+'_no_eager_library_drain',geo(page)['count']==initial['count'])
    nxt=read_to_next(page);evt=nxt['events'][0];ck(tag+'_quarter_prefetch',evt['reason']=='quarter' and evt['remaining']>evt['scrollTop']*.4,evt)

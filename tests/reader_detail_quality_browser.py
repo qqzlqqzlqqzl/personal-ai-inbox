@@ -25,7 +25,7 @@ def login(page):
     page.goto(APP + "/login", wait_until="domcontentloaded")
     page.locator("#password_input").fill(password)
     page.get_by_role("button", name="登录", exact=True).click()
-    page.wait_for_url("**/all", timeout=30000)
+    page.wait_for_url("**/today", timeout=30000)
 
 
 with client() as api:

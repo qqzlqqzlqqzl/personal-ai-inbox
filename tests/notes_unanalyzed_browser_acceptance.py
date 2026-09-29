@@ -86,7 +86,7 @@ try:
         page.locator("#username_input").fill(username)
         page.locator("#password_input").fill(password)
         page.get_by_role("button", name="登录", exact=True).click()
-        page.wait_for_url("**/all", timeout=30000)
+        page.wait_for_url("**/today", timeout=30000)
 
         page.goto(APP + f"/all/entry/{entry_id}", wait_until="domcontentloaded")
         note = page.get_by_role("textbox", name="我的笔记", exact=True)
