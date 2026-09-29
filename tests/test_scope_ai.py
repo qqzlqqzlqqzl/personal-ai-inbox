@@ -51,6 +51,24 @@ async def scoped_reader(db, entry, model_result, monkeypatch):
                 result=json.dumps(result),
             )
 
+    # A real-reader entry with no analyses row exercises notes independently of AI.
+    records[7] = {
+        **entry,
+        "id": 7,
+        "feed_id": 2,
+        "title": "Unanalyzed motor note",
+        "url": "https://example.org/7",
+        "published_at": "2026-09-28T02:30:00Z",
+        "status": "unread",
+        "starred": False,
+        "feed": {
+            "id": 2,
+            "title": "Feed 2",
+            "feed_url": "https://example.org/feed/2",
+            "category": {"id": 10, "title": "Category 10"},
+        },
+    }
+
     feeds = [
         {"id": 1, "hide_globally": False, "category": {"id": 10, "title": "Category 10", "hide_globally": False}},
         {"id": 2, "hide_globally": False, "category": {"id": 10, "title": "Category 10", "hide_globally": False}},
@@ -164,6 +182,7 @@ async def test_notes_filter_search_and_sort_are_real(scoped_reader):
                 (1, "cache idea", 10.0, 100.0),
                 (3, "hardware note", 20.0, 300.0),
                 (6, "motor controller", 30.0, 200.0),
+                (7, "raw unanalyzed motor note", 40.0, 400.0),
             ],
         )
 
@@ -172,19 +191,21 @@ async def test_notes_filter_search_and_sort_are_real(scoped_reader):
         params={"ai_view": "notes", "ai_sort": "note_updated", "direction": "desc", "limit": 20},
     )
     assert notes.status_code == 200
-    assert [x["id"] for x in notes.json()["entries"]] == [3, 6, 1]
+    assert [x["id"] for x in notes.json()["entries"]] == [7, 3, 6, 1]
+    raw = next(x for x in notes.json()["entries"] if x["id"] == 7)
+    assert raw["ai"]["state"] == "pending" and raw["ai"]["has_note"] is True
 
     notes_asc = await client.get(
         "/mf/v1/categories/10/entries",
         params={"ai_view": "notes", "ai_sort": "note_updated", "direction": "asc", "limit": 20},
     )
-    assert [x["id"] for x in notes_asc.json()["entries"]] == [1, 6, 3]
+    assert [x["id"] for x in notes_asc.json()["entries"]] == [1, 6, 3, 7]
 
     search = await client.get(
         "/mf/v1/categories/10/entries",
         params={"ai_view": "notes", "search": "motor", "limit": 20},
     )
-    assert [x["id"] for x in search.json()["entries"]] == [6]
+    assert [x["id"] for x in search.json()["entries"]] == [7, 6]
 
     recommended_noted = await client.get(
         "/mf/v1/categories/10/entries",

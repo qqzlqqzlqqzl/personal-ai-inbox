@@ -291,6 +291,137 @@ async def list_upstream_headers(request, uid):
     return supplied
 
 
+async def require_readable_entry(request, uid, entry_id, *, upstream_headers=None):
+    """Resolve a real Miniflux entry using the authenticated user's reader identity."""
+    headers = upstream_headers or await list_upstream_headers(request, uid)
+    try:
+        response = await app.state.client.get(
+            MF + f"/v1/entries/{entry_id}", headers=headers, timeout=8
+        )
+    except httpx.HTTPError:
+        raise HTTPException(503, "阅读后端不可用")
+    if response.status_code in {401, 403, 404}:
+        raise HTTPException(404, "Article not found")
+    if response.status_code != 200:
+        raise HTTPException(503, "阅读后端不可用")
+    try:
+        entry = response.json()
+    except ValueError:
+        raise HTTPException(503, "阅读后端返回了无效文章数据")
+    if not isinstance(entry, dict) or entry.get("id") != entry_id:
+        raise HTTPException(404, "Article not found")
+    if entry.get("user_id") is not None and entry.get("user_id") != uid:
+        raise HTTPException(404, "Article not found")
+    return entry
+
+
+def entry_published_timestamp(entry):
+    from datetime import datetime
+
+    value = entry.get("published_at")
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError, OverflowError, OSError):
+        return 0.0
+
+
+async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=None, category_id=None):
+    """List user notes without requiring an AI-analysis row for the article."""
+    p = request.query_params
+    try:
+        limit = max(1, min(100, int(p.get("limit", 40))))
+        offset = max(0, int(p.get("offset", 0)))
+    except ValueError:
+        raise HTTPException(400, "Invalid AI filter")
+    direction = p.get("direction", "desc")
+    sort_key = p.get("ai_sort") or "note_updated"
+    if direction not in {"asc", "desc"} or sort_key not in {"note_updated", "time"}:
+        raise HTTPException(400, "Invalid sort field or direction")
+
+    bounds = []
+    for key, op in [("published_after", ">="), ("published_before", "<="), ("after", ">="), ("before", "<=")]:
+        if p.get(key):
+            try:
+                bounds.append((op, int(p[key])))
+            except (ValueError, OverflowError):
+                raise HTTPException(400, "Invalid date filter")
+
+    with connect() as c:
+        notes = [
+            dict(row)
+            for row in c.execute(
+                """SELECT entry_id,note,updated_at FROM entry_notes
+                   WHERE user_id=? AND length(trim(note))>0""",
+                (uid,),
+            )
+            if row["entry_id"] in allowed_ids
+        ]
+    if not notes:
+        return {"total": 0, "entries": []}
+
+    feeds_response = await app.state.client.get(MF + "/v1/feeds", headers=upstream_headers)
+    feeds_response.raise_for_status()
+    feeds = feeds_response.json()
+    hidden = {
+        int(feed["id"])
+        for feed in feeds
+        if feed.get("hide_globally") or (feed.get("category") or {}).get("hide_globally")
+    }
+    scope_feed_ids = None
+    if feed_id is not None:
+        scope_feed_ids = {int(feed_id)}
+    elif category_id is not None:
+        scope_feed_ids = {
+            int(feed["id"])
+            for feed in feeds
+            if int((feed.get("category") or {}).get("id", 0)) == int(category_id)
+        }
+
+    semaphore = asyncio.Semaphore(8)
+
+    async def fetch_note(row):
+        async with semaphore:
+            try:
+                entry = await require_readable_entry(
+                    request, uid, row["entry_id"], upstream_headers=upstream_headers
+                )
+            except HTTPException as exc:
+                if exc.status_code == 404:
+                    return None
+                raise
+            return row, entry
+
+    pairs = [item for item in await asyncio.gather(*(fetch_note(row) for row in notes)) if item]
+    term = (p.get("search") or "")[:200].casefold()
+    filtered = []
+    for row, entry in pairs:
+        current_feed = int(entry.get("feed_id") or (entry.get("feed") or {}).get("id", 0))
+        if scope_feed_ids is not None and current_feed not in scope_feed_ids:
+            continue
+        if p.get("globally_visible") == "true" and current_feed in hidden:
+            continue
+        published = entry_published_timestamp(entry)
+        if any((op == ">=" and published < bound) or (op == "<=" and published > bound) for op, bound in bounds):
+            continue
+        if term and term not in str(entry.get("title", "")).casefold() and term not in row["note"].casefold():
+            continue
+        filtered.append((row, entry, published))
+
+    reverse = direction == "desc"
+    if sort_key == "note_updated":
+        filtered.sort(key=lambda item: (float(item[0]["updated_at"]), int(item[1]["id"])), reverse=reverse)
+    else:
+        filtered.sort(key=lambda item: (item[2], int(item[1]["id"])), reverse=reverse)
+    total = len(filtered)
+    result = []
+    for _, entry, _ in filtered[offset : offset + limit]:
+        enqueue_cards([entry], priority=30)
+        result.append(decorate(entry, uid))
+    return {"total": total, "entries": result}
+
+
 async def ai_entries(request, uid, *, feed_id=None, category_id=None):
     p = request.query_params
     if p.get("ai_view") not in ["recommended", "pending", "notes"]:
@@ -331,6 +462,17 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
             start += len(ids)
             if not ids or start >= data.get("total", 0):
                 break
+    if p.get("ai_view") == "notes":
+        if has_note == "false":
+            return {"total": 0, "entries": []}
+        return await note_entries(
+            request,
+            uid,
+            allowed_ids,
+            upstream_headers,
+            feed_id=feed_id,
+            category_id=category_id,
+        )
     where = ["user_id=?"]
     values = [uid]
     # Respect the same date bounds as the native reader.
@@ -574,11 +716,8 @@ async def reading_session(request: Request):
 async def get_note(entry_id: int, request: Request):
     uid = await authorize(request)
     eid = positive_id(entry_id)
+    await require_readable_entry(request, uid, eid)
     with connect() as c:
-        if not c.execute(
-            "SELECT 1 FROM analyses WHERE entry_id=? AND user_id=?", (eid, uid)
-        ).fetchone():
-            raise HTTPException(404, "Article not found")
         row = c.execute(
             "SELECT note,created_at,updated_at FROM entry_notes WHERE user_id=? AND entry_id=?",
             (uid, eid),
@@ -607,11 +746,8 @@ async def put_note(entry_id: int, request: Request):
     if "\x00" in note or len(note) > 20000:
         raise HTTPException(400, "笔记最多 20000 字符，且不能包含空字符")
     now = time.time()
+    await require_readable_entry(request, uid, eid)
     with connect() as c:
-        if not c.execute(
-            "SELECT 1 FROM analyses WHERE entry_id=? AND user_id=?", (eid, uid)
-        ).fetchone():
-            raise HTTPException(404, "Article not found")
         if not note.strip():
             c.execute("DELETE FROM entry_notes WHERE user_id=? AND entry_id=?", (uid, eid))
             return {"saved": True, "entry_id": eid, "has_note": False, "updated_at": now}
@@ -629,11 +765,8 @@ async def put_note(entry_id: int, request: Request):
 async def delete_note(entry_id: int, request: Request):
     uid = await authorize(request)
     eid = positive_id(entry_id)
+    await require_readable_entry(request, uid, eid)
     with connect() as c:
-        if not c.execute(
-            "SELECT 1 FROM analyses WHERE entry_id=? AND user_id=?", (eid, uid)
-        ).fetchone():
-            raise HTTPException(404, "Article not found")
         c.execute("DELETE FROM entry_notes WHERE user_id=? AND entry_id=?", (uid, eid))
     return {"saved": True, "entry_id": eid, "has_note": False}
 

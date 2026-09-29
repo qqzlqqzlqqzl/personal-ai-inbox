@@ -200,7 +200,22 @@ def decorate(entry, user_id):
             (entry["id"], user_id),
         ).fetchone()
     if not r:
-        return attach({**entry, "ai": {"state": "pending"}}, user_id)
+        with connect() as c:
+            note = c.execute(
+                "SELECT note,updated_at FROM entry_notes WHERE user_id=? AND entry_id=?",
+                (user_id, entry["id"]),
+            ).fetchone()
+        return attach(
+            {
+                **entry,
+                "ai": {
+                    "state": "pending",
+                    "has_note": bool(note and note["note"].strip()),
+                    "note_updated_at": note["updated_at"] if note else None,
+                },
+            },
+            user_id,
+        )
     row = dict(r)
     result = json.loads(row.pop("result") or "{}")
     has_note = bool(row.pop("has_note", 0))
