@@ -34,3 +34,6 @@
 .article-note textarea{box-sizing:border-box;width:100%;min-height:116px;padding:11px 12px;resize:vertical;border:1px solid var(--color-border-2,#ccd);border-radius:9px;background:var(--color-bg-1,#fff);color:var(--color-text-1,#223);font:inherit;line-height:1.65}.article-note textarea:focus{outline:2px solid rgb(var(--primary-4));outline-offset:1px}.article-note textarea:disabled{opacity:.65}
 .article-note-foot{display:flex;justify-content:space-between;gap:12px;margin-top:7px}
 @media(max-width:600px){.article-note{padding:12px}.article-note-head,.article-note-foot{flex-direction:column;gap:4px}}
+
+.ai-aux-modes{display:flex;gap:5px}
+.ai-aux-modes button[aria-pressed=true]{box-shadow:inset 0 0 0 1px currentColor}

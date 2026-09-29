@@ -1,26 +1,23 @@
 import { useStore } from "@nanostores/react"
 import { useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router"
 
 import AiPanel from "./AiPanel"
 
 import apiClient from "@/apis/ofetch"
 import { aiState } from "@/store/aiState"
 import { invalidateArticleList } from "@/store/contentState"
-import { settingsState, updateSettings } from "@/store/settingsState"
 import "./AiNews.css"
 
-export default function AiToolbar({ source }) {
+export default function AiToolbar() {
   const state = useStore(aiState)
-  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })
   const [open, setOpen] = useState(false)
-  const navigate = useNavigate()
   const [progress,setProgress] = useState(null)
   const completedCards = useRef(null)
   const minimumDirty = useRef(false)
   const saveChain = useRef(Promise.resolve())
   const [saveStatus, setSaveStatus] = useState("")
   const [updatesAvailable, setUpdatesAvailable] = useState(false)
+
   useEffect(() => {
     let active = true
     const load = async () => {
@@ -35,20 +32,23 @@ export default function AiToolbar({ source }) {
           const minimum = Number(c.minimum_score)
           const changed = current.minimum !== minimum
           aiState.set({ ...current, minimum, hydrated: true })
-          if (changed) {invalidateArticleList()}
+          if (changed) invalidateArticleList()
         }
         if (active) {
           const count = `${s.translations?.counts?.done || 0}:${s.counts?.done || 0}`
-          // A background completion must never replace the current reading snapshot.
-          if (completedCards.current !== null && completedCards.current !== count) {setUpdatesAvailable(true)}
+          if (completedCards.current !== null && completedCards.current !== count) {
+            setUpdatesAvailable(true)
+          }
           completedCards.current = count
           setProgress(s)
         }
       } catch { /* Native reader remains usable if the add-on is unavailable. */ }
     }
-    load(); const timer = setInterval(load,30_000)
+    load()
+    const timer = setInterval(load,30_000)
     return () => { active=false; clearInterval(timer) }
   }, [])
+
   const change = (value) => {
     aiState.set({ ...aiState.get(), ...value })
     if (Object.hasOwn(value, "minimum")) {
@@ -56,23 +56,69 @@ export default function AiToolbar({ source }) {
       setSaveStatus("正在保存…")
       saveChain.current = saveChain.current.catch(() => {}).then(() =>
         apiClient.put("/v1/ai/settings", { minimum_score: value.minimum })
-      ).then(() => setSaveStatus("已保存"), () => setSaveStatus("保存失败，请重试；服务器设置未更新"))
+      ).then(() => setSaveStatus("已保存"), () =>
+        setSaveStatus("保存失败，请重试；服务器设置未更新"))
     }
     setUpdatesAvailable(false)
     invalidateArticleList()
-    if (source !== "all") {navigate("/all")}
   }
+
+  const changePrimary = (mode) => {
+    const current = aiState.get()
+    change({
+      mode,
+      auxiliary: current.auxiliary === "pending" ? "none" : current.auxiliary,
+      sort: current.sort === "note_updated" && current.auxiliary !== "notes"
+        ? (mode === "recommended" ? "score" : "time")
+        : current.sort,
+    })
+  }
+
+  const toggleAuxiliary = (auxiliary) => {
+    const current = aiState.get()
+    const next = current.auxiliary === auxiliary ? "none" : auxiliary
+    change({
+      auxiliary: next,
+      ...(next !== "notes" && current.sort === "note_updated"
+        ? { sort: current.mode === "recommended" ? "score" : "time" }
+        : {}),
+    })
+  }
+
   return <div className="ai-toolbar">
-    <div className="ai-modes">{[["all", "全部原始"], ["recommended", "AI 精选"], ["notes", "有笔记"], ["pending", "待处理 / 异常"]].map(([mode, label]) =>
-      <button key={mode} aria-pressed={source === "all" && state.mode === mode} onClick={() => change({ mode })}>{label}</button>)}</div>
-    {state.mode === "recommended" && source === "all" && <>
-      <label>最低分 <select value={state.minimum} onChange={e => change({ minimum: Number(e.target.value) })}>{[0,3,5,6,7,8,9].map(n => <option key={n}>{n}</option>)}</select></label>
-      <select aria-label="AI 排序" value={state.sort === "time" ? `time_${orderDirection}` : state.sort} onChange={e => { const {value} = e.target; updateSettings({ orderDirection: value === "time_asc" ? "asc" : "desc" }); change({ sort: value.startsWith("time_") ? "time" : value }) }}><option value="score">推荐优先</option><option value="technical">技术价值</option><option value="business">商业启发</option><option value="time_desc">最新优先</option><option value="time_asc">最旧优先</option></select>
+    <div className="ai-modes" aria-label="阅读方式">
+      {[["all", "全部原始"], ["recommended", "AI 精选"]].map(([mode, label]) =>
+        <button
+          key={mode}
+          aria-pressed={state.auxiliary !== "pending" && state.mode === mode}
+          onClick={() => changePrimary(mode)}
+        >{label}</button>)}
+    </div>
+    <div className="ai-aux-modes" aria-label="辅助筛选">
+      <button
+        aria-pressed={state.auxiliary === "notes"}
+        onClick={() => toggleAuxiliary("notes")}
+      >有笔记</button>
+      <button
+        aria-pressed={state.auxiliary === "pending"}
+        onClick={() => toggleAuxiliary("pending")}
+      >待处理 / 异常</button>
+    </div>
+    {state.mode === "recommended" && state.auxiliary !== "pending" && <>
+      <label>最低分 <select value={state.minimum} onChange={e => change({ minimum: Number(e.target.value) })}>
+        {[0,3,5,6,7,8,9].map(n => <option key={n}>{n}</option>)}
+      </select></label>
     </>}
     {saveStatus && <span role="status">{saveStatus}</span>}
-    {progress && <span className="ai-progress">已分析 {progress.counts.done || 0} / {Object.values(progress.counts).reduce((a,b)=>a+b,0)} · {progress.kaggle?.enabled ? "Kaggle 持续增量处理" : "处理已暂停"}</span>}
-    {updatesAvailable && <button className="ai-updates" onClick={() => { setUpdatesAvailable(false); invalidateArticleList() }}>有新内容 / 中文更新 · 点击刷新</button>}
-    <button className="ai-settings-button" onClick={() => setOpen(true)}>AI 设置 · 来源 · 工具</button>
+    {progress && <span className="ai-progress">
+      已分析 {progress.counts.done || 0} / {Object.values(progress.counts).reduce((a,b)=>a+b,0)}
+      {" · "}{progress.kaggle?.enabled ? "Kaggle 持续增量处理" : "处理已暂停"}
+    </span>}
+    {updatesAvailable && <button className="ai-updates" onClick={() => {
+      setUpdatesAvailable(false)
+      invalidateArticleList()
+    }}>有新内容 / 中文更新 · 点击刷新</button>}
+    <button className="ai-settings-button" onClick={() => setOpen(true)}>AI 设置 · 来源</button>
     {open && <AiPanel onClose={() => setOpen(false)} />}
   </div>
 }

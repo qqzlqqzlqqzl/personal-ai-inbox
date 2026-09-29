@@ -33,6 +33,73 @@
    </head>
    <body>
      <noscript>You need to enable JavaScript to run this app.</noscript>
+@@ -25,7 +25,65 @@
+       <span></span>
+       <span></span>
+     </div>
+-    <script type="module" src="/src/main.jsx"></script>
++    <!-- inbox-boot-guard:start -->
++<style>
++#inbox-load-error{position:fixed;inset:0;z-index:2147483647;background:#fff;color:#202124;padding:12vh max(24px,calc((100vw - 640px)/2));font:16px/1.7 system-ui,sans-serif;overflow:auto}
++#inbox-load-error[hidden]{display:none}#inbox-load-error h1{font-size:24px}#inbox-load-error button,#inbox-load-error a{display:inline-block;margin:12px 16px 0 0;padding:8px 16px;color:#185abc}#inbox-load-detail{overflow-wrap:anywhere;color:#666}
++</style>
++<section id="inbox-load-error" role="alert" hidden>
++  <h1>个人信息收集箱暂时无法打开</h1>
++  <p id="inbox-load-message">页面资源加载失败，请刷新重试。</p>
++  <p id="inbox-load-detail"></p>
++  <button type="button" id="inbox-load-retry">重新加载</button>
++  <a href="/inbox/">返回首页</a>
++</section>
++<script>
++(() => {
++  const panel = document.getElementById('inbox-load-error');
++  const message = document.getElementById('inbox-load-message');
++  const detail = document.getElementById('inbox-load-detail');
++  let ready = false;
++  let hardFailure = false;
++  const show = (text, path = '', hard = true) => {
++    hardFailure = hardFailure || hard;
++    message.textContent = text;
++    detail.textContent = path;
++    panel.hidden = false;
++  };
++  window.inboxShowLoadError = show;
++  document.getElementById('inbox-load-retry').onclick = () => location.reload();
++  window.addEventListener('error', (event) => {
++    const target = event.target;
++    if (target && target.tagName === 'SCRIPT' && target.src) {
++      show('页面脚本加载失败，可能是文件缺失或网络连接中断。', target.src);
++      const controller = new AbortController();
++      const timer = setTimeout(() => controller.abort(), 5000);
++      fetch(target.src, {method:'HEAD', cache:'no-store', signal:controller.signal})
++        .then(response => {
++          if (!response.ok) show('页面资源加载失败（HTTP ' + response.status + '）。请刷新重试；若仍失败，需要修复服务器资源。', target.src);
++        }).catch(() => {}).finally(() => clearTimeout(timer));
++    } else if (!ready && event.message) {
++      show('页面启动失败，请刷新重试。', event.message);
++    }
++  }, true);
++  window.addEventListener('vite:preloadError', () => show('页面更新后的资源加载失败，请重新加载。'));
++  const root = document.getElementById('root');
++  const observer = new MutationObserver(() => {
++    if (root.textContent.trim()) {
++      ready = true;
++      if (!hardFailure) panel.hidden = true;
++      observer.disconnect();
++    }
++  });
++  observer.observe(root, {childList:true, subtree:true, characterData:true});
++  setTimeout(() => {
++    if (!ready && !hardFailure) show('页面加载时间较长，请检查网络连接，或重新加载。', '', false);
++  }, 15000);
++})();
++</script>
++<!-- inbox-boot-guard:end -->
++
++<script type="module" src="/src/main.jsx"></script>
+     <!--
+   This HTML file is a template.
+   If you open it directly in the browser, you will see an empty page.
 --- a/src/hooks/useEntryActions.js
 +++ b/src/hooks/useEntryActions.js
 @@ -436,16 +436,19 @@
@@ -69,6 +136,25 @@
      }
    }
  
+--- a/src/hooks/useArticleList.js
++++ b/src/hooks/useArticleList.js
+@@ -22,6 +22,7 @@
+   setUnreadTodayCount,
+ } from "@/store/dataState"
+ import { articleListRequestSettingsState, settingsState } from "@/store/settingsState"
++import { aiFilterEnabled } from "@/store/aiState"
+ import createArticleListRequestKey from "@/utils/article-list-request-key"
+ import {
+   getEntryMutationSnapshot,
+@@ -147,7 +148,7 @@
+ 
+       handleResponses(response)
+ 
+-      if (!content.filterDate && !content.filterString) {
++      if (!content.filterDate && !content.filterString && !aiFilterEnabled()) {
+         switch (source) {
+           case "feed": {
+             if (settings.showStatus === "unread") {
 --- a/src/hooks/useLoadMore.js
 +++ b/src/hooks/useLoadMore.js
 @@ -13,6 +13,7 @@
@@ -83,7 +169,7 @@
    }
  
    const getFilterParams = (currentEntries) => {
-+    if (infoFrom === "all" && aiFilterEnabled()) {
++    if (aiFilterEnabled()) {
 +      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }
 +    }
      if (currentEntries.length === 0) {
@@ -102,7 +188,7 @@
          throw new TypeError("Invalid entries response")
        }
  
-+      const isAiPagination = infoFrom === "all" && aiFilterEnabled()
++      const isAiPagination = aiFilterEnabled()
 +      if (isAiPagination) {
 +        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)
 +      }
@@ -122,7 +208,7 @@
          progress.committedEntryIds = new Set(contentState.get().entries.map(({ id }) => id))
        }
 -      if (response.total <= pageSize || response.entries.length < pageSize) {
-+      const effectivePageSize = infoFrom === "all" && aiFilterEnabled() ? AI_PAGE_SIZE : pageSize
++      const effectivePageSize = aiFilterEnabled() ? AI_PAGE_SIZE : pageSize
 +      const loadedCount = isAiPagination ? contentState.get().articleListOffset : contentState.get().entries.length
 +      if ((isAiPagination ? response.total <= loadedCount : response.total <= effectivePageSize) || response.entries.length < effectivePageSize) {
          setLoadMoreVisible(false)
@@ -153,7 +239,7 @@
    (content, data, unreadTotal, settings, feeds, visibleFeeds) => {
      const { filterString, infoFrom, total } = content
      const { showStatus } = settings
-+    if (infoFrom === "all" && aiFilterEnabled()) return total
++    if (aiFilterEnabled()) return total
  
      if (filterString) {
        return total
@@ -197,7 +283,16 @@
  
  import { contentState } from "@/store/contentState"
  import { isEntryScopeFullyVisible } from "@/store/dataState"
-@@ -163,6 +164,7 @@
+@@ -8,7 +9,7 @@
+   MAX_ENTRIES_PER_PAGE,
+   MAX_ENTRY_IDS_PER_PAGE,
+ } from "@/utils/constants"
+-import { get24HoursAgoTimestamp, getDayEndTimestamp, getTimestamp } from "@/utils/date"
++import { getDayEndTimestamp, getStartOfToday, getTimestamp } from "@/utils/date"
+ 
+ export const getEntry = async (entryId) => apiClient.get(`/v1/entries/${entryId}`)
+ 
+@@ -163,16 +164,17 @@
  
    const extraParams = {
      ...getEntryVisibilityParams(),
@@ -205,6 +300,84 @@
      ...filterParams,
    }
  
+   return apiClient.get(buildEntriesUrl(baseParams, extraParams))
+ }
+ 
+-const fetchTodayEntries = async (status, filterParams, applyDateFilter) => {
++const fetchTodayEntries = async (status, filterParams, applyDateFilter, applyAiFilter = true) => {
+   const orderBy = getSettings("orderBy")
+   const pageSize = getSettings("pageSize")
+-  const timestamp = get24HoursAgoTimestamp()
++  const timestamp = getTimestamp(getStartOfToday())
+ 
+   const baseParams = {
+     baseUrl: "/v1/entries",
+@@ -183,6 +185,7 @@
+ 
+   const extraParams = {
+     ...getEntryVisibilityParams(),
++    ...(applyAiFilter ? getAiQuery() : {}),
+     published_after: timestamp,
+     ...filterParams,
+   }
+@@ -193,7 +196,7 @@
+ export const getTodayEntries = async (status = null, filterParams = {}) =>
+   fetchTodayEntries(status, filterParams, false)
+ 
+-const fetchStarredEntries = async (status, filterParams, applyDateFilter = true) => {
++const fetchStarredEntries = async (status, filterParams, applyDateFilter = true, applyAiFilter = true) => {
+   const pageSize = getSettings("pageSize")
+ 
+   const baseParams = {
+@@ -205,6 +208,7 @@
+ 
+   const extraParams = {
+     ...getEntryVisibilityParams(),
++    ...(applyAiFilter ? getAiQuery() : {}),
+     starred: true,
+     ...filterParams,
+   }
+@@ -227,13 +231,13 @@
+ const getStarredCountData = async (status = null) =>
+   isEntryScopeFullyVisible("global")
+     ? getEntryIds({ starred: true, status, limit: 1 })
+-    : fetchStarredEntries(status, { limit: 1 }, false)
++    : fetchStarredEntries(status, { limit: 1 }, false, false)
+ 
+ export const getEntryCountSummary = async () => {
+   const [starredData, unreadStarredData, unreadTodayData] = await Promise.all([
+     getStarredCountData(),
+     getStarredCountData("unread"),
+-    fetchTodayEntries("unread", { limit: 1 }, false),
++    fetchTodayEntries("unread", { limit: 1 }, false, false),
+   ])
+ 
+   return {
+@@ -255,6 +259,7 @@
+ 
+   const extraParams = {
+     ...getEntryVisibilityParams(),
++    ...getAiQuery(),
+     ...filterParams,
+   }
+ 
+@@ -279,6 +284,7 @@
+ 
+   const extraParams = {
+     ...getEntryVisibilityParams(),
++    ...getAiQuery(),
+     ...filterParams,
+   }
+ 
+@@ -300,7 +306,7 @@
+     status,
+   }
+ 
+-  const extraParams = { ...filterParams }
++  const extraParams = { ...getAiQuery(), ...filterParams }
+ 
+   if (starred) {
+     extraParams.starred = starred
 --- a/src/locales/zh-CN.json
 +++ b/src/locales/zh-CN.json
 @@ -130,7 +130,7 @@
@@ -216,7 +389,17 @@
      "more_actions_tooltip": "更多操作",
      "save_to_third_party_services_tooltip": "保存到第三方服务",
      "share_tooltip": "分享",
-@@ -350,8 +350,8 @@
+@@ -151,6 +151,9 @@
+     "loading_more": "正在加载更多...",
+     "load_more_error": "加载更多文章失败，请重试",
+     "no_articles": "没有文章",
++    "no_ai_recommendations": "当前范围暂无达到筛选条件的 AI 精选",
++    "no_noted_articles": "当前范围暂无符合条件的笔记文章",
++    "no_pending_articles": "当前范围暂无待处理或异常文章",
+     "no_feeds": "没有订阅源",
+     "no_filter_results": "没有符合筛选条件的文章",
+     "no_search_results": "没有匹配的文章",
+@@ -350,8 +353,8 @@
      "enable_swipe_gesture_label": "启用文章滑动切换",
      "swipe_sensitivity_description": "调整文章切换手势的触发灵敏度",
      "swipe_sensitivity_label": "文章滑动灵敏度",
@@ -227,6 +410,18 @@
      "skip_mark_all_read_confirmation_label": "跳过全部标为已读的确认",
      "skip_mark_all_read_confirmation_description": "点击全部标为已读时不显示确认对话框",
      "mark_all_read_jump_to_next_label": "标记已读后自动跳转下一个未读",
+--- a/src/locales/en-US.json
++++ b/src/locales/en-US.json
+@@ -151,6 +151,9 @@
+     "loading_more": "Loading more...",
+     "load_more_error": "Failed to load more articles. Please try again.",
+     "no_articles": "No articles",
++    "no_ai_recommendations": "No AI picks match the current scope and filters",
++    "no_noted_articles": "No noted articles match the current scope and filters",
++    "no_pending_articles": "No pending or failed articles match the current scope",
+     "no_feeds": "No feeds",
+     "no_filter_results": "No articles match the filters",
+     "no_search_results": "No matching articles",
 --- a/src/pages/Login.jsx
 +++ b/src/pages/Login.jsx
 @@ -1,20 +1,18 @@
@@ -402,6 +597,126 @@
                  </button>
                </span>
              </CustomTooltip>
+--- a/src/components/Content/FooterPanel.jsx
++++ b/src/components/Content/FooterPanel.jsx
+@@ -15,6 +15,7 @@
+   getCategoryEntries,
+   getFeedEntries,
+   getStarredEntries,
++  getTodayEntries,
+   markEntriesAsReadInBatches,
+ } from "@/apis"
+ import CustomTooltip from "@/components/ui/CustomTooltip"
+@@ -27,6 +28,7 @@
+   visibleFeedsState,
+ } from "@/store/dataState"
+ import { settingsState, updateSettings } from "@/store/settingsState"
++import { aiFilterEnabled } from "@/store/aiState"
+ import findAdjacentItem from "@/utils/navigation"
+ import "./FooterPanel.css"
+ 
+@@ -42,14 +44,16 @@
+   updateSettings({ showStatus: value })
+ }
+ 
+-const MarkAllReadButton = ({ from, onConfirm }) => {
++const MarkAllReadButton = ({ filtered, from, onConfirm }) => {
+   const { polyglot } = useStore(polyglotState)
+   const { skipMarkAllReadConfirmation } = useStore(settingsState, {
+     keys: ["skipMarkAllReadConfirmation"],
+   })
+ 
+   const isHidden = from === "history"
+-  const markAllReadLabel = polyglot.t("article_list.mark_all_as_read_tooltip")
++  const markAllReadLabel = filtered
++    ? "标记当前筛选结果为已读"
++    : polyglot.t("article_list.mark_all_as_read_tooltip")
+   const [confirmVisible, setConfirmVisible] = useState(false)
+ 
+   const button = (
+@@ -75,7 +79,7 @@
+       focusLock
+       className="mark-all-read-popconfirm"
+       popupVisible={confirmVisible}
+-      title={polyglot.t("article_list.mark_all_as_read_confirm")}
++      title={filtered ? "标记当前筛选结果为已读？" : polyglot.t("article_list.mark_all_as_read_confirm")}
+       triggerProps={{
+         boundaryDistance: { bottom: 8, left: 8, right: 8, top: 8 },
+       }}
+@@ -89,12 +93,18 @@
+ 
+ const FooterPanel = ({ info, refreshArticleList, markAllAsRead }) => {
+   const { from: source, id: sourceId } = info
+-  const { filterDate, isArticleListReady } = useStore(contentState, {
+-    keys: ["filterDate", "isArticleListReady"],
++  const { filterDate, filterString, isArticleListReady } = useStore(contentState, {
++    keys: ["filterDate", "filterString", "isArticleListReady"],
+   })
++
+   const { markAllReadJumpToNext, showStatus } = useStore(settingsState, {
+     keys: ["markAllReadJumpToNext", "showStatus"],
+   })
++  const hasActiveFilter =
++    Boolean(filterString) ||
++    aiFilterEnabled() ||
++    showStatus === "starred" ||
++    Boolean(filterDate && source !== "today")
+   const { polyglot } = useStore(polyglotState)
+   const categories = useStore(visibleCategoriesState)
+   const feeds = useStore(visibleFeedsState)
+@@ -129,11 +139,11 @@
+ 
+   const handleMarkAllAsRead = async () => {
+     try {
+-      await (filterDate && source !== "today" ? handleFilteredMarkAsRead() : markAllAsRead())
++      await (hasActiveFilter ? handleFilteredMarkAsRead() : markAllAsRead())
+ 
+       await updateUIAfterMarkAsRead()
+ 
+-      if (markAllReadJumpToNext) {
++      if (markAllReadJumpToNext && !hasActiveFilter) {
+         jumpToNext()
+       }
+     } catch (error) {
+@@ -149,19 +159,23 @@
+   const handleFilteredMarkAsRead = async () => {
+     const starred = showStatus === "starred"
+     const includeEntireScope = isEntryScopeFullyVisible(source, sourceId)
+-    const withScopeVisibility = (options) =>
+-      includeEntireScope ? { ...options, globally_visible: false } : options
++    const withFilters = (options) => ({
++      ...(filterString ? { search: filterString } : {}),
++      ...(includeEntireScope ? { ...options, globally_visible: false } : options),
++    })
+ 
+     const entryFetchers = {
+-      all: getAllEntries,
++      all: (status, options) => getAllEntries(status, withFilters(options)),
++      today: (status, options) => getTodayEntries(status, withFilters(options)),
+       feed: (status, options) =>
+-        getFeedEntries(sourceId, status, starred, withScopeVisibility(options)),
++        getFeedEntries(sourceId, status, starred, withFilters(options)),
+       category: (status, options) =>
+-        getCategoryEntries(sourceId, status, starred, withScopeVisibility(options)),
+-      starred: getStarredEntries,
++        getCategoryEntries(sourceId, status, starred, withFilters(options)),
++      starred: (status, options) => getStarredEntries(status, withFilters(options)),
+     }
+ 
+     const fetchEntries = entryFetchers[source]
++    if (!fetchEntries) throw new Error("当前视图不支持批量标记")
+     return markEntriesAsReadInBatches(fetchEntries)
+   }
+ 
+@@ -219,7 +233,7 @@
+ 
+   return (
+     <div className="entry-panel">
+-      <MarkAllReadButton from={source} onConfirm={handleMarkAllAsRead} />
++      <MarkAllReadButton filtered={hasActiveFilter} from={source} onConfirm={handleMarkAllAsRead} />
+       <Radio.Group
+         style={{ visibility: source === "history" ? "hidden" : "visible" }}
+         type="button"
 --- a/src/components/Content/Content.jsx
 +++ b/src/components/Content/Content.jsx
 @@ -7,6 +7,7 @@
@@ -472,12 +787,38 @@
                <IconClockCircle aria-hidden="true" />
 --- a/src/components/Article/ArticleDetail.jsx
 +++ b/src/components/Article/ArticleDetail.jsx
-@@ -1,3 +1,4 @@
+@@ -1,3 +1,5 @@
 +import AiBadge from "@/components/Ai/AiBadge"
++import ArticleNote from "@/components/Ai/ArticleNote"
  import { Divider, Tag, Typography } from "@arco-design/web-react"
  import { useStore } from "@nanostores/react"
  import ReactHtmlParser, { attributesToProps, domToReact } from "html-react-parser"
-@@ -634,6 +635,7 @@
+@@ -33,6 +35,7 @@
+ import returnToArticleImage from "@/utils/article-image-return"
+ import { generateReadableDate, generateReadingTime } from "@/utils/date"
+ import buildArticleImageModel from "@/utils/images"
++import { startReadingTelemetry } from "@/utils/reading-telemetry"
+ import { getSafeExternalUrl } from "@/utils/url"
+ import "./ArticleDetail.css"
+ import "./littlefoot.css"
+@@ -582,6 +585,16 @@
+       scrollElement?.focus()
+     }
+   }, [activeContent.id])
++
++  useEffect(
++    () =>
++      startReadingTelemetry({
++        entryId: activeContent.id,
++        getEntryState: () => activeContentState.get(),
++        getScrollElement: () => scrollContainerRef.current?.getScrollElement(),
++      }),
++    [activeContent.id],
++  )
+ 
+   return (
+     <article
+@@ -634,6 +647,7 @@
              <Typography.Text className="article-date">
                {generateReadingTime(activeContent.reading_time)}
              </Typography.Text>
@@ -485,10 +826,11 @@
              <Divider />
            </div>
            <div
-@@ -665,6 +667,14 @@
+@@ -665,6 +679,15 @@
                    onImagePreview={togglePhotoSlider}
                    onOpenChange={handleEnclosuresOpenChange}
                  />
++                <ArticleNote entry={activeContent} />
 +                {sourceUrl && (
 +                  <footer className="article-source-footer">
 +                    <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
@@ -566,38 +908,183 @@
  }
 --- a/src/components/Article/SearchAndSortBar.jsx
 +++ b/src/components/Article/SearchAndSortBar.jsx
-@@ -27,6 +27,7 @@
+@@ -3,8 +3,6 @@
+   IconCalendar,
+   IconQuestionCircle,
+   IconSearch,
+-  IconSortAscending,
+-  IconSortDescending,
+ } from "@arco-design/web-react/icon"
+ import { useStore } from "@nanostores/react"
+ import { Fragment, memo, useMemo, useRef, useState } from "react"
+@@ -21,18 +19,25 @@
+ import {
+   contentState,
+   dynamicCountState,
++  invalidateArticleList,
+   setFilterDate,
+   setFilterString,
+ } from "@/store/contentState"
  import { catalogCategoriesState, catalogFeedsState } from "@/store/dataState"
  import { duplicateHotkeysState, hotkeysState } from "@/store/hotkeysState"
  import { settingsState, updateSettings } from "@/store/settingsState"
-+import { aiState } from "@/store/aiState"
++import { aiFilterEnabled, aiState } from "@/store/aiState"
  import { getStartOfToday } from "@/utils/date"
  import "./SearchAndSortBar.css"
  
-@@ -182,6 +183,8 @@
+-const SearchModal = memo(({ value, visible, onCancel, onConfirm, onChange }) => {
++const SearchModal = memo(({ aiSearch, notesSearch, value, visible, onCancel, onConfirm, onChange }) => {
+   const { polyglot } = useStore(polyglotState)
+-  const tooltipLines = polyglot.t("search.article_tooltip").split("\n")
++  const aiSearchLabel = notesSearch
++    ? "搜索标题、AI分析和个人笔记"
++    : "搜索标题、AI摘要、理由和标签"
++  const tooltipLines = aiSearch ? [aiSearchLabel] : polyglot.t("search.article_tooltip").split("\n")
++  const inputLabel = aiSearch ? aiSearchLabel : polyglot.t("search.article_input_label")
++  const placeholder = aiSearch ? `${aiSearchLabel}...` : polyglot.t("search.article_placeholder")
+   const searchInputRef = useRef(null)
+ 
+   const handleAfterOpen = () => searchInputRef.current?.focus()
+@@ -68,8 +73,8 @@
+         <Input.Search
+           ref={searchInputRef}
+           allowClear
+-          aria-label={polyglot.t("search.article_input_label")}
+-          placeholder={polyglot.t("search.article_placeholder")}
++          aria-label={inputLabel}
++          placeholder={placeholder}
+           value={value}
+           prefix={
+             <Tooltip
+@@ -181,7 +186,40 @@
+   const { filterDate, filterString, infoFrom, isArticleListReady } = useStore(contentState, {
      keys: ["filterDate", "filterString", "infoFrom", "isArticleListReady"],
    })
-   const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })
+-  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })
++  const { orderBy, orderDirection } = useStore(settingsState, { keys: ["orderBy", "orderDirection"] })
 +  const ai = useStore(aiState)
-+  const scoreOrder = infoFrom === "all" && ai.mode === "recommended" && ai.sort !== "time"
++  const aiList = aiFilterEnabled()
++  const pendingList = ai.auxiliary === "pending"
++  const notesList = ai.auxiliary === "notes"
++  const recommendedList = ai.mode === "recommended" && !pendingList
++  const activityList = infoFrom === "history" || infoFrom === "starred"
++  const sortOptions = aiList
++    ? [
++        ...(recommendedList ? [
++          ["score_desc", "推荐分：高到低"], ["score_asc", "推荐分：低到高"],
++          ["technical_desc", "技术价值：高到低"], ["technical_asc", "技术价值：低到高"],
++          ["business_desc", "商业启发：高到低"], ["business_asc", "商业启发：低到高"],
++        ] : []),
++        ...(notesList ? [
++          ["note_updated_desc", "笔记更新时间：新到旧"],
++          ["note_updated_asc", "笔记更新时间：旧到新"],
++        ] : []),
++        ["published_at_desc", "发布时间：新到旧"],
++        ["published_at_asc", "发布时间：旧到新"],
++      ]
++    : activityList
++      ? [["changed_at_desc", "操作时间：新到旧"], ["changed_at_asc", "操作时间：旧到新"]]
++      : [["published_at_desc", "发布时间：新到旧"], ["published_at_asc", "发布时间：旧到新"],
++        ["created_at_desc", "收录时间：新到旧"], ["created_at_asc", "收录时间：旧到新"]]
++  const sortField = aiList
++    ? (pendingList
++      ? "published_at"
++      : (notesList && (!recommendedList || ai.sort === "note_updated"))
++        ? "note_updated"
++        : recommendedList && ai.sort !== "time" ? ai.sort : "published_at")
++    : (activityList ? "changed_at" : orderBy)
++  const sortDirection = aiList ? (ai.direction || "desc") : orderDirection
++  const sortValue = `${sortField}_${sortDirection}`
    const { polyglot } = useStore(polyglotState)
    const feeds = useStore(catalogFeedsState)
    const categories = useStore(catalogCategoriesState)
-@@ -199,10 +202,11 @@
+@@ -199,10 +237,6 @@
    const searchLabel = filterString
      ? polyglot.t("search.active_query", { query: filterString })
      : polyglot.t("search.search")
 -  const sortLabel =
 -    orderDirection === "desc"
-+  const sortLabel = scoreOrder
-+    ? (orderDirection === "desc" ? "高分优先" : "低分优先")
-+    : (orderDirection === "desc"
-       ? polyglot.t("article_list.sort_direction_desc")
+-      ? polyglot.t("article_list.sort_direction_desc")
 -      : polyglot.t("article_list.sort_direction_asc")
-+      : polyglot.t("article_list.sort_direction_asc"))
    const openSearchModalHotkeys = hotkeys.openSearchModal.filter(
      (key) => !duplicateHotkeys.includes(key),
    )
+@@ -229,10 +263,33 @@
+     const info = infoMap[infoFrom] || { key: "", count: 0 }
+     return { title: info.key ? polyglot.t(info.key) : "", count: info.count }
+   }, [infoFrom, id, categories, feeds, dynamicCount, polyglot])
+-
+-  const toggleOrderDirection = () => {
+-    const newOrderDirection = orderDirection === "desc" ? "asc" : "desc"
+-    updateSettings({ orderDirection: newOrderDirection })
++  const aiModeLabel = pendingList
++    ? "待处理 / 异常"
++    : notesList
++      ? (recommendedList ? "AI精选 · 有笔记" : "有笔记")
++      : recommendedList ? "AI精选" : ""
++  const displayTitle = title && aiModeLabel ? `${title} · ${aiModeLabel}` : title
++
++  const changeSort = (event) => {
++    const value = event.target.value
++    const split = value.lastIndexOf("_")
++    const field = value.slice(0, split)
++    const direction = value.slice(split + 1)
++    if (aiList) {
++      aiState.set({
++        ...aiState.get(),
++        sort: field === "published_at" ? "time" : field,
++        direction,
++      })
++    } else {
++      updateSettings({
++        orderDirection: direction,
++        ...(!activityList ? { orderBy: field } : {}),
++      })
++    }
++    closeActiveContent()
++    entryListRef.current?.getScrollElement()?.scroll({ top: 0 })
++    invalidateArticleList()
+   }
+ 
+   const openSearchModal = () => {
+@@ -273,7 +330,7 @@
+               showTooltip={!isBelowMedium}
+               style={{ fontWeight: 500 }}
+             >
+-              {title}
++              {displayTitle}
+             </Typography.Ellipsis>
+           ) : (
+             <div className="placeholder-title"></div>
+@@ -292,23 +349,13 @@
+           onClick={openSearchModal}
+         />
+         {infoFrom !== "today" && <DateFilter filterDate={filterDate} polyglot={polyglot} />}
+-        <CustomTooltip mini content={sortLabel}>
+-          <Button
+-            aria-label={sortLabel}
+-            shape="circle"
+-            size="small"
+-            icon={
+-              orderDirection === "desc" ? (
+-                <IconSortDescending aria-hidden="true" />
+-              ) : (
+-                <IconSortAscending aria-hidden="true" />
+-              )
+-            }
+-            onClick={toggleOrderDirection}
+-          />
+-        </CustomTooltip>
++        <select className="article-sort-select" aria-label="文章排序" value={sortValue} onChange={changeSort}>
++          {sortOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
++        </select>
+       </div>
+       <SearchModal
++        aiSearch={aiList}
++        notesSearch={notesList}
+         value={modalInputValue}
+         visible={searchModalVisible}
+         onCancel={closeSearchModal}
 --- a/src/components/Article/ArticleEntry.jsx
 +++ b/src/components/Article/ArticleEntry.jsx
 @@ -81,8 +81,8 @@
@@ -620,6 +1107,41 @@
        </a>
      </Dropdown>
    )
+--- a/src/components/Article/ArticleList.jsx
++++ b/src/components/Article/ArticleList.jsx
+@@ -18,6 +18,7 @@
+ import { polyglotState } from "@/hooks/useLanguage"
+ import useReadOnScroll from "@/hooks/useReadOnScroll"
+ import { articleListEmptyState } from "@/store/articleListEmptyState"
++import { aiFilterEnabled, aiState } from "@/store/aiState"
+ import { contentState, filteredEntriesState } from "@/store/contentState"
+ import { articleListLayoutState } from "@/store/settingsState"
+ import { formatLocalizedDate } from "@/utils/date"
+@@ -66,6 +67,7 @@
+       keys: ["articleListError", "isArticleListReady"],
+     })
+     const emptyState = useStore(articleListEmptyState)
++    const ai = useStore(aiState)
+     const filteredEntries = useStore(filteredEntriesState)
+     const { polyglot } = useStore(polyglotState)
+     const articleListLayout = useStore(articleListLayoutState)
+@@ -74,7 +76,15 @@
+     const isWaitingForCatalog = emptyState?.phase === "waiting-for-catalog"
+     const showEmptyState = emptyState?.phase === "empty"
+     const canRenderResults = isArticleListReady && !articleListError && !isWaitingForCatalog
+-    const emptyMessageKey = EMPTY_MESSAGE_KEYS[emptyState?.reason] ?? "article_list.no_articles"
++    const aiEmptyMessageKey = aiFilterEnabled() && !emptyState?.filters?.query && !emptyState?.filters?.date
++      ? (ai.auxiliary === "pending"
++        ? "article_list.no_pending_articles"
++        : ai.auxiliary === "notes"
++          ? "article_list.no_noted_articles"
++          : "article_list.no_ai_recommendations")
++      : null
++    const emptyMessageKey =
++      aiEmptyMessageKey ?? EMPTY_MESSAGE_KEYS[emptyState?.reason] ?? "article_list.no_articles"
+     const emptySummary = showEmptyState ? getEmptyStateSummary(emptyState.filters, polyglot) : null
+     const EntryPresenter = ENTRY_PRESENTERS[articleListLayout] ?? ArticleCard
+     const isCardLayout = articleListLayout === "card"
 --- a/src/components/Article/ActionButtons.jsx
 +++ b/src/components/Article/ActionButtons.jsx
 @@ -132,15 +132,14 @@

@@ -34,7 +34,7 @@ def main():
       ('UI-01','桌面登录、卡片、正文、原文、深链接','通过','browser-acceptance.json'),
       ('UI-02','390×844移动会话布局，无横向溢出','通过；非物理手机','browser-acceptance.json'),
       ('SYNC-01','独立会话的已读、收藏、AI及偏好','通过','browser-acceptance.json'),
-      ('UI-03','控制台、来源目录、服务器工具入口','通过','browser-acceptance.json'),
+      ('UI-03','控制台、来源目录、阅读状态','通过','browser-acceptance.json'),
       ('OPS-01','PG独立恢复与SQLite完整性','通过','restore-test.json'),
       ('OPS-02','独立运行时、暂存构建与旧资源保留','通过；当前实例','frontend-build.json'),
       ('GIT-01','源码/历史凭据扫描与私有仓库留档','扫描通过；最终SHA见提交历史','secret-audit.json'),

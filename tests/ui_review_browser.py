@@ -54,14 +54,16 @@ with client() as api:
             login(page)
             check('disabled_translation_has_no_waiting_stripe', page.locator('.card-language-status').count() == 0)
             check('paused_translation_explained_once_in_toolbar', '中文翻译已暂停' in page.locator('.ai-progress').inner_text())
-            for option, field, direction in [('time_asc', 'time', 'asc'), ('time_desc', 'time', 'desc'), ('score', 'score', 'desc')]:
+            for option, field, direction in [
+                ('published_at_asc', 'time', 'asc'),
+                ('published_at_desc', 'time', 'desc'),
+                ('score_desc', 'score', 'desc'),
+                ('score_asc', 'score', 'asc'),
+            ]:
                 with page.expect_response(lambda r: entries_response(r, field, direction), timeout=30000) as pending:
-                    page.get_by_label('AI 排序', exact=True).select_option(option)
+                    page.get_by_label('文章排序', exact=True).select_option(option)
                 validate_order(page, pending.value, field, direction)
-            with page.expect_response(lambda r: entries_response(r, 'score', 'asc'), timeout=30000) as pending:
-                page.get_by_role('button', name='高分优先', exact=True).click()
-            validate_order(page, pending.value, 'score', 'asc')
-            check('score_direction_label_matches', page.get_by_role('button', name='低分优先', exact=True).count() == 1)
+            check('single_sort_surface', page.get_by_label('AI 排序', exact=True).count() == 0)
 
             # Force presentation states only; keep real IDs, images, links and source copy.
             state = {'value': 'pending'}
