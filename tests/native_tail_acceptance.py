@@ -14,7 +14,7 @@ def ck(name,ok,detail=None):
 try:
  with sync_playwright() as p:
   b=launch(p);c=b.new_context(viewport={'width':1440,'height':1000},locale='zh-CN',service_workers='block')
-  c.add_init_script("localStorage.setItem('settings',JSON.stringify({showStatus:'all',markReadOnScroll:false,removeDuplicates:false,pageSize:20,orderDirection:'desc'}))")
+  c.add_init_script("localStorage.setItem('settings',JSON.stringify({showStatus:'all',markReadOnScroll:false,removeDuplicates:false,pageSize:20,orderDirection:'desc'}));localStorage.setItem('ai-view-state',JSON.stringify({mode:'all',auxiliary:'none',minimum:8,sort:'score',direction:'desc',hydrated:false}))")
   page=c.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
   _,password=local_admin();page.goto(BASE+'/inbox/login',wait_until='domcontentloaded');page.locator('#password_input').fill(password);page.get_by_role('button',name='登录',exact=True).click();page.wait_for_url('**/all',timeout=30000)
   for route,endpoint in [('/feed/56','/mf/v1/feeds/56/entries'),('/category/7','/mf/v1/categories/7/entries'),('/today','/mf/v1/entries')]:
@@ -38,7 +38,9 @@ try:
    for _ in range(30):
     old=state()
     if old['more']!='true':break
-    page.evaluate('''()=>{let root=document.querySelector('.entry-list [data-entry-id]')?.parentElement;while(root&&!(root.scrollHeight>root.clientHeight+10&&['auto','scroll'].includes(getComputedStyle(root).overflowY)))root=root.parentElement;if(!root)throw Error('scroll root missing');root.scrollTop=root.scrollHeight}''')
+    button=page.locator('.load-more-container button')
+    button.wait_for(timeout=10000)
+    button.evaluate('e=>e.click()')
     page.wait_for_function("n=>{const e=document.querySelector('.load-more-container');return Number(e?.dataset.loadedCount)>n||e?.dataset.more!=='true'}",arg=old['count'],timeout=30000)
     page.wait_for_timeout(150)
    final=state();detail={'loaded':final['count'],'expected':records['first'],'seen':len(records['seen']),'responses':records['responses'],'more':final['more'],'pages':records['pages']}

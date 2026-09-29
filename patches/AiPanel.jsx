@@ -11,8 +11,6 @@ export default function AiPanel({ onClose }) {
   const [config, setConfig] = useState(null)
   const [status, setStatus] = useState(null)
   const [sources, setSources] = useState([])
-  const [tools, setTools] = useState([])
-  const [toolText, setToolText] = useState("[]")
   const [message, setMessage] = useState("")
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState("")
@@ -22,12 +20,12 @@ export default function AiPanel({ onClose }) {
   const { refreshFeedData } = useAppData()
   const load = async () => {
     try {
-      const [c, s, f, t, xr] = await Promise.all([
-        ...["settings", "status", "catalog", "tools"].map(p => apiClient.get(`/v1/ai/${p}`)),
+      const [c, s, f, xr] = await Promise.all([
+        ...["settings", "status", "catalog"].map(p => apiClient.get(`/v1/ai/${p}`)),
         apiClient.get("/v1/ai/x/roster"),
       ])
       if (!alive.current) return
-      setConfig(c); setStatus(s); setSources(f); setTools(t); setToolText(JSON.stringify(t, null, 2)); setXRoster(xr)
+      setConfig(c); setStatus(s); setSources(f); setXRoster(xr)
     } catch (e) { if (alive.current) setMessage(e.message) }
   }
   useEffect(() => { alive.current = true; dialog.current?.showModal(); load(); return () => { alive.current = false } }, [])
@@ -58,7 +56,7 @@ export default function AiPanel({ onClose }) {
   const filtered = sources.filter(s => `${s.name} ${s.category}`.toLowerCase().includes(search.toLowerCase()))
   return <dialog className="ai-dialog" ref={dialog} onCancel={onClose} onClose={onClose}>
     <header><h2>个人 AI 资讯控制台</h2><button aria-label="关闭" onClick={onClose}>×</button></header>
-    <nav>{[["settings","模型与偏好"],["status","处理状态"],["sources","来源目录"],["tools","工具入口"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
+    <nav>{[["settings","模型与偏好"],["status","处理状态"],["sources","来源目录"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
     {message && <p className="ai-message" role="status">{message}</p>}
     {!config && <p>正在读取服务器配置……</p>}
     {tab === "settings" && config && <section className="ai-form">
@@ -105,11 +103,6 @@ export default function AiPanel({ onClose }) {
       {status?.social_probe && <p className="ai-notice">最近 Telegram 公共路由实测：{status.social_probe.passed ? "成功" : "未通过，需检查服务器出站网络"}（HTTP {status.social_probe.http || "无响应"}）。这与 RSSHub 服务本身是否在线是两项不同检查。</p>}
       <form onSubmit={e=>{e.preventDefault();const url=new FormData(e.currentTarget).get("feed");add([{url,category:"手动来源"}])}}><label>自定义 RSS / RSSHub 地址<input required name="feed" type="url" placeholder="http://127.0.0.1:1200/telegram/channel/频道名" /></label><button disabled={busy}>添加订阅</button></form>
       <div className="ai-source-list">{filtered.map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.subscribed ? "已订阅 · " : ""}{s.live_error ? "抓取异常 · " : ""}{s.status==="ok" ? "订阅可解析" : (s.error || "待验证")}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a></div><button disabled={busy || s.status!=="ok" || s.subscribed || s.analysis_supported === false} onClick={()=>add([s])}>{s.analysis_supported === false ? "需全文适配" : (s.subscribed ? "已添加" : "添加")}</button></div>)}</div>
-    </section>}
-    {tab === "tools" && <section>
-      <p>静态工具与资讯分开。快捷入口保存在服务器，不仅是当前浏览器。</p>
-      <div className="ai-tools">{tools.map(t=><a key={t.url} href={t.url} target="_blank" rel="noreferrer">{t.name} ↗</a>)}</div>
-      <details><summary>编辑快捷入口（JSON）</summary><textarea aria-label="工具 JSON" rows={10} value={toolText} onChange={e=>setToolText(e.target.value)} /><button disabled={busy} onClick={()=>run(async()=>{await apiClient.put("/v1/ai/tools",JSON.parse(toolText));await load();setMessage("快捷入口已保存到服务器")})}>保存入口</button></details>
     </section>}
     <footer>Miniflux + ReactFlux + RSSHub · AI 增强层独立保存分析，不替换原文章。<a href="/deployment" target="_blank" rel="noreferrer">部署状态</a></footer>
   </dialog>

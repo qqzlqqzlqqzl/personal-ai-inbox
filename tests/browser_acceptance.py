@@ -43,7 +43,7 @@ def login(page):
 
 
 def panel(page):
-    page.get_by_role("button", name="AI 设置 · 来源 · 工具").click()
+    page.get_by_role("button", name="AI 设置 · 来源").click()
     page.locator(".ai-dialog").wait_for()
     page.get_by_label("模型 ID", exact=True).wait_for()
 
@@ -51,7 +51,6 @@ def panel(page):
 with client() as api:
     api.base_url = BASE + "/mf/"
     config = api.get("/v1/ai/settings").json()
-    tools = api.get("/v1/ai/tools").json()
     candidates = api.get("/v1/entries?ai_view=recommended&ai_min=6&limit=30").json()[
         "entries"
     ]
@@ -211,26 +210,7 @@ with client() as api:
             ).to_be_visible(timeout=10000)
             check("source_catalog_live_status", True)
             a.screenshot(path=str(OUT / "desktop-sources.png"), full_page=True)
-            a.get_by_role("button", name="工具入口", exact=True).click()
-            check("tool_shortcuts_not_empty", a.locator(".ai-tools a").count() >= 4)
-            a.locator("summary").filter(has_text="编辑快捷入口").click()
-            edited = tools + [
-                {"name": "验收临时入口", "url": "https://miniflux.app/docs/api.html"}
-            ]
-            a.get_by_label("工具 JSON", exact=True).fill(
-                json.dumps(edited, ensure_ascii=False)
-            )
-            a.get_by_role("button", name="保存入口", exact=True).click()
-            expect(a.locator(".ai-dialog").get_by_role("status")).to_contain_text(
-                "快捷入口已保存", timeout=15000
-            )
-            b.get_by_role("button", name="关闭", exact=True).click()
-            panel(b)
-            b.get_by_role("button", name="工具入口", exact=True).click()
-            expect(
-                b.locator(".ai-tools").get_by_text("验收临时入口", exact=False)
-            ).to_be_visible(timeout=10000)
-            check("tools_cross_device", True)
+            check("tools_tab_removed", a.get_by_role("button", name="工具入口", exact=True).count() == 0)
             b.get_by_role("button", name="关闭", exact=True).click()
             registration = a.evaluate("""async () => {
                 const reg = await navigator.serviceWorker.ready;
@@ -243,9 +223,8 @@ with client() as api:
             check("no_root_service_worker", all(s == APP + "/" for s in all_scopes), all_scopes)
             if PUBLIC:
                 response = a.goto(BASE + "/news/", wait_until="domcontentloaded")
-                check("freshrss_after_inbox", response.ok and "/news/" in a.url and
-                      "FreshRSS" in a.content(), {"status": response.status, "url": a.url})
-                check("freshrss_not_controlled_by_inbox", a.evaluate("navigator.serviceWorker.controller === null"))
+                check("legacy_news_redirects_to_inbox", response.ok and a.url.rstrip("/") == APP,
+                      {"status": response.status, "url": a.url})
                 response = a.goto(BASE + "/deployment", wait_until="domcontentloaded")
                 check("unpublished_status_remains_404", response.status == 404)
             else:
@@ -266,7 +245,6 @@ with client() as api:
             },
         ).raise_for_status()
         api.put("/v1/ai/settings", json=config).raise_for_status()
-        api.put("/v1/ai/tools", json=tools).raise_for_status()
         report["test_mutations_restored"] = True
 report["passed"] = not report.get("error") and all(
     x["passed"] for x in report["checks"]

@@ -1,6 +1,6 @@
 """Same-origin reader gateway and authenticated AI extension API."""
 
-import asyncio, json, os, time, contextlib, logging, uuid, mimetypes, math
+import asyncio, json, os, time, contextlib, logging, uuid, mimetypes, math, re
 from contextlib import asynccontextmanager
 from pathlib import Path
 import httpx
@@ -291,7 +291,7 @@ async def list_upstream_headers(request, uid):
     return supplied
 
 
-async def ai_entries(request, uid):
+async def ai_entries(request, uid, *, feed_id=None, category_id=None):
     p = request.query_params
     if p.get("ai_view") not in ["recommended", "pending", "notes"]:
         raise HTTPException(400, "Invalid AI view")
@@ -305,6 +305,9 @@ async def ai_entries(request, uid):
             raise ValueError()
     except ValueError:
         raise HTTPException(400, "Invalid AI filter")
+    has_note = p.get("has_note")
+    if has_note not in (None, "true", "false"):
+        raise HTTPException(400, "Invalid note filter")
     upstream_headers = await list_upstream_headers(request, uid)
     params = {}
     status = p.get("status")
@@ -346,19 +349,26 @@ async def ai_entries(request, uid):
                 raise HTTPException(400, "Invalid date filter")
             where.append(f"julianday(published_at){op}julianday(?)")
             values.append(stamp)
-    if p.get("ai_view") == "pending":
-        where.append("state NOT IN ('done','removed')")
-    elif p.get("ai_view") == "notes":
-        where.append("""EXISTS (
+    note_exists_sql = """EXISTS (
             SELECT 1 FROM entry_notes n
             WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id
               AND length(trim(n.note))>0
-        )""")
+        )"""
+    if p.get("ai_view") == "pending":
+        where.append("state NOT IN ('done','removed')")
+    elif p.get("ai_view") == "notes":
+        where.append(note_exists_sql)
     else:
         # minimum_score is the effective user threshold. Requiring
         # worth_reading=true here would make scores 4-6 impossible to surface.
         where += ["state='done'", "score>=?"]
         values.append(minimum)
+
+    if has_note == "true" and p.get("ai_view") != "notes":
+        where.append(note_exists_sql)
+    elif has_note == "false":
+        where.append("NOT " + note_exists_sql)
+
     if p.get("search"):
         term = "%" + p["search"][:200] + "%"
         if p.get("ai_view") == "notes":
@@ -367,27 +377,41 @@ async def ai_entries(request, uid):
                 WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id
                   AND n.note LIKE ?
             ))""")
+            values += [term, term]
+        elif has_note == "true":
+            where.append("""(title LIKE ? OR result LIKE ? OR EXISTS (
+                SELECT 1 FROM entry_notes n
+                WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id
+                  AND n.note LIKE ?
+            ))""")
+            values += [term, term, term]
         else:
             where.append("(title LIKE ? OR result LIKE ?)")
-        values += [term, term]
-    sort_key = p.get("ai_sort", "score")
+            values += [term, term]
+
+    sort_key = p.get("ai_sort")
     direction = p.get("direction", "desc")
-    if sort_key not in {"score", "technical", "business", "time"} or direction not in {"asc", "desc"}:
+    if direction not in {"asc", "desc"}:
         raise HTTPException(400, "Invalid sort field or direction")
-    # Pending items have no meaningful score. Notes are ordered by last edit.
     if p.get("ai_view") == "pending":
         sort_key = "time"
-    if p.get("ai_view") == "notes":
-        order = """COALESCE((SELECT n.updated_at FROM entry_notes n
-                   WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id),0)"""
-        direction = "desc"
+    elif p.get("ai_view") == "notes" and sort_key is None:
+        sort_key = "note_updated"
     else:
-        order = {
-            "score": "score",
-            "technical": "technical_score",
-            "business": "business_score",
-            "time": "julianday(published_at)",
-        }[sort_key]
+        sort_key = sort_key or "score"
+    allowed_sorts = {"score", "technical", "business", "time"}
+    if p.get("ai_view") == "notes" or has_note == "true":
+        allowed_sorts.add("note_updated")
+    if sort_key not in allowed_sorts:
+        raise HTTPException(400, "Invalid sort field or direction")
+    order = {
+        "score": "score",
+        "technical": "technical_score",
+        "business": "business_score",
+        "time": "julianday(published_at)",
+        "note_updated": """COALESCE((SELECT n.updated_at FROM entry_notes n
+                   WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id),0)""",
+    }[sort_key]
     sql_direction = direction.upper()
     with connect() as c:
         candidates = [
@@ -405,14 +429,24 @@ async def ai_entries(request, uid):
         MF + "/v1/feeds", headers=upstream_headers
     )
     feeds_response.raise_for_status()
+    feeds = feeds_response.json()
     hidden = {
-        f["id"] for f in feeds_response.json()
+        f["id"] for f in feeds
         if f.get("hide_globally") or (f.get("category") or {}).get("hide_globally")
     }
+    scope_feed_ids = None
+    if feed_id is not None:
+        scope_feed_ids = {int(feed_id)}
+    elif category_id is not None:
+        scope_feed_ids = {
+            int(f["id"]) for f in feeds
+            if int((f.get("category") or {}).get("id", 0)) == int(category_id)
+        }
     ids = [
         x["entry_id"]
         for x in candidates
         if x["entry_id"] in allowed_ids
+        and (scope_feed_ids is None or x["feed_id"] in scope_feed_ids)
         and (p.get("globally_visible") != "true" or x["feed_id"] not in hidden)
     ]
     semaphore = asyncio.Semaphore(8)
@@ -765,13 +799,18 @@ async def proxy(path: str, request: Request):
     try:
         if request.method not in ("GET", "HEAD", "OPTIONS") and path.startswith(("v1/feeds", "v1/import")):
             await authorize(request, admin=True)
-        if (
-            path == "v1/entries"
-            and request.method == "GET"
-            and request.query_params.get("ai_view")
-        ):
+        ai_scope = None
+        if request.method == "GET" and request.query_params.get("ai_view"):
+            if path == "v1/entries":
+                ai_scope = {}
+            else:
+                scoped = re.fullmatch(r"v1/(feeds|categories)/(\d+)/entries", path)
+                if scoped:
+                    key = "feed_id" if scoped.group(1) == "feeds" else "category_id"
+                    ai_scope = {key: int(scoped.group(2))}
+        if ai_scope is not None:
             uid = await authorize(request)
-            data = await ai_entries(request, uid)
+            data = await ai_entries(request, uid, **ai_scope)
             content = json.dumps(data, ensure_ascii=False).replace(
                 "http://127.0.0.1:8092/mf", "/mf"
             ).encode()

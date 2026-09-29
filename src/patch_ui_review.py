@@ -45,7 +45,7 @@ patch('src/components/Article/ArticleListItem.jsx',
       'const listSummary = getListSummary(entry.card?.summary || entry.ai?.summary || previewContent)')
 
 search_sort = (WEB / 'src/components/Article/SearchAndSortBar.jsx').read_text()
-if 'const aiList = infoFrom === "all" && ai.mode !== "all"' not in search_sort:
+if 'const aiList =' not in search_sort:
     patch('src/components/Article/SearchAndSortBar.jsx',
           'import { settingsState, updateSettings } from "@/store/settingsState"',
           'import { settingsState, updateSettings } from "@/store/settingsState"\nimport { aiState } from "@/store/aiState"')

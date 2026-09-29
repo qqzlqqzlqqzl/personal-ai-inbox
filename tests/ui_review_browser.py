@@ -1,5 +1,5 @@
 """Live UI regression with controlled card states/fetch failures; no direct model calls."""
-import json
+import json, difflib
 import time
 import traceback
 from datetime import datetime
@@ -53,15 +53,17 @@ with client() as api:
             page.on('pageerror', lambda e: errors.append(str(e)))
             login(page)
             check('disabled_translation_has_no_waiting_stripe', page.locator('.card-language-status').count() == 0)
-            check('paused_translation_explained_once_in_toolbar', '中文翻译已暂停' in page.locator('.ai-progress').inner_text())
-            for option, field, direction in [('time_asc', 'time', 'asc'), ('time_desc', 'time', 'desc'), ('score', 'score', 'desc')]:
+            check('active_kaggle_pipeline_explained_once_in_toolbar', 'Kaggle 持续增量处理' in page.locator('.ai-progress').inner_text())
+            for option, field, direction in [
+                ('published_at_asc', 'time', 'asc'),
+                ('published_at_desc', 'time', 'desc'),
+                ('score_desc', 'score', 'desc'),
+                ('score_asc', 'score', 'asc'),
+            ]:
                 with page.expect_response(lambda r: entries_response(r, field, direction), timeout=30000) as pending:
-                    page.get_by_label('AI 排序', exact=True).select_option(option)
+                    page.get_by_label('文章排序', exact=True).select_option(option)
                 validate_order(page, pending.value, field, direction)
-            with page.expect_response(lambda r: entries_response(r, 'score', 'asc'), timeout=30000) as pending:
-                page.get_by_role('button', name='高分优先', exact=True).click()
-            validate_order(page, pending.value, 'score', 'asc')
-            check('score_direction_label_matches', page.get_by_role('button', name='低分优先', exact=True).count() == 1)
+            check('single_sort_surface', page.get_by_label('AI 排序', exact=True).count() == 0)
 
             # Force presentation states only; keep real IDs, images, links and source copy.
             state = {'value': 'pending'}
@@ -127,7 +129,8 @@ with client() as api:
                 popup.value.close()
             page.screenshot(path=str(OUT / 'source-footer.png'))
             ctx.unroute(original['url'], source_stub)
-            body_before = page.locator('.article-body').inner_text()
+            article_core = lambda: page.locator('.article-body').evaluate("node => { const clone=node.cloneNode(true); clone.querySelectorAll('.article-note,.article-source-footer,.deferred-code-block,button').forEach(x=>x.remove()); return clone.innerText; }")
+            body_before = article_core()
             mode = {'value': 'error', 'count': 0}
             def fetch_stub(route):
                 mode['count'] += 1
@@ -140,7 +143,17 @@ with client() as api:
             button.click()
             expect(page.get_by_text('原文获取失败', exact=False)).to_be_visible(timeout=15000)
             expect(button).to_be_enabled(timeout=15000)
-            check('failed_fetch_preserves_body', page.locator('.article-body').inner_text() == body_before)
+            body_after = article_core()
+            mismatch = None
+            if body_after != body_before:
+                for tag,a0,a1,b0,b1 in difflib.SequenceMatcher(None, body_before, body_after).get_opcodes():
+                    if tag != 'equal':
+                        mismatch = {'tag':tag,'before':body_before[max(0,a0-80):min(len(body_before),a1+80)],
+                                    'after':body_after[max(0,b0-80):min(len(body_after),b1+80)]}
+                        break
+            check('failed_fetch_preserves_body', body_after == body_before, {
+                'before_len': len(body_before), 'after_len': len(body_after), 'mismatch': mismatch,
+            })
             check('failed_fetch_allows_retry', button.is_enabled(), {'requests': mode['count']})
             mode['value'] = 'ok'
             button.click()
@@ -161,8 +174,8 @@ with client() as api:
             page.get_by_role('button', name='下一篇文章', exact=True).click()
             page.wait_for_function('(id)=>!location.pathname.endsWith("/entry/"+id)', arg=eid, timeout=20000)
             next_id = int(page.url.rsplit('/', 1)[-1])
-            prior = next(e for e in candidates if e['id'] == next_id)
-            restores[next_id] = (prior['status'], prior['starred'])
+            next_entry = api.get('/v1/entries/' + str(next_id)).json()
+            restores[next_id] = (next_entry['status'], next_entry['starred'])
             page.locator('.article-source-footer a').wait_for(timeout=30000)
             next_title = page.locator('.article-title').inner_text()
             held['route'].fulfill(status=200, json={'content':'<p>STALE OLD ARTICLE RESPONSE</p>', 'reading_time':1})

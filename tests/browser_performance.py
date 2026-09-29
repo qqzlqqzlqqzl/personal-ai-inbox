@@ -109,7 +109,7 @@ try:
    check(f"COVER-{eid}",cover.endswith(suffix),cover)
   page.goto(BASE+"/inbox/all",wait_until="domcontentloaded")
   page.locator(".grid-card-title,.card-title").first.wait_for()
-  page.get_by_role("button",name="AI 设置 · 来源 · 工具").click()
+  page.get_by_role("button",name="AI 设置 · 来源").click()
   page.get_by_role("button",name="来源目录",exact=True).click()
   page.get_by_role("button",name="检查 X 来源",exact=True).click()
   expect(page.get_by_role("status")).to_contain_text("尚未取得帖子",timeout=30000)
