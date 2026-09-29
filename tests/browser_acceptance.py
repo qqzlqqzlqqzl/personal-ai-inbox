@@ -223,9 +223,8 @@ with client() as api:
             check("no_root_service_worker", all(s == APP + "/" for s in all_scopes), all_scopes)
             if PUBLIC:
                 response = a.goto(BASE + "/news/", wait_until="domcontentloaded")
-                check("freshrss_after_inbox", response.ok and "/news/" in a.url and
-                      "FreshRSS" in a.content(), {"status": response.status, "url": a.url})
-                check("freshrss_not_controlled_by_inbox", a.evaluate("navigator.serviceWorker.controller === null"))
+                check("legacy_news_redirects_to_inbox", response.ok and a.url.rstrip("/") == APP,
+                      {"status": response.status, "url": a.url})
                 response = a.goto(BASE + "/deployment", wait_until="domcontentloaded")
                 check("unpublished_status_remains_404", response.status == 404)
             else:
@@ -246,7 +245,6 @@ with client() as api:
             },
         ).raise_for_status()
         api.put("/v1/ai/settings", json=config).raise_for_status()
-        api.put("/v1/ai/tools", json=tools).raise_for_status()
         report["test_mutations_restored"] = True
 report["passed"] = not report.get("error") and all(
     x["passed"] for x in report["checks"]
