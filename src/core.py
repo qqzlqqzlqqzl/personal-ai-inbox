@@ -185,7 +185,38 @@ def update(entry_id, **fields):
         )
 
 
-def decorate(entry, user_id):
+def _source_text_fallback(entry, row):
+    """Use the already-captured publisher text when the reader only has a teaser."""
+    if entry.get("prepared_source") or row.get("content_source") != "original_url_site_rule":
+        return entry
+    source = (row.get("source_text") or "").strip()
+    if len(source) < 800:
+        return entry
+    from bs4 import BeautifulSoup
+    raw_soup = BeautifulSoup(entry.get("content") or "", "html.parser")
+    raw_text = raw_soup.get_text(" ", strip=True)
+    threshold = min(500, max(120, int(len(source) * 0.35)))
+    if len(raw_text) >= threshold:
+        return entry
+    from html import escape
+    import math, re
+    paragraphs = [part.strip() for part in source.split("\n\n") if part.strip()] or [source]
+    images = "".join(str(img) for img in raw_soup.find_all("img")[:6] if img.get("src"))
+    content = "<article>" + images + "".join(
+        "<p>" + escape(part).replace("\n", "<br>") + "</p>" for part in paragraphs
+    ) + "</article>"
+    words = len(re.findall(r"\b[A-Za-z0-9][A-Za-z0-9'_-]*\b", source))
+    cjk = len(re.findall(r"[\u3400-\u9fff]", source))
+    estimated_minutes = max(1, math.ceil(max(words / 265, cjk / 500)))
+    return {
+        **entry,
+        "content": content,
+        "reading_time": max(int(entry.get("reading_time") or 0), estimated_minutes),
+        "prepared_source": "analysis_source_fallback",
+    }
+
+
+def decorate(entry, user_id, include_source_fallback=False):
     from prepared_content import apply as apply_prepared
     entry = apply_prepared(entry)
     from card_translation import attach
@@ -217,6 +248,8 @@ def decorate(entry, user_id):
             user_id,
         )
     row = dict(r)
+    if include_source_fallback:
+        entry = _source_text_fallback(entry, row)
     result = json.loads(row.pop("result") or "{}")
     has_note = bool(row.pop("has_note", 0))
     note_updated_at = row.pop("note_updated_at", None)
@@ -303,6 +336,23 @@ def status_summary(user_id):
                 (user_id,),
             ).fetchall()
         )
+        coverage = dict(
+            c.execute(
+                """SELECT COUNT(*) AS total_articles,
+                          COALESCE(SUM(CASE WHEN state='done' THEN 1 ELSE 0 END),0) AS ai_done,
+                          COALESCE(SUM(CASE WHEN source_text IS NOT NULL AND length(trim(source_text))>=120 THEN 1 ELSE 0 END),0) AS source_text_ready,
+                          COALESCE(SUM(CASE WHEN source_chars>=800 THEN 1 ELSE 0 END),0) AS substantial_source_text,
+                          COALESCE(SUM(CASE WHEN state IN ('fetch_error','requires_fulltext_adapter','requires_model_review','requires_source_review','insufficient_content') THEN 1 ELSE 0 END),0) AS needs_attention
+                   FROM analyses WHERE user_id=?""",
+                (user_id,),
+            ).fetchone()
+        )
+        coverage["prepared_articles"] = c.execute(
+            "SELECT COUNT(*) FROM prepared_articles WHERE user_id=?", (user_id,)
+        ).fetchone()[0]
+        coverage["notes"] = c.execute(
+            "SELECT COUNT(*) FROM entry_notes WHERE user_id=? AND length(trim(note))>0", (user_id,)
+        ).fetchone()[0]
         recent = [
             dict(x)
             for x in c.execute(
@@ -341,6 +391,7 @@ def status_summary(user_id):
         ]
     return {
         "counts": counts,
+        "coverage": coverage,
         "translations": translation_status(user_id),
         "analysis_enabled": settings()["enabled"],
         "translation_enabled": settings().get("translation_enabled", True),

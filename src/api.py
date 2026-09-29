@@ -233,7 +233,28 @@ async def ai_status(request: Request):
     uid = await authorize(request, admin=True)
     from month_control import status as month_status
     campaign = await asyncio.to_thread(month_status)
-    return {**status_summary(uid), **(await health()), "kaggle": campaign}
+    summary = status_summary(uid)
+    reader_total = summary["coverage"].get("total_articles", 0)
+    source_count = 0
+    try:
+        entries_response, feeds_response = await asyncio.gather(
+            app.state.client.get(
+                MF + "/v1/entries", headers=auth_headers(request), params={"limit": 1}, timeout=8
+            ),
+            app.state.client.get(MF + "/v1/feeds", headers=auth_headers(request), timeout=8),
+        )
+        if entries_response.status_code == 200:
+            reader_total = int(entries_response.json().get("total", reader_total))
+        if feeds_response.status_code == 200:
+            source_count = len(feeds_response.json())
+    except (httpx.HTTPError, ValueError, TypeError):
+        pass
+    summary["coverage"] = {
+        **summary["coverage"],
+        "reader_total": reader_total,
+        "source_count": source_count,
+    }
+    return {**summary, **(await health()), "kaggle": campaign}
 
 
 @app.post("/mf/v1/ai/retry")
@@ -993,7 +1014,7 @@ async def proxy(path: str, request: Request):
                 and "id" in data
             ):
                 enqueue_cards([data], priority=40)
-                data = decorate(data, data["user_id"])
+                data = decorate(data, data["user_id"], include_source_fallback=True)
             content = json.dumps(data, ensure_ascii=False).encode()
         if "json" in content_type or "text/html" in content_type:
             content = content.replace(b"http://127.0.0.1:8092/mf", b"/mf")

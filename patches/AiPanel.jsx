@@ -54,9 +54,20 @@ export default function AiPanel({ onClose }) {
   })
   const change = (key, value) => setConfig({ ...config, [key]: value })
   const filtered = sources.filter(s => `${s.name} ${s.category}`.toLowerCase().includes(search.toLowerCase()))
+  const analysisCounts = status?.counts || {}
+  const coverage = status?.coverage || {}
+  const translationCounts = status?.translations?.counts || {}
+  const articleTotal = coverage.reader_total || coverage.total_articles || Object.values(analysisCounts).reduce((a,b)=>a+b,0)
+  const translated = (translationCounts.done || 0) + (translationCounts.native || 0)
+  const translationTotal = Object.values(translationCounts).reduce((a,b)=>a+b,0)
+  const queued = (analysisCounts.pending || 0) + (analysisCounts.waiting_model || 0) + (analysisCounts.budget_paused || 0)
+  const attention = coverage.needs_attention || 0
+  const lanes = Object.values(status?.kaggle?.lanes || {})
+  const activeLanes = lanes.filter(l => ["processing","submitted","running"].includes(l?.state)).length
+  const percentage = (value,total) => total ? Math.round((value || 0) * 100 / total) : 0
   return <dialog className="ai-dialog" ref={dialog} onCancel={onClose} onClose={onClose}>
     <header><h2>个人 AI 资讯控制台</h2><button aria-label="关闭" onClick={onClose}>×</button></header>
-    <nav>{[["settings","模型与偏好"],["status","处理状态"],["sources","来源目录"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
+    <nav>{[["settings","模型与偏好"],["status","运行看板"],["sources","来源目录"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
     {message && <p className="ai-message" role="status">{message}</p>}
     {!config && <p>正在读取服务器配置……</p>}
     {tab === "settings" && config && <section className="ai-form">
@@ -72,15 +83,36 @@ export default function AiPanel({ onClose }) {
       <label><input type="checkbox" checked={config.json_mode} onChange={e=>change("json_mode",e.target.checked)} /> 使用 JSON 响应模式（需模型支持）</label>
       <button disabled={busy} onClick={save}>保存到服务器</button>
     </section>}
-    {tab === "status" && status && <section>
-      <p>原文抓取与模型分析分开记录。原文抓取失败不会降级成 RSS 简介分析；模拟数据不进入生产库。</p>
-      <div className="ai-state-grid">{Object.entries(status.counts).map(([key,value])=><div key={key}><strong>{value}</strong><span>{key}</span></div>)}</div>
-      <button disabled={busy} onClick={()=>run(async()=>{const r=await apiClient.post("/v1/ai/retry",{});setMessage(`已重排 ${r.queued} 个失败任务`);await load()})}>重试失败任务</button>
-      <button disabled={busy} onClick={load}>刷新状态</button>
-      <h3>中文卡片</h3><p>{Object.entries(status.translations?.counts || {}).map(([k,v])=>`${k}: ${v}`).join(" · ")}</p>
-      {status.reading && <><h3>阅读行为</h3><p>打开 {status.reading.sessions} 次 · {status.reading.entries} 篇 · 有效前台阅读 {Math.round(status.reading.active_ms/1000)} 秒 · 深度阅读 {status.reading.deep_reads || 0} 次 · 平均滚动 {Math.round(status.reading.avg_scroll_pct || 0)}%</p>{status.reading.recent?.slice(0,6).map((r,i)=><p className="ai-event" key={`${r.entry_id}-${r.opened_at}-${i}`}>{new Date(r.opened_at*1000).toLocaleString()} · {Math.round((r.active_ms || 0)/1000)} 秒 · 滚动 {Math.round(r.max_scroll_pct || 0)}% · {r.starred ? "已收藏" : "未收藏"} · {r.title || `#${r.entry_id}`}</p>)}</>}
-      <h3>用量记录（UTC 日期，评分与翻译合计）</h3>{status.usage.map(u=><p key={u.day}>{u.day} · {u.calls} 次请求 · {u.tokens} Token（失败请求保留预留预算）</p>)}
-      <h3>近期处理日志</h3>{status.events.map((e,i)=><p className="ai-event" key={i}>{new Date(e.at*1000).toLocaleString()} · {e.kind} · {e.detail}</p>)}
+    {tab === "status" && status && <section className="ai-dashboard">
+      <p className="ai-dashboard-intro">先看阅读结果和覆盖率；底层队列、日志和用量放在“详细诊断”里，需要排障时再展开。</p>
+      <div className="ai-dashboard-grid">
+        <div><strong>{articleTotal}</strong><span>已收录文章</span><small>当前信息箱规模</small></div>
+        <div><strong>{coverage.source_count || 0}</strong><span>订阅来源</span><small>当前启用目录</small></div>
+        <div><strong>{coverage.ai_done || analysisCounts.done || 0}</strong><span>AI 已完成</span><small>{percentage(coverage.ai_done || analysisCounts.done, articleTotal)}% 覆盖</small></div>
+        <div><strong>{coverage.substantial_source_text || 0}</strong><span>长正文已抓取</span><small>{percentage(coverage.substantial_source_text, articleTotal)}% 覆盖</small></div>
+        <div><strong>{translated}</strong><span>中文卡片可用</span><small>{percentage(translated, translationTotal || articleTotal)}% 覆盖</small></div>
+        <div><strong>{queued}</strong><span>队列中</span><small>等待抓取 / 模型</small></div>
+        <div className={attention ? "needs-attention" : ""}><strong>{attention}</strong><span>需要处理</span><small>抓取或审核异常</small></div>
+        <div><strong>{coverage.notes || 0}</strong><span>有笔记文章</span><small>个人沉淀</small></div>
+      </div>
+      <div className="ai-health-row">
+        {[["网页网关",status.services?.gateway],["阅读器",status.services?.reader],["RSSHub",status.services?.rsshub]].map(([label,ok])=>
+          <span className={ok ? "ok" : "bad"} key={label}>{label} · {ok ? "正常" : "异常"}</span>)}
+        <span className={status.kaggle?.enabled ? "ok" : ""}>Kaggle · {status.kaggle?.enabled ? ("已启用 · " + activeLanes + " 条运行中") : "未启用"}</span>
+      </div>
+      <div className="ai-dashboard-actions">
+        <button disabled={busy} onClick={load}>刷新看板</button>
+        <button disabled={busy || !attention} onClick={()=>run(async()=>{const r=await apiClient.post("/v1/ai/retry",{});setMessage("已重排 " + r.queued + " 个失败任务");await load()})}>重试可重试任务</button>
+      </div>
+      <details className="ai-diagnostics">
+        <summary>详细诊断</summary>
+        <h3>分析状态</h3>
+        <div className="ai-state-grid">{Object.entries(status.counts).map(([key,value])=><div key={key}><strong>{value}</strong><span>{key}</span></div>)}</div>
+        <h3>中文卡片状态</h3><p>{Object.entries(translationCounts).map(([k,v])=>k + ": " + v).join(" · ")}</p>
+        {status.reading && <><h3>阅读行为</h3><p>打开 {status.reading.sessions} 次 · {status.reading.entries} 篇 · 有效前台阅读 {Math.round(status.reading.active_ms/1000)} 秒 · 深度阅读 {status.reading.deep_reads || 0} 次 · 平均滚动 {Math.round(status.reading.avg_scroll_pct || 0)}%</p>{status.reading.recent?.slice(0,6).map((r,i)=><p className="ai-event" key={[r.entry_id,r.opened_at,i].join("-")}>{new Date(r.opened_at*1000).toLocaleString()} · {Math.round((r.active_ms || 0)/1000)} 秒 · 滚动 {Math.round(r.max_scroll_pct || 0)}% · {r.starred ? "已收藏" : "未收藏"} · {r.title || ("#" + r.entry_id)}</p>)}</>}
+        <h3>用量记录（UTC）</h3>{status.usage.map(u=><p key={u.day}>{u.day} · {u.calls} 次请求 · {u.tokens} Token</p>)}
+        <h3>近期处理日志</h3>{status.events.map((e,i)=><p className="ai-event" key={i}>{new Date(e.at*1000).toLocaleString()} · {e.kind} · {e.detail}</p>)}
+      </details>
     </section>}
     {tab === "sources" && <section>
       <p>先广泛收录，再按实际阅读价值裁剪。以下“可用”只表示本次成功解析订阅 XML，不代表每篇原文都能抓到。</p>

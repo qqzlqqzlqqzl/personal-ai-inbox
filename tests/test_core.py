@@ -106,3 +106,17 @@ def test_failed_source_cannot_starve_other_sources(db, entry):
     assert len(ids) == len(set(ids))
     assert ids[0] != 1
     assert set(ids) == {1, 10, 11, 12, 13}
+
+
+def test_status_summary_has_dashboard_coverage(db, entry):
+    core.discover([entry])
+    source = "publisher full text " * 80
+    core.update(
+        entry["id"], state="done", source_text=source, source_chars=len(source),
+        input_chars=len(source), content_source="original_url_site_rule", result="{}",
+    )
+    summary = core.status_summary(entry["user_id"])
+    assert summary["coverage"]["total_articles"] == 1
+    assert summary["coverage"]["ai_done"] == 1
+    assert summary["coverage"]["substantial_source_text"] == 1
+    assert summary["coverage"]["needs_attention"] == 0

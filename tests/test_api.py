@@ -314,6 +314,33 @@ async def test_gzip_negotiation_static_and_dynamic(browser_api, monkeypatch, db,
 
 
 @pytest.mark.asyncio
+async def test_single_entry_uses_captured_publisher_text_when_reader_only_has_teaser(
+    browser_api, entry
+):
+    entry["content"] = "<p>Short RSS teaser.</p>"
+    core.discover([entry])
+    source = " ".join(["Complete publisher article with engineering details."] * 40)
+    core.update(
+        1,
+        state="done",
+        source_text=source,
+        source_chars=len(source),
+        input_chars=len(source),
+        content_source="original_url_site_rule",
+        result=json.dumps({}),
+    )
+    h = {"X-Auth-Token": "test-session"}
+    detail = await browser_api.get("/mf/v1/entries/1", headers=h)
+    assert detail.status_code == 200
+    assert source[:200] in detail.json()["content"]
+    assert detail.json()["prepared_source"] == "analysis_source_fallback"
+
+    compact = core.decorate(entry, 1)
+    assert "Short RSS teaser." in compact["content"]
+    assert compact.get("prepared_source") != "analysis_source_fallback"
+
+
+@pytest.mark.asyncio
 async def test_personal_note_crud_and_notes_view_without_analysis(browser_api, entry):
     # Notes are user data and must work before this article has any analyses row.
     with core.connect() as c:
