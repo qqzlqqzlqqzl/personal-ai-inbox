@@ -16,7 +16,7 @@ try:
   b=launch(p);c=b.new_context(viewport={'width':1440,'height':1000},locale='zh-CN',service_workers='block')
   c.add_init_script("localStorage.setItem('settings',JSON.stringify({showStatus:'all',markReadOnScroll:false,removeDuplicates:false,pageSize:20,orderDirection:'desc'}));localStorage.setItem('ai-view-state',JSON.stringify({mode:'all',auxiliary:'none',minimum:8,sort:'score',direction:'desc',hydrated:false}))")
   page=c.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
-  _,password=local_admin();page.goto(BASE+'/inbox/login',wait_until='domcontentloaded');page.locator('#password_input').fill(password);page.get_by_role('button',name='登录',exact=True).click();page.wait_for_url('**/all',timeout=30000)
+  _,password=local_admin();page.goto(BASE+'/inbox/login',wait_until='domcontentloaded');page.locator('#password_input').fill(password);page.get_by_role('button',name='登录',exact=True).click();page.wait_for_url('**/today',timeout=30000)
   for route,endpoint in [('/feed/56','/mf/v1/feeds/56/entries'),('/category/7','/mf/v1/categories/7/entries'),('/today','/mf/v1/entries')]:
    records={'seen':set(),'first':None,'responses':0,'pages':[]}
    def response(r):

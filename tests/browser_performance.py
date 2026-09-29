@@ -25,7 +25,7 @@ try:
   page.goto(BASE+"/inbox/login",wait_until="domcontentloaded")
   user,password=local_admin();page.locator("#password_input").fill(password)
   page.get_by_role("button",name="登录",exact=True).click()
-  page.wait_for_url("**/all");page.locator(".grid-card-title,.card-title").first.wait_for()
+  page.wait_for_url("**/today");page.goto(BASE+"/inbox/all",wait_until="domcontentloaded");page.locator(".grid-card-title,.card-title").first.wait_for()
   responses.clear();start=time.perf_counter();page.reload(wait_until="domcontentloaded")
   page.locator(".grid-card-title,.card-title").first.wait_for()
   report["reload_to_first_cards_ms"]=round((time.perf_counter()-start)*1000,1)

@@ -18,7 +18,7 @@ with sync_playwright() as p:
  ctx.route('**/mf/v1/ai/status',status_route)
  page=ctx.new_page()
  page.on('request',lambda r:state['lists'].append(r.url) if '/mf/v1/entries?' in r.url else None)
- u,pw=local_admin();page.goto(BASE+'/inbox/login',wait_until='domcontentloaded');page.locator('#password_input').fill(pw);page.get_by_role('button',name='登录',exact=True).click();page.wait_for_url('**/all',timeout=45000);page.locator('[data-entry-id]').first.wait_for(timeout=45000)
+ u,pw=local_admin();page.goto(BASE+'/inbox/login',wait_until='domcontentloaded');page.locator('#password_input').fill(pw);page.get_by_role('button',name='登录',exact=True).click();page.wait_for_url('**/today',timeout=45000);page.goto(BASE+'/inbox/all',wait_until='domcontentloaded');page.locator('[data-entry-id]').first.wait_for(timeout=45000)
  # Read several pages via the existing bottom sentinel.
  page.evaluate(geometry)
  for i in range(4):
