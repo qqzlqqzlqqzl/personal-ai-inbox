@@ -314,8 +314,10 @@ async def test_gzip_negotiation_static_and_dynamic(browser_api, monkeypatch, db,
 
 
 @pytest.mark.asyncio
-async def test_personal_note_crud_and_notes_view(browser_api, entry):
-    core.discover([entry])
+async def test_personal_note_crud_and_notes_view_without_analysis(browser_api, entry):
+    # Notes are user data and must work before this article has any analyses row.
+    with core.connect() as c:
+        assert c.execute("SELECT 1 FROM analyses WHERE entry_id=1").fetchone() is None
     h = {"X-Auth-Token": "test-session"}
     note = "这篇的缓存思路可以复用到我的嵌入式数据链路。\n第二行。"
     saved = await browser_api.put("/mf/v1/ai/notes/1", headers=h, json={"note": note})
@@ -337,7 +339,6 @@ async def test_personal_note_crud_and_notes_view(browser_api, entry):
 
 @pytest.mark.asyncio
 async def test_note_validation_and_article_ownership(browser_api, entry):
-    core.discover([entry])
     h = {"X-Auth-Token": "test-session"}
     assert (
         await browser_api.put("/mf/v1/ai/notes/1", headers=h, json={"note": "x" * 20001})
@@ -345,6 +346,12 @@ async def test_note_validation_and_article_ownership(browser_api, entry):
     assert (
         await browser_api.put("/mf/v1/ai/notes/999", headers=h, json={"note": "private"})
     ).status_code == 404
+    entry["user_id"] = 2
+    assert (
+        await browser_api.put("/mf/v1/ai/notes/1", headers=h, json={"note": "cross-user"})
+    ).status_code == 404
+    with core.connect() as c:
+        assert c.execute("SELECT 1 FROM entry_notes WHERE entry_id=1").fetchone() is None
 
 
 @pytest.mark.asyncio
