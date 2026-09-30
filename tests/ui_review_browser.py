@@ -28,6 +28,9 @@ def login(page):
     page.locator('#password_input').fill(password)
     page.get_by_role('button', name='登录', exact=True).click()
     page.wait_for_url('**/today', timeout=30000)
+    page.locator('.page-info').wait_for(timeout=30000)
+    check('login_defaults_today', page.url.endswith('/today'))
+    page.goto(BASE + '/inbox/all', wait_until='domcontentloaded')
     page.locator('.grid-card-content').first.wait_for(timeout=30000)
 
 def entries_response(response, sort, direction):
