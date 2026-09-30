@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
+from compatibility_browser_acceptance import verify_compatibility_gate
 
 ROOT = Path(__file__).resolve().parents[1]
 build_value = os.environ.get("AI_NEWS_TEST_BUILD")
@@ -56,6 +57,7 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_EXECUTABLE") or None,
                                     headless=True, args=["--no-sandbox"])
+        report.extend(verify_compatibility_gate(browser, base))
         for name, width in [("desktop", 1440), ("mobile", 390)]:
             context = browser.new_context(viewport={"width": width, "height": 900}, locale="zh-CN", service_workers="block")
             context.add_init_script("localStorage.setItem('auth', JSON.stringify({server: location.origin + '/mf', token: 'test-only', username:'', password:''}))")
