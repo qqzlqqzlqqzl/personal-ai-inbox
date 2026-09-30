@@ -1,12 +1,88 @@
 """Loopback authenticated control for the current bounded Kaggle article scope."""
 from pathlib import Path
-import hmac,json,sqlite3,subprocess,time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import hmac,json,os,sqlite3,subprocess,threading,time
 from fastapi import APIRouter,Header,HTTPException
 
 ROOT=Path('/home/ubuntu/ai-news')
 STAGE=ROOT/'runtime/qwen-month-20260925'
 KEYS=('primary','secondary','third','fourth','fifth')
 router=APIRouter(prefix='/internal/kaggle-month')
+_QUOTA_TTL=300
+_quota_lock=threading.Lock()
+
+
+def _hours(value):
+    text=str(value or '').strip().lower()
+    if text.endswith('h'):text=text[:-1]
+    try:return float(text)
+    except ValueError:return None
+
+
+def _parse_quota_rows(rows):
+    if not isinstance(rows,list):raise ValueError('invalid quota payload')
+    parsed={}
+    for row in rows:
+        if not isinstance(row,dict):continue
+        resource=str(row.get('resource','')).strip().lower()
+        if resource not in ('gpu','tpu'):continue
+        parsed[resource]={
+            'used_hours':_hours(row.get('used')),
+            'remaining_hours':_hours(row.get('remaining')),
+            'total_hours':_hours(row.get('total')),
+            'refresh_at':str(row.get('refreshAt') or '')[:40] or None,
+        }
+    if 'gpu' not in parsed:raise ValueError('GPU quota missing')
+    return parsed
+
+
+def _quota_for_lane(key):
+    config=json.loads((ROOT/f'src/kaggle_batch/cloud-config-month-{key}.json').read_text())
+    env={**os.environ,'KAGGLE_API_TOKEN':config['token_file']}
+    try:
+        result=subprocess.run(
+            [config['kaggle_python'],'-m','kaggle','quota','--format','json'],
+            capture_output=True,text=True,encoding='utf-8',timeout=20,env=env,
+        )
+        if result.returncode:raise RuntimeError('quota command failed')
+        return {'state':'ok',**_parse_quota_rows(json.loads(result.stdout or '[]'))}
+    except (OSError,subprocess.SubprocessError,RuntimeError,ValueError,KeyError,json.JSONDecodeError):
+        return {'state':'error','error':'quota_unavailable'}
+
+
+def quota_status(now=None,ttl=_QUOTA_TTL):
+    now=float(time.time() if now is None else now)
+    folder=ROOT/'state/kaggle-month-dispatch';folder.mkdir(parents=True,exist_ok=True)
+    cache=folder/'quota-status.json'
+    def load():
+        try:
+            value=json.loads(cache.read_text())
+            return value if isinstance(value,dict) else {}
+        except (OSError,ValueError,TypeError):return {}
+    cached=load()
+    if now-float(cached.get('checked_at',0) or 0)<ttl and all(k in cached.get('lanes',{}) for k in KEYS):
+        return cached
+    with _quota_lock:
+        cached=load()
+        if now-float(cached.get('checked_at',0) or 0)<ttl and all(k in cached.get('lanes',{}) for k in KEYS):
+            return cached
+        previous=cached.get('lanes',{}) if isinstance(cached.get('lanes'),dict) else {}
+        lanes={}
+        with ThreadPoolExecutor(max_workers=len(KEYS)) as pool:
+            futures={pool.submit(_quota_for_lane,key):key for key in KEYS}
+            for future in as_completed(futures):
+                key=futures[future]
+                try:value=future.result()
+                except Exception:value={'state':'error','error':'quota_unavailable'}
+                if value.get('state')=='error' and previous.get(key,{}).get('gpu'):
+                    value={**previous[key],'state':'stale','error':value.get('error'),'stale':True}
+                lanes[key]=value
+        value={'checked_at':now,'ttl_seconds':ttl,'lanes':lanes}
+        temp=cache.with_suffix('.tmp')
+        temp.write_text(json.dumps(value,ensure_ascii=False))
+        os.chmod(temp,0o600);os.replace(temp,cache)
+        return value
+
 
 def authenticate(value):
     expected=json.loads((ROOT/'.private/vendor-refresh.json').read_text())['token']
@@ -35,6 +111,7 @@ def status():
     for block in units.stdout.strip().split('\n\n'):
         values=dict(line.split('=',1) for line in block.splitlines() if '=' in line)
         if values.get('Id'):services[values['Id']]=values
+    quotas=quota_status()
     for key in KEYS:
         folder=ROOT/'state'/('kaggle-month-'+key)
         report=folder/'cycle-status.json'
@@ -42,11 +119,22 @@ def status():
         lanes[key]['service']=services.get(f'ai-news-kaggle-month@{key}.service',{})
         recovery=folder/'recovery.json'
         if recovery.exists():lanes[key]['recovery']=json.loads(recovery.read_text())
+        batch_db=folder/'batches.sqlite3'
+        if batch_db.exists():
+            try:
+                with sqlite3.connect('file:'+str(batch_db)+'?mode=ro',uri=True,timeout=5) as db:
+                    db.row_factory=sqlite3.Row
+                    row=db.execute("""SELECT id,state,remote_status,error,updated FROM batches
+                        WHERE state NOT IN ('imported','retired','resolved') ORDER BY updated LIMIT 1""").fetchone()
+                    if row:lanes[key]['outstanding']=dict(row)
+            except sqlite3.Error:pass
+        lanes[key]['quota']=quotas.get('lanes',{}).get(key,{'state':'error','error':'quota_unavailable'})
     enabled=not (STAGE/'paused.json').exists()
     scheduler_file=ROOT/'state/kaggle-month-dispatch/scheduler.json'
     scheduler=json.loads(scheduler_file.read_text()) if scheduler_file.exists() else {'state':'not_started'}
     return {'scheduler':scheduler,'scope':{k:scope[k] for k in ['from','to','articles','unknown_date_excluded']} | {'scope_type':scope.get('scope_type','recent_month'),'label':scope.get('scope_label','最近一个月')},'enabled':enabled,
-        'analyses':analyses,'cards':cards,'lanes':lanes,'historical_scope':{'articles':len(historical_ids),'from':historical_scope.get('from'),'to':historical_scope.get('to'),'label':'历史存量快照，仅用于审计与恢复'},'checked_at':time.time()}
+        'analyses':analyses,'cards':cards,'lanes':lanes,'quota_checked_at':quotas.get('checked_at'),
+        'historical_scope':{'articles':len(historical_ids),'from':historical_scope.get('from'),'to':historical_scope.get('to'),'label':'历史存量快照，仅用于审计与恢复'},'checked_at':time.time()}
 
 @router.get('/status')
 def get_status(x_vendor_refresh:str=Header(default='')):

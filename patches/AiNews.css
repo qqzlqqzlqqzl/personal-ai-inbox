@@ -48,3 +48,16 @@
 .ai-dashboard-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
 .ai-diagnostics{border-top:1px solid var(--color-border-2,#ddd);padding-top:12px}.ai-diagnostics>summary{cursor:pointer;font-weight:600;color:var(--color-text-1,#223)}
 @media(max-width:600px){.ai-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ai-dashboard-grid>div{min-height:78px;padding:10px}.ai-dashboard-grid strong{font-size:20px}}
+
+.ai-dashboard-section-title{margin:18px 0 2px}
+.ai-dashboard-caption{margin:0 0 10px;color:var(--color-text-3,#667085);font-size:12px}
+.ai-kaggle-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:10px 0 16px}
+.ai-kaggle-card{display:flex;flex-direction:column;gap:5px;padding:12px 14px;border:1px solid var(--color-border-2,#dce3ed);border-radius:10px;background:var(--color-bg-1,#fff)}
+.ai-kaggle-card.needs-attention{border-color:#d97706}
+.ai-kaggle-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ai-kaggle-head>span{padding:2px 7px;border-radius:999px;font-size:11px;background:var(--color-fill-2,#eef3fa)}
+.ai-kaggle-head>span.ok{color:#166534;background:#dcfce7}.ai-kaggle-head>span.warn{color:#92400e;background:#fef3c7}.ai-kaggle-head>span.bad{color:#991b1b;background:#fee2e2}
+.ai-kaggle-card>small{color:var(--color-text-3,#667085);font-size:11px}
+.ai-kaggle-quota{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:4px}.ai-kaggle-quota b{font-size:18px}.ai-kaggle-quota span{font-size:11px;color:var(--color-text-3,#667085)}
+.ai-kaggle-card progress{width:100%;height:8px;accent-color:rgb(var(--primary-6))}
+@media(max-width:600px){.ai-kaggle-grid{grid-template-columns:1fr}.ai-kaggle-card{padding:10px 12px}}
