@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import apiClient from "@/apis/ofetch"
 import useAppData from "@/hooks/useAppData"
+import SourceHistory from "./SourceHistory"
 import { aiState } from "@/store/aiState"
 import { invalidateArticleList } from "@/store/contentState"
 
@@ -51,6 +52,8 @@ export default function AiPanel({ onClose }) {
       setMessage(`已添加 ${added}，失败或已存在 ${failed} / ${items.length}`)
     }
     await refreshFeedData(); invalidateArticleList()
+    const latest = await apiClient.get("/v1/ai/catalog")
+    if (alive.current) setSources(latest)
   })
   const change = (key, value) => setConfig({ ...config, [key]: value })
   const filtered = sources.filter(s => `${s.name} ${s.category}`.toLowerCase().includes(search.toLowerCase()))
@@ -138,11 +141,12 @@ export default function AiPanel({ onClose }) {
           const total=Number(gpu?.total_hours)
           const used=Number(gpu?.used_hours)
           const low=Number.isFinite(remaining) && remaining <= 1
-          const quotaUnavailable=!gpu
+          const quotaUnavailable=!gpu || gpu.remaining_hours == null || !Number.isFinite(remaining)
           return <div className={`ai-kaggle-card ${low ? "needs-attention" : ""}`} key={key}>
             <div className="ai-kaggle-head"><strong>Kaggle {laneNumbers[key] || key}</strong><span className={current.tone}>{current.text}</span></div>
             <small>{current.detail}</small>
             <div className="ai-kaggle-quota"><b>{quotaUnavailable ? "额度未知" : `${hours(remaining)} 剩余`}</b><span>{quotaUnavailable ? (lane?.quota?.state === "stale" ? "额度缓存过期" : "Kaggle quota 暂不可读") : `GPU / ${hours(total)}`}</span></div>
+            <small data-quota-state={lane?.quota_gate?.state || "quota_unknown"}>{lane?.quota_gate?.allowed === true ? "可提交新批次 · 提交前重新查额度" : lane?.quota_gate?.state === "quota_reserved" ? "额度保护 / ≤1h 停用新批次 · 已提交任务继续恢复" : "额度未知或过期 · 停用新批次，保留已有任务恢复"}</small>
             {!quotaUnavailable && <progress max={total || 30} value={Number.isFinite(used) ? used : 0} />}
             {!quotaUnavailable && <small>已用 {hours(used)} · {refreshDate(gpu.refresh_at)} 刷新</small>}
             {tpu && <small>TPU 剩余 {hours(tpu.remaining_hours)}</small>}
@@ -166,6 +170,7 @@ export default function AiPanel({ onClose }) {
     </section>}
     {tab === "sources" && <section>
       <p>先广泛收录，再按实际阅读价值裁剪。以下“可用”只表示本次成功解析订阅 XML，不代表每篇原文都能抓到。</p>
+      <p className="ai-notice">初次订阅只导入 RSS/Atom 当时暴露的条目，此后轮询逐步累积，没有统一历史截止日。展开每个已订阅来源的“历史范围”可查询存储范围与当前 feed 窗口；日期统一以 UTC 显示，feed 快照最多缓存 5 分钟。Feed 范围不代表站点全部历史，未执行 archive/API/sitemap 回补。</p>
       {xRoster && <details><summary>X 核心名单：{xRoster.counts.total} 个 · timeline 有内容 {xRoster.counts.timeline_nonempty} · 空 {xRoster.counts.timeline_empty}（其中 {xRoster.counts.empty_with_fallback} 个已有稳定替代源）</summary><div className="ai-source-list">{xRoster.sources.map(s=><div key={s.handle}><div><strong>@{s.handle}</strong><small>{s.category} · {s.timeline_status === "nonempty" ? `X 已抓到 ${s.timeline_entries || 0} 条` : "X timeline 暂空"}{s.status === "fallback_active" ? " · 稳定替代源已启用" : ""}</small></div></div>)}</div></details>}
       <input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} />
       <button disabled={busy} onClick={()=>add(filtered.filter(s=>s.status==="ok" && !s.subscribed && s.analysis_supported !== false))}>添加当前可用来源</button>
@@ -179,12 +184,14 @@ export default function AiPanel({ onClose }) {
           if (!category) category=await apiClient.post("/v1/categories",{title:"X 作者"})
           await apiClient.post("/v1/ai/subscribe",{x_handle:xHandle,category_id:category.id})
           await refreshFeedData();invalidateArticleList();setMessage("已订阅 X guest 来源")
+          const latest = await apiClient.get("/v1/ai/catalog")
+          if (alive.current) setSources(latest)
         })}>订阅 X 来源</button>
       </form>
       {xProbe && <p className="ai-notice">适配器：{xProbe.adapter_configured ? "已配置" : "未配置"} · 直连 X：{xProbe.network_reachable ? "有 HTTP 响应" : "不可达"} · 本次帖子：{xProbe.post_count}。{xProbe.message}</p>}
       {status?.social_probe && <p className="ai-notice">最近 Telegram 公共路由实测：{status.social_probe.passed ? "成功" : "未通过，需检查服务器出站网络"}（HTTP {status.social_probe.http || "无响应"}）。这与 RSSHub 服务本身是否在线是两项不同检查。</p>}
       <form onSubmit={e=>{e.preventDefault();const url=new FormData(e.currentTarget).get("feed");add([{url,category:"手动来源"}])}}><label>自定义 RSS / RSSHub 地址<input required name="feed" type="url" placeholder="http://127.0.0.1:1200/telegram/channel/频道名" /></label><button disabled={busy}>添加订阅</button></form>
-      <div className="ai-source-list">{filtered.map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.subscribed ? "已订阅 · " : ""}{s.live_error ? "抓取异常 · " : ""}{s.status==="ok" ? "订阅可解析" : (s.error || "待验证")}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a></div><button disabled={busy || s.status!=="ok" || s.subscribed || s.analysis_supported === false} onClick={()=>add([s])}>{s.analysis_supported === false ? "需全文适配" : (s.subscribed ? "已添加" : "添加")}</button></div>)}</div>
+      <div className="ai-source-list">{filtered.map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.subscribed ? "已订阅 · " : ""}{s.live_error ? "抓取异常 · " : ""}{s.status==="ok" ? "订阅可解析" : (s.subscribed ? "已接入阅读器" : (s.error || "待验证"))}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a>{s.subscribed && s.feed_id && <SourceHistory key={s.feed_id} feedId={s.feed_id} />}</div><button disabled={busy || s.status!=="ok" || s.subscribed || s.analysis_supported === false} onClick={()=>add([s])}>{s.analysis_supported === false ? "需全文适配" : (s.subscribed ? "已添加" : "添加")}</button></div>)}</div>
     </section>}
     <footer>Miniflux + ReactFlux + RSSHub · AI 增强层独立保存分析，不替换原文章。<a href="/deployment" target="_blank" rel="noreferrer">部署状态</a></footer>
   </dialog>

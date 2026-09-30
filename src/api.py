@@ -821,6 +821,14 @@ async def catalog(request: Request):
     r = await app.state.client.get(MF + "/v1/feeds", headers=auth_headers(request))
     r.raise_for_status()
     feeds = {x["feed_url"]: x for x in r.json()}
+    catalog_urls = {item["url"] for item in rows}
+    # Manual subscriptions and renamed/redirected feeds must be inspectable too.
+    rows.extend({
+        "name": feed.get("title") or feed["feed_url"],
+        "url": feed["feed_url"],
+        "category": (feed.get("category") or {}).get("title") or "手动来源",
+        "status": "subscribed",
+    } for url, feed in feeds.items() if url not in catalog_urls)
     for item in rows:
         item["analysis_supported"] = item.get("category") != "论文与前沿"
         feed = feeds.get(item["url"], {})
@@ -831,6 +839,33 @@ async def catalog(request: Request):
             disabled=feed.get("disabled", False),
         )
     return rows
+
+
+@app.get("/mf/v1/ai/feeds/{feed_id}/history")
+async def source_history(feed_id: int, request: Request):
+    from feed_history import probe_feed, stored_history
+
+    uid = await authorize(request, admin=True)
+    feed_id = positive_id(feed_id)
+    headers = auth_headers(request)
+    try:
+        response = await app.state.client.get(
+            f"{MF}/v1/feeds/{feed_id}", headers=headers, timeout=8,
+        )
+        if response.status_code in (403, 404):
+            raise HTTPException(404, "来源不存在或不可访问")
+        response.raise_for_status()
+        feed = response.json()
+        if feed.get("id") != feed_id or feed.get("user_id", uid) != uid:
+            raise HTTPException(404, "来源不存在或不可访问")
+    except (httpx.HTTPError, ValueError, AttributeError):
+        raise HTTPException(502, "暂时无法读取来源")
+    stored, exposed = await asyncio.gather(
+        stored_history(app.state.client, MF, headers, feed_id),
+        probe_feed(feed, uid),
+    )
+    return {"feed_id": feed_id, "stored": stored, "feed_window": exposed,
+            "archive_complete": False}
 
 
 @app.get("/mf/v1/ai/tools")
@@ -1133,3 +1168,4 @@ def positive_id(value):
 
 from month_control import router as month_control_router
 app.include_router(month_control_router)
+

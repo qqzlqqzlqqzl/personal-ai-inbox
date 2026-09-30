@@ -67,7 +67,7 @@ replace(
     '        description: "A Simple but Powerful RSS Reader for Miniflux",',
     '        description: "个人 AI 信息收集与阅读",',
 )
-for name in ["AiBadge.jsx", "AiToolbar.jsx", "AiPanel.jsx", "AiNews.css"]:
+for name in ["AiBadge.jsx", "AiToolbar.jsx", "AiPanel.jsx", "SourceHistory.jsx", "source-history.js", "AiNews.css"]:
     shutil.copy2(ROOT / "patches" / name, WEB / "src/components/Ai" / name)
 shutil.copy2(ROOT / "patches/aiState.js", WEB / "src/store/aiState.js")
 diffs = []
@@ -84,3 +84,4 @@ for original in (ROOT / "runtime/reactflux-original").rglob("*"):
         )
 (ROOT / "patches/reactflux.patch").write_text("".join(diffs))
 print("Reader UX polish applied without replacing upstream reading components")
+

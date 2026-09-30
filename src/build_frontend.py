@@ -85,6 +85,15 @@ def precompress(staging: Path):
     return count
 
 
+
+def prepare_version_info(web: Path, node: Path, env):
+    """Run the pinned reader's standard prebuild when invoking Vite directly."""
+    subprocess.run(
+        [str(node), str(web / "src/scripts/version-info.js")],
+        cwd=web, env=env, check=True, timeout=60,
+    )
+
+
 def main():
     stage = ROOT / "runtime" / ("web-build-" + uuid.uuid4().hex)
     node = ROOT / "runtime/node/bin/node"
@@ -121,6 +130,7 @@ def main():
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_scope_ai_filters.py")], check=True, env=env, timeout=60)
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_reader_detail_quality.py")], check=True, env=env, timeout=60)
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_reader_entry_defaults.py")], check=True, env=env, timeout=60)
+    prepare_version_info(web, nodebin / "node", env)
     cmd = [
         str(ROOT / "runtime/build-tools/node_modules/.bin/pnpm"),
         "exec",
@@ -149,3 +159,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -127,6 +127,8 @@ def test_durable_reader_body_and_provenance_preserve_new_upstream(db):
     assert result['content']==body
     assert result['content_source_url']==ORIGINAL
     assert apply({**original,'content':SUMMARY+'<p>Publisher correction.</p>'})['content'].endswith('correction.</p>')
+    changed_link=SUMMARY.replace(ORIGINAL,'https://ep-news.web.cern.ch/corrected-article/')
+    assert apply({**original,'content':changed_link})['content']==changed_link
     assert apply({**original,'user_id':2}) == {**original,'user_id':2}
 
 

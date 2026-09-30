@@ -15,12 +15,14 @@ try:
     from .exception_audit import Audit
     from .queue_dispatch import claimed_entries
     from .recovery_policy import effective_retry_at
+    from .quota_guard import query_config, plan_lanes
 except ImportError:  # direct script/test execution
     from live_scope import resolve_entry_ids
     from batch_control import atomic_json
     from exception_audit import Audit
     from queue_dispatch import claimed_entries
     from recovery_policy import effective_retry_at
+    from quota_guard import query_config, plan_lanes
 
 ROOT=Path('/home/ubuntu/ai-news')
 STAGE=ROOT/'runtime/qwen-month-20260925'
@@ -65,6 +67,7 @@ def outstanding(root):
 
 def snapshot_lanes(now,states):
     lanes={}
+    quota_configs={}
     for key in KEYS:
         lane={'active':states.get(key) in ('active','activating','deactivating','reloading'),
               'service_state':states.get(key,'unknown'),'outstanding':None,'recovery':{},'cycle':{},
@@ -98,9 +101,18 @@ def snapshot_lanes(now,states):
                         local_at=db.execute("SELECT MIN(p.next_try) FROM batch_progress p JOIN batches b ON b.id=p.batch_id WHERE b.state NOT IN ('imported','retired','resolved') AND p.next_try>?",(now,)).fetchone()[0]
                         lane['local_retry_at']=local_at or 0
             lane['ready']=lane['retry_at']<=now and lane['service_state']!='unavailable'
+            # Only fresh read-only quota permits new work. Recovery stays eligible.
+            lane['quota_gate']={'allowed':False,'state':'not_checked_active' if lane['active'] else 'quota_unknown'}
+            if not lane['active']:
+                quota_configs[key]=cfg
         except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
             lane['state_error']=type(exc).__name__;lane['ready']=False
         lanes[key]=lane
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=len(KEYS)) as pool:
+        futures={key:pool.submit(query_config,cfg) for key,cfg in quota_configs.items()}
+        for key,future in futures.items():
+            lanes[key]['quota_gate']=future.result()
     return lanes
 
 
@@ -162,20 +174,7 @@ def rotated(keys,cursor):
 
 
 def plan(lanes,due_count,cursor,max_active=MAX_ACTIVE,batch_limit=BATCH_LIMIT):
-    active=sum(1 for lane in lanes.values() if lane['active'])
-    slots=max(0,max_active-active);starts=[]
-    reconcile=[key for key in KEYS if not lanes[key]['active'] and
-               lanes[key]['outstanding'] and lanes[key]['ready']]
-    for key in rotated(reconcile,cursor)[:slots]:starts.append(key)
-    slots-=len(starts)
-    workers=[key for key in KEYS if key not in starts and not lanes[key]['active'] and
-             not lanes[key]['outstanding'] and lanes[key]['ready']]
-    needed=min(slots,(due_count+batch_limit-1)//batch_limit)
-    normal=rotated(workers,cursor)[:needed]
-    starts+=normal
-    new_cursor=cursor
-    if normal:new_cursor=(KEYS.index(normal[-1])+1)%len(KEYS)
-    return starts,new_cursor
+    return plan_lanes(KEYS,lanes,due_count,cursor,max_active,batch_limit)
 
 
 def start_lane(key,run=subprocess.run):
@@ -217,6 +216,7 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
             'cursor':new_cursor,'queue_scope':cfg.get('queue_scope','allowlist'),'queue':summary,'lanes':{key:{'active':lane['active'],'ready':lane['ready'],
                 'retry_at':lane['retry_at'],'outstanding_state':(lane['outstanding'] or {}).get('state'),
                 'cycle_state':lane['cycle'].get('state'),'pending_local':lane.get('pending_local',0),
+                'quota_gate':lane.get('quota_gate',{'allowed':False,'state':'quota_unknown'}),
                 'state_error':lane.get('state_error')} for key,lane in lanes.items()}}
     atomic_json(state_path,report)
     if started or failures:

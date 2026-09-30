@@ -46,6 +46,8 @@ def drain(config_path, config, control, call=bridge, sleep=time.sleep, clock=tim
                       timeout=max(1,min(7200,int(deadline-clock()))))
         batch=prepared.get('batch_id') or prepared.get('existing_batch')
         if not batch:
+            if prepared.get('quota_gate',{}).get('allowed') is False:
+                return report(prepared['quota_gate']['state'],quota_gate=prepared['quota_gate'],gpu_started=False)
             fingerprint=prepared.get('skipped_fingerprint')
             if config.get('drain_queue') and prepared.get('considered') and fingerprint!=previous_skip:
                 previous_skip=fingerprint
@@ -66,6 +68,9 @@ def drain(config_path, config, control, call=bridge, sleep=time.sleep, clock=tim
             sleep(min(660,max(0,deadline-clock())))
         while clock()<deadline:
             outcome=call(config_path,'advance','--batch',batch,timeout=max(1,min(600,int(deadline-clock()))))
+            if outcome.get('submission_blocked'):
+                return report(outcome['quota_gate']['state'],batch_id=batch,
+                              quota_gate=outcome['quota_gate'],gpu_started=False)
             report('processing',batch_id=batch,outcome=outcome)
             if control.row(batch)['state'] in {'imported','resolved'}:
                 completed+=1

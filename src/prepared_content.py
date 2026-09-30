@@ -24,6 +24,14 @@ def text_hash(html):
     return hashlib.sha256(' '.join(text.split()).encode()).hexdigest()
 
 
+def input_hash(html, kind):
+    # Attribution can change without changing its visible label (e.g. "medium.com").
+    # For followed originals, any source HTML change must invalidate the saved body.
+    if kind == 'adafruit_linked_original':
+        return hashlib.sha256((html or '').encode()).hexdigest()
+    return text_hash(html)
+
+
 def remember(entry, content, kind, receipt=None):
     if kind not in ('product_page', 'body_images_repaired', 'adafruit_linked_original'):
         raise ValueError('unsupported_prepared_content_kind')
@@ -34,7 +42,7 @@ def remember(entry, content, kind, receipt=None):
                    (entry_id,user_id,url,title,content,kind,input_text_hash,prepared_at,source_receipt)
                    VALUES (?,?,?,?,?,?,?,?,?)''',
                    (entry['id'], entry['user_id'], entry['url'], entry['title'], content,
-                    kind, text_hash(entry.get('content', '')), time.time(),
+                    kind, input_hash(entry.get('content', ''),kind), time.time(),
                     json.dumps(receipt) if receipt else None))
 
 
@@ -54,7 +62,7 @@ def apply(entry):
             return entry
     elif row['kind'] == 'adafruit_linked_original':
         # A changed upstream body invalidates the repair rather than silently hiding it.
-        if text_hash(raw) != row['input_text_hash']:
+        if input_hash(raw,row['kind']) != row['input_text_hash']:
             return entry
     else:
         from media_repair import needs_repair

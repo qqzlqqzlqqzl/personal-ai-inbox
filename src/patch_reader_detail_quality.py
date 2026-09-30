@@ -28,7 +28,7 @@ def patch(name, old, new):
 
 
 # These tracked overlay files are authoritative.
-for name in ("AiBadge.jsx", "AiPanel.jsx", "AiNews.css"):
+for name in ("AiBadge.jsx", "AiPanel.jsx", "SourceHistory.jsx", "source-history.js", "AiNews.css"):
     target = WEB / "src/components/Ai" / name
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "patches" / name, target)
@@ -77,3 +77,4 @@ for original in BACK.rglob("*"):
         )
 (ROOT / "patches/reactflux.patch").write_text("".join(diffs))
 print("Reader detail quality overlay applied.")
+

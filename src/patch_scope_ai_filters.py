@@ -19,7 +19,7 @@ def backup(name):
 def patch(name, old, new):
     path = WEB / name
     text = path.read_text()
-    if new in text:
+    if new and new in text:
         return
     if text.count(old) != 1:
         raise RuntimeError(f"scope/AI patch anchor mismatch: {name}")
@@ -27,8 +27,19 @@ def patch(name, old, new):
     path.write_text(text.replace(old, new, 1))
 
 
+def normalize(name, variants, new):
+    text = (WEB / name).read_text()
+    if new in text:
+        return
+    for old in variants:
+        if text.count(old) == 1:
+            patch(name, old, new)
+            return
+    raise RuntimeError(f"scope/AI normalize anchor mismatch: {name}")
+
+
 # Keep custom components authoritative even when this stage is run on an already-patched tree.
-for name in ("AiToolbar.jsx", "AiPanel.jsx"):
+for name in ("AiToolbar.jsx", "AiPanel.jsx", "SourceHistory.jsx", "source-history.js"):
     target = WEB / "src/components/Ai" / name
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "patches" / name, target)
@@ -139,6 +150,59 @@ patch(
 
 # "Today" now means the browser's natural local day, not a rolling 24 hours.
 
+# The checked-in earlier stage installs only a score-order toggle. Older
+# deployments already have the selector. Normalize the former explicitly so a
+# pristine pinned build does not depend on an untracked intermediate patch.
+search_path = "src/components/Article/SearchAndSortBar.jsx"
+if '  const scoreOrder =' in (WEB / search_path).read_text():
+    patch(search_path,
+          '  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })',
+          '  const { orderBy, orderDirection } = useStore(settingsState, { keys: ["orderBy", "orderDirection"] })')
+    patch(search_path,
+          '''  const sortLabel = scoreOrder
+    ? (orderDirection === "desc" ? "高分优先" : "低分优先")
+    : (orderDirection === "desc"
+      ? polyglot.t("article_list.sort_direction_desc")
+      : polyglot.t("article_list.sort_direction_asc"))
+''', "")
+    patch(search_path,
+          '''  const toggleOrderDirection = () => {
+    const newOrderDirection = orderDirection === "desc" ? "asc" : "desc"
+    updateSettings({ orderDirection: newOrderDirection })
+  }''',
+          '''  const changeSort = (event) => {
+    const value = event.target.value
+    const split = value.lastIndexOf("_")
+    const field = value.slice(0, split)
+    const direction = value.slice(split + 1)
+    if (aiList) aiState.setKey("sort", field === "published_at" ? "time" : field)
+    updateSettings({ orderDirection: direction, ...(!aiList && !activityList ? { orderBy: field } : {}) })
+    closeActiveContent()
+    entryListRef.current?.getScrollElement()?.scroll({ top: 0 })
+    invalidateArticleList()
+  }''')
+    patch(search_path,
+          '''        <CustomTooltip mini content={sortLabel}>
+          <Button
+            aria-label={sortLabel}
+            shape="circle"
+            size="small"
+            icon={
+              orderDirection === "desc" ? (
+                <IconSortDescending aria-hidden="true" />
+              ) : (
+                <IconSortAscending aria-hidden="true" />
+              )
+            }
+            onClick={toggleOrderDirection}
+          />
+        </CustomTooltip>''',
+          '''        <select className="ai-sort-select" aria-label="排序方式" value={sortValue} onChange={changeSort}>
+          {sortOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>''')
+    patch(search_path, '  IconSortAscending,\n', '')
+    patch(search_path, '  IconSortDescending,\n', '')
+
 # Search/sort is the single sorting surface; the AI toolbar no longer owns a second sorter.
 patch(
     "src/components/Article/SearchAndSortBar.jsx",
@@ -162,8 +226,9 @@ patch(
     '          aria-label={polyglot.t("search.article_input_label")}\n          placeholder={polyglot.t("search.article_placeholder")}',
     '          aria-label={inputLabel}\n          placeholder={placeholder}',
 )
-patch(
+normalize(
     "src/components/Article/SearchAndSortBar.jsx",
+    [
     '''  const ai = useStore(aiState)
   const aiList = infoFrom === "all" && ai.mode !== "all"
   const activityList = infoFrom === "history" || infoFrom === "starred"
@@ -180,6 +245,9 @@ patch(
   const sortField = aiList
     ? (ai.mode === "pending" || ai.sort === "time" ? "published_at" : ai.sort)
     : (activityList ? "changed_at" : orderBy)''',
+    '''  const ai = useStore(aiState)
+  const scoreOrder = infoFrom === "all" && ai.mode === "recommended" && ai.sort !== "time"''',
+    ],
     '''  const ai = useStore(aiState)
   const aiList = aiFilterEnabled()
   const pendingList = ai.auxiliary === "pending"
@@ -212,6 +280,11 @@ patch(
         : recommendedList && ai.sort !== "time" ? ai.sort : "published_at")
     : (activityList ? "changed_at" : orderBy)''',
 )
+if '  const sortValue =' not in (WEB / search_path).read_text():
+    patch(search_path,
+          '    : (activityList ? "changed_at" : orderBy)\n  const { polyglot }',
+          '    : (activityList ? "changed_at" : orderBy)\n  const sortValue = `${sortField}_${orderDirection}`\n  const { polyglot }')
+
 patch(
     "src/components/Article/SearchAndSortBar.jsx",
     '  const sortValue = `${sortField}_${orderDirection}`',
@@ -437,3 +510,4 @@ for original in BACK.rglob("*"):
             ))
 (ROOT / "patches/reactflux.patch").write_text("".join(diffs))
 print("Scope × AI filter overlay applied")
+

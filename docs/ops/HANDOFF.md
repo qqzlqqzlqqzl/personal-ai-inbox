@@ -8,6 +8,8 @@
 
 ReactFlux 的覆盖源在 `patches/`。`src/patch_frontend.py` 应用初始补丁，`src/polish_frontend.py` 修复中文登录、标识、PWA 回退和控制台细节；`src/build_frontend.py` 统一完成补丁、离线构建及分阶段发布。上游源码保留于 `upstream/reactflux`，不提交其依赖或构建目录。
 
+干净重建时，`patch_scope_ai_filters.py` 现在会把前一阶段实际生成的分数方向按钮规范化为统一排序选择器，也兼容已存在的旧排序选择器；不再依赖未提交的中间补丁。`src/build_frontend.py` 在直接调用 Vite 前执行上游标准 `node src/scripts/version-info.js`，避免首次构建缺少版本信息。`tests/test_frontend_overlay_rebuild.py` 在临时目录从精确固定的 Git commit 应用完整覆盖两次并比较字节一致性；`tests/test_frontend_prebuild.py` 验证 Node、工作目录及失败中止行为。
+
 ## 性能与封面维护
 
 AI 精选首批 24 条，列表返回轻量卡片并标记 content_deferred，点击与深链刷新通过单条接口取得全文。前端分页按服务端原始返回条数推进 offset，展示去重不改变游标，避免重复条目导致跳项或无法停止；末尾以真实分页结果收束。
@@ -17,6 +19,17 @@ AI 精选首批 24 条，列表返回轻量卡片并标记 content_deferred，�
 封面由 src/content_input.py 优先选文章 hero，再选站点声明的 OG/Twitter 图片，最后只考虑文章/main 范围内候选；排除 header/nav/footer/aside，避免把全站熊猫横幅当文章封面。候选还要实际请求并检查 200 与 image/ 类型；hero 被 403 等拒绝时尝试声明的社交封面。选中正确 URL 与浏览器能加载图片是两层验收。
 
 src/backfill_covers.py 可为历史条目补封面元数据，不调用 AI、不重算评分。进展与失败以当时生成的报告和日志为准，不能把启动回填当作已全部完成。
+
+## 来源历史范围
+
+来源目录会同时列出候选来源和阅读器中的手动订阅。展开已订阅来源的“历史范围”才发起查询，不会在打开控制台时批量抓取所有 feed。
+
+- `GET /mf/v1/ai/feeds/{id}/history` 仅管理员可用，先由 Miniflux 验证当前用户的来源访问权限。存储条数与最旧/最新 `published_at` 来自 Miniflux 的升/降序各一条查询，不使用不完整的 AI 分析表；包含仍保留的 `read`、`unread`、`removed` 条目。
+- RSS/Atom/RDF 的“本次暴露”是单次 feed 文档的条数和有日期条目范围，与已存储范围分开显示。缺失/无效日期保持未知；Atom 缺少有效 `published` 而使用 `updated` 时明确提示。时间统一为 UTC，检查时间可见，快照最多缓存 5 分钟。
+- 独立 feed 检查不转发阅读器登录信息，也不使用来源密码或 Cookie；这些来源显示暴露历史未知，不影响存储范围。公网探测直连并固定经过验证的公开 DNS 地址（含每次重定向），保留原 Host/TLS 校验；不复用出站代理，直连不可达时显示未知。本机专用 RSSHub/X 适配器单独允许。检查限制为 2 MiB、最多 3 次重定向、总计 15 秒，失败和空 feed 分开处理。
+- 这里没有按统一截止日回溯历史，也没有执行 archive/API/sitemap 回补。RSS 暴露范围不能证明站点历史完整；需要历史回补时应另做站点适配。
+
+隔离回归：`PYTHONPATH=src pytest -q tests/test_feed_history.py tests/test_api.py`、`node --test tests/test_source_history.mjs`。已安装上游依赖及隔离 `jsdom` 后，可运行 `node --test tests/source_history_component_acceptance.mjs` 验证展开、重复点击、失败重试及关闭后旧响应隔离。`tests/history_browser_acceptance.py` 只接受本地构建目录，所有 API 和外网请求均拦截为测试数据，可用 `AI_NEWS_TEST_BUILD=runtime/history-build` 指定待验收构建；不会连接生产服务。
 
 ## 日志与 X 来源边界
 
@@ -92,3 +105,4 @@ runtime/venv/bin/python src/audit_secrets.py
 新增独立批处理入口，不替换网页服务。使用说明、模型固定版本、64K/思考配置、恢复及额度限制见 [Kaggle 运行手册](../../src/kaggle_batch/RUNBOOK.md)。定时任务保持关闭；旧付费 worker 开关保持不变。
 
 真实 GPU、恢复、产品读回及限制见 [Kaggle 验收记录](kaggle/ACCEPTANCE.md)。
+

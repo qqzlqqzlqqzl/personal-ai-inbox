@@ -16,6 +16,11 @@ import subprocess
 import sys
 import time
 
+try:
+    from .quota_guard import query_client
+except ImportError:
+    from quota_guard import query_client
+
 TERMINAL = {'COMPLETE', 'ERROR', 'CANCELLED', 'CANCELED'}
 
 def digest(data):
@@ -135,6 +140,9 @@ class Controller:
             active = db.execute("SELECT id FROM batches WHERE state IN ('submitting','submitted','running','submit_unknown') AND id<>?",(batch_id,)).fetchone()
             if active:
                 raise RuntimeError('Another batch is active: '+active['id'])
+            quota_gate = query_client(self.client)
+            if not quota_gate['allowed']:
+                return {**self.row(batch_id), 'submission_blocked':True, 'quota_gate':quota_gate}
             db.execute("UPDATE batches SET state='submitting',updated=? WHERE id=?",(time.time(),batch_id))
         try:
             output = self.client(['kernels','push','-p',str(self.root/batch_id),

@@ -20,7 +20,7 @@ def normalize(name,variants,new):
   if text.count(old)==1:
    backup(name); path.write_text(text.replace(old,new,1)); return
  raise RuntimeError(f'Normalize anchor mismatch: {name}')
-for name in ['AiBadge.jsx','AiToolbar.jsx','AiPanel.jsx','AiNews.css']:
+for name in ['AiBadge.jsx','AiToolbar.jsx','AiPanel.jsx','SourceHistory.jsx','source-history.js','AiNews.css']:
  target=WEB/'src/components/Ai'/name; target.parent.mkdir(exist_ok=True)
  shutil.copy2(ROOT/'patches'/name,target)
 shutil.copy2(ROOT/'patches/aiState.js',WEB/'src/store/aiState.js')
@@ -81,3 +81,4 @@ for original in BACK.rglob('*'):
   diffs.extend(difflib.unified_diff(original.read_text().splitlines(True),modified.read_text().splitlines(True),fromfile='a/'+relative,tofile='b/'+relative))
 (ROOT/'patches/reactflux.patch').write_text(''.join(diffs))
 print('Pinned ReactFlux overlay applied; native reader retained; patch recorded.')
+
