@@ -166,9 +166,18 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
                 # Miniflux's nonempty result is not proof of a complete article.
                 # Fetch the publisher body by its checked site rule before scoring.
                 from fulltext_source import fetch,FulltextUnavailable
+                from adafruit_source import is_adafruit, resolve, OriginalUnavailable
                 try:
-                    fulltext=await fetch(entry['url'])
-                except FulltextUnavailable as exc:
+                    if is_adafruit(entry['url']):
+                        if entry.get('prepared_source') == 'adafruit_linked_original':
+                            fulltext={'source_text':content_text(entry['content'])[0],
+                                      'image_count':content_text(entry['content'])[1],
+                                      'html':entry['content'], 'receipt':entry['fulltext_receipt']}
+                        else:
+                            fulltext=await resolve(entry)
+                    else:
+                        fulltext=await fetch(entry['url'])
+                except (FulltextUnavailable,OriginalUnavailable) as exc:
                     skipped.append({'entry_id':row['entry_id'],'state':'requires_fulltext_adapter','reason':str(exc)})
                     with core.connect() as db:
                         db.execute("""UPDATE analyses SET state='requires_fulltext_adapter',error=?,updated_at=?
@@ -179,21 +188,27 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
                 if upstream_hash(current)!=upstream_hash(entry):
                     skipped.append({'entry_id':row['entry_id'],'state':'upstream_changed_during_fulltext'})
                     continue
+                content_source=fulltext['receipt'].get('source','original_url_site_rule')
+                source_content_hash=worker.hash_text(entry.get('content') or '')
                 with core.connect() as db:
                     changed=db.execute("""UPDATE analyses SET source_text=?,source_chars=?,input_chars=?,
-                        image_count=?,content_source='original_url_site_rule',truncated=0,extracted_at=?,updated_at=?,
+                        image_count=?,content_source=?,truncated=0,extracted_at=?,updated_at=?,
                         content_hash=?,state='waiting_model',error=NULL
                         WHERE entry_id=? AND user_id=? AND state=? AND content_hash IS ? AND source_text IS ?""",
                         (fulltext['source_text'],len(fulltext['source_text']),len(fulltext['source_text']),
-                         fulltext['image_count'],time.time(),time.time(),worker.hash_text(entry.get('content') or ''),
+                         fulltext['image_count'],content_source,time.time(),time.time(),source_content_hash,
                          row['entry_id'],row['user_id'],row['state'],row['content_hash'],row['source_text'])).rowcount
                 if changed!=1:
                     skipped.append({'entry_id':row['entry_id'],'state':'source_changed_during_fulltext'})
                     continue
+                if content_source == 'adafruit_linked_original' and not entry.get('prepared_source'):
+                    from prepared_content import remember
+                    remember(entry,fulltext['html'],content_source,fulltext['receipt'])
+                    entry=apply_prepared(entry)
                 refreshed.update(source_text=fulltext['source_text'],source_chars=len(fulltext['source_text']),
                                  input_chars=len(fulltext['source_text']),truncated=False,
-                                 content_hash=worker.hash_text(entry.get('content') or ''),state='waiting_model',
-                                 content_source='original_url_site_rule',fulltext_receipt=fulltext['receipt'])
+                                 content_hash=source_content_hash,state='waiting_model',
+                                 content_source=content_source,fulltext_receipt=fulltext['receipt'])
             cards.enqueue([entry])
             with core.connect() as db:
                 card=db.execute('SELECT * FROM card_translations WHERE entry_id=?',(row['entry_id'],)).fetchone()
