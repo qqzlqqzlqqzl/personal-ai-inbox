@@ -57,7 +57,9 @@ def verify_compatibility_gate(browser, base):
                 else:
                     route.fulfill(json={'version': '2.3.2'})
                 return
-            if path.endswith('/me'):
+            if path.endswith('/ai/status'):
+                body = {'counts': {}, 'coverage': {}, 'usage': [], 'events': [], 'resources': {}}
+            elif path.endswith('/me'):
                 body = {'id': 1, 'username': 'synthetic', 'is_admin': True}
             elif path.endswith('/feeds/counters'):
                 body = {'reads': {}, 'unreads': {}}
