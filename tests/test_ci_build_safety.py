@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import json
 from pathlib import Path
@@ -33,3 +34,11 @@ def test_ci_helper_rejects_unpinned_source_before_running_overlay(tmp_path,monke
     with pytest.raises(RuntimeError,match='exact pinned'):
         module.prepare()
     assert not (tmp_path/'runtime').exists()
+
+
+def test_playwright_route_handler_does_not_capture_request_as_fixture():
+    # Playwright supplies (route, request); fixture captures must be keyword-only.
+    source=Path(__file__).with_name('history_browser_acceptance.py').read_text()
+    handler=next(node for node in ast.walk(ast.parse(source)) if isinstance(node,ast.FunctionDef) and node.name=='api_route')
+    assert [arg.arg for arg in handler.args.args]==['route','_request']
+    assert {arg.arg for arg in handler.args.kwonlyargs}=={'calls','mode','pending','feed','quota'}

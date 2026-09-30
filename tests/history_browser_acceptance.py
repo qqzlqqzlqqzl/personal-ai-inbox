@@ -65,7 +65,7 @@ try:
             feed = {"id": 7, "user_id": 1, "title": "Manual source", "feed_url": "https://example.org/feed",
                     "site_url": "https://example.org", "category": {"id": 1, "title": "技术博客"}}
 
-            def api_route(route, calls=calls, mode=mode, pending=pending, feed=feed, quota=quota):
+            def api_route(route, _request, *, calls=calls, mode=mode, pending=pending, feed=feed, quota=quota):
                 path = urlsplit(route.request.url).path
                 calls.append(path)
                 if path.endswith("/history"):
