@@ -61,3 +61,6 @@
 .ai-kaggle-quota{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:4px}.ai-kaggle-quota b{font-size:18px}.ai-kaggle-quota span{font-size:11px;color:var(--color-text-3,#667085)}
 .ai-kaggle-card progress{width:100%;height:8px;accent-color:rgb(var(--primary-6))}
 @media(max-width:600px){.ai-kaggle-grid{grid-template-columns:1fr}.ai-kaggle-card{padding:10px 12px}}
+
+
+.ai-source-list>div>div{min-width:0}.ai-source-list a{overflow-wrap:anywhere}.ai-source-history{margin-top:8px;font-size:12px}.ai-source-history summary{cursor:pointer}.ai-source-history small{margin-top:4px;overflow-wrap:anywhere}.ai-source-history button{margin-top:8px;font-size:12px}

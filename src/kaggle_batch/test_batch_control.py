@@ -25,6 +25,8 @@ class LifecycleTests(unittest.TestCase):
     def client(self,args,timeout):
         self.assertGreater(timeout,0)
         self.calls.append(args)
+        if args[0]=='quota':
+            return '[{"resource":"GPU","remaining":"20h"}]'
         if args[1]=='push':
             if self.fail_push:
                 raise subprocess.TimeoutExpired('simulated-client',90)

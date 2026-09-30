@@ -5,6 +5,14 @@ from types import SimpleNamespace
 import month_control
 
 
+def test_nonfinite_quota_cannot_break_dashboard_serialization():
+    for value in ('NaN','Infinity','-1h',True,None):
+        parsed=month_control._parse_quota_rows([{'resource':'GPU','remaining':value}])
+        assert parsed['gpu']['remaining_hours'] is None
+        json.dumps(parsed,allow_nan=False)
+    assert month_control._hours(0)==0
+
+
 def test_parse_quota_rows_normalizes_hours():
     parsed = month_control._parse_quota_rows([
         {"resource": "GPU", "used": "29.70h", "remaining": "0.30h", "total": "30.00h", "refreshAt": "2026-10-03T00:00:00"},

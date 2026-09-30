@@ -1,7 +1,7 @@
 """Loopback authenticated control for the current bounded Kaggle article scope."""
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import hmac,json,os,sqlite3,subprocess,threading,time
+import hmac,json,math,os,sqlite3,subprocess,threading,time
 from fastapi import APIRouter,Header,HTTPException
 
 ROOT=Path('/home/ubuntu/ai-news')
@@ -13,9 +13,12 @@ _quota_lock=threading.Lock()
 
 
 def _hours(value):
-    text=str(value or '').strip().lower()
+    if value is None or isinstance(value,bool):return None
+    text=str(value).strip().lower()
     if text.endswith('h'):text=text[:-1]
-    try:return float(text)
+    try:
+        value=float(text)
+        return value if math.isfinite(value) and value>=0 else None
     except ValueError:return None
 
 
@@ -129,6 +132,8 @@ def status():
                     if row:lanes[key]['outstanding']=dict(row)
             except sqlite3.Error:pass
         lanes[key]['quota']=quotas.get('lanes',{}).get(key,{'state':'error','error':'quota_unavailable'})
+        from kaggle_batch.quota_guard import admission
+        lanes[key]['quota_gate']=admission(lanes[key]['quota'],checked_at=quotas.get('checked_at'))
     enabled=not (STAGE/'paused.json').exists()
     scheduler_file=ROOT/'state/kaggle-month-dispatch/scheduler.json'
     scheduler=json.loads(scheduler_file.read_text()) if scheduler_file.exists() else {'state':'not_started'}

@@ -278,6 +278,11 @@ def main():
             if outstanding:
                 print(json.dumps({'existing_batch':outstanding['id']}))
                 return
+            from quota_guard import query_client
+            quota_gate=query_client(control.client)
+            if not quota_gate['allowed']:
+                print(json.dumps({'state':quota_gate['state'],'quota_gate':quota_gate,'gpu_started':False}))
+                return
             versions=json.loads(Path(config['versions']).read_text(encoding='utf-8'))
             validate_model_config(config,versions)
             extraction_backup=root/('before-extraction-'+str(time.time_ns()))
