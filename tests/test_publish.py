@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from build_frontend import publish, precompress
+from build_frontend import publish, precompress, validate_reader_bundle
 
 
 def fixture_build(root):
@@ -80,3 +80,32 @@ def test_precompresses_large_text_assets_but_not_service_worker(tmp_path):
     gz = stage / "assets/app.js.gz"
     assert gz.is_file() and gz.stat().st_size < source.stat().st_size
     assert not (stage / "sw.js.gz").exists()
+
+
+def test_reader_bundle_validation_accepts_current_semantics(tmp_path):
+    stage = tmp_path / "stage"
+    (stage / "assets").mkdir(parents=True)
+    (stage / "assets/app.js").write_text("资源看板 AI 设置 · 来源")
+    validate_reader_bundle(stage)
+
+
+@pytest.mark.parametrize("stale", [
+    "评分是模型判断",
+    "依据抓取的原网页文本",
+    "模型输入 3011 字符",
+    "图片保留不代表模型理解了图片内容",
+])
+def test_reader_bundle_validation_rejects_stale_detail_copy(tmp_path, stale):
+    stage = tmp_path / "stage"
+    (stage / "assets").mkdir(parents=True)
+    (stage / "assets/app.js").write_text("资源看板 AI 设置 · 来源 " + stale)
+    with pytest.raises(ValueError):
+        validate_reader_bundle(stage)
+
+
+def test_reader_bundle_validation_requires_dashboard(tmp_path):
+    stage = tmp_path / "stage"
+    (stage / "assets").mkdir(parents=True)
+    (stage / "assets/app.js").write_text("AI 设置 · 来源")
+    with pytest.raises(ValueError):
+        validate_reader_bundle(stage)

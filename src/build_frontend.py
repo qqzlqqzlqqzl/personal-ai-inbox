@@ -45,6 +45,29 @@ def publish(staging: Path, live: Path, base_path: str = "/"):
     return len(files)
 
 
+def validate_reader_bundle(staging: Path):
+    """Reject a generated bundle that regresses reader-facing detail semantics."""
+    javascript = "\n".join(
+        path.read_text(errors="ignore")
+        for path in (staging / "assets").glob("*.js")
+        if path.is_file()
+    )
+    required = ("资源看板", "AI 设置 · 来源")
+    forbidden = (
+        "评分是模型判断",
+        "依据抓取的原网页文本",
+        "模型输入 ",
+        "图片保留不代表模型理解了图片内容",
+    )
+    missing = [text for text in required if text not in javascript]
+    stale = [text for text in forbidden if text in javascript]
+    if missing or stale:
+        raise ValueError(
+            "Reader quality bundle validation failed: "
+            + json.dumps({"missing": missing, "stale": stale}, ensure_ascii=False)
+        )
+
+
 def precompress(staging: Path):
     """Create deterministic gzip siblings for text assets served by the gateway."""
     count = 0
@@ -108,6 +131,7 @@ def main():
         "--emptyOutDir",
     ]
     subprocess.run(cmd, cwd=web, env=env, check=True, timeout=600)
+    validate_reader_bundle(stage)
     compressed = precompress(stage)
     count = publish(stage, web / "build", PUBLIC_BASE)
     report = {
