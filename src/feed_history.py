@@ -92,12 +92,22 @@ def feed_window(data):
 async def stored_history(client, backend, headers, feed_id):
     """Ask Miniflux, not the incomplete AI analysis ledger, for retained rows."""
     async def endpoint(direction):
+        includes_removed = True
         response = await client.get(
             f"{backend}/v1/feeds/{feed_id}/entries", headers=headers,
             params=[("limit", "1"), ("order", "published_at"), ("direction", direction),
                     ("status", "read"), ("status", "unread"), ("status", "removed")],
             timeout=8,
         )
+        if response.status_code == 400:
+            error = response.json().get("error_message", "")
+            if error == 'invalid entry status, valid status values are: "read" and "unread"':
+                includes_removed = False
+                response = await client.get(
+                    f"{backend}/v1/feeds/{feed_id}/entries", headers=headers,
+                    params=[("limit", "1"), ("order", "published_at"), ("direction", direction),
+                            ("status", "read"), ("status", "unread")], timeout=8,
+                )
         response.raise_for_status()
         body = response.json()
         count = body["total"]
@@ -107,17 +117,17 @@ async def stored_history(client, backend, headers, feed_id):
         if not isinstance(entries, list) or bool(entries) != bool(count):
             raise ValueError("invalid_entry_page")
         value = timestamp(entries[0].get("published_at")) if entries else None
-        return count, iso(value)
+        return count, iso(value), includes_removed
 
     try:
         # Refresh once if collection changed between the two read-only queries.
         for _ in range(2):
             oldest, newest = await asyncio.gather(endpoint("asc"), endpoint("desc"))
-            if oldest[0] == newest[0] and (not oldest[1] or not newest[1] or timestamp(oldest[1]) <= timestamp(newest[1])):
+            if oldest[2] == newest[2] and oldest[0] == newest[0] and (not oldest[1] or not newest[1] or timestamp(oldest[1]) <= timestamp(newest[1])):
                 return {
                     "state": "ok", "count": oldest[0],
                     "oldest_published_at": oldest[1], "newest_published_at": newest[1],
-                    "includes_removed": True, "checked_at": iso(datetime.now(timezone.utc)),
+                    "includes_removed": oldest[2], "checked_at": iso(datetime.now(timezone.utc)),
                 }
         return {"state": "changing", "count": None}
     except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):

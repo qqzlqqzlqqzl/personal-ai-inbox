@@ -10,7 +10,7 @@ export function historyLines(history) {
   const window = history?.feed_window
   const lines = []
   if (stored?.state === "ok") {
-    lines.push(`已存储 ${stored.count} 条（含已读、未读及仍保留的已移除条目）`)
+    lines.push(`已存储 ${stored.count} 条${stored.includes_removed === false ? "（已读、未读；当前后端不提供已移除条目）" : "（含已读、未读及仍保留的已移除条目）"}`)
     if (stored.count) {
       lines.push(`最旧 published_at：${historyDate(stored.oldest_published_at)}`)
       lines.push(`最新 published_at：${historyDate(stored.newest_published_at)}`)
