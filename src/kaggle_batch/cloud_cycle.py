@@ -44,6 +44,8 @@ def drain(config_path, config, control, call=bridge, sleep=time.sleep, clock=tim
         report('preparing')
         prepared=call(config_path,'prepare','--limit',str(config['batch_limit']),
                       timeout=max(1,min(7200,int(deadline-clock()))))
+        if prepared.get('state')=='retired_manifest_requires_new_attempt':
+            return report(prepared['state'],batch_id=prepared['batch_id'],gpu_started=False,recovery_required=True)
         batch=prepared.get('batch_id') or prepared.get('existing_batch')
         if not batch:
             if prepared.get('quota_gate',{}).get('allowed') is False:
@@ -72,6 +74,8 @@ def drain(config_path, config, control, call=bridge, sleep=time.sleep, clock=tim
                 return report(outcome['quota_gate']['state'],batch_id=batch,
                               quota_gate=outcome['quota_gate'],gpu_started=False)
             report('processing',batch_id=batch,outcome=outcome)
+            if control.row(batch)['state']=='retired':
+                return report('retired_missing_remote',batch_id=batch,gpu_started=False,recovery_required=True)
             if control.row(batch)['state'] in {'imported','resolved'}:
                 completed+=1
                 break

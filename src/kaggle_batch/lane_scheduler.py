@@ -101,6 +101,8 @@ def snapshot_lanes(now,states):
                         local_at=db.execute("SELECT MIN(p.next_try) FROM batch_progress p JOIN batches b ON b.id=p.batch_id WHERE b.state NOT IN ('imported','retired','resolved') AND p.next_try>?",(now,)).fetchone()[0]
                         lane['local_retry_at']=local_at or 0
             lane['ready']=lane['retry_at']<=now and lane['service_state']!='unavailable'
+            if lane['cycle'].get('recovery_required'):
+                lane['ready']=False
             # Only fresh read-only quota permits new work. Recovery stays eligible.
             lane['quota_gate']={'allowed':False,'state':'not_checked_active' if lane['active'] else 'quota_unknown'}
             if not lane['active']:

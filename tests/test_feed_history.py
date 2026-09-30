@@ -334,3 +334,17 @@ async def test_failed_miniflux_bounds_do_not_hide_successful_feed_window(history
     assert response.status_code == 200
     assert response.json()["stored"]["state"] == "unavailable"
     assert response.json()["feed_window"]["count"] == 1
+
+
+@pytest.mark.parametrize('url',['http://example.org:invalid/feed','http://example.org/\x01feed'])
+@pytest.mark.asyncio
+async def test_invalid_feed_url_keeps_available_stored_history(history_api,url):
+    client,feed,_calls=history_api
+    feed['feed_url']=url
+    response=await client.get('/mf/v1/ai/feeds/7/history',headers={'X-Auth-Token':'session'})
+    assert response.status_code==200
+    value=response.json()
+    assert value['stored']['state']=='ok'
+    assert value['stored']['count']==19
+    assert value['feed_window']['state']=='unavailable'
+    assert url not in str(value['feed_window'])

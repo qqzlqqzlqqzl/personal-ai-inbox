@@ -99,15 +99,26 @@ class UncertainSubmitTests(unittest.TestCase):
         self.assertEqual('submit_unknown',self.c.row(self.batch)['state'])
     def test_confirmed_missing_after_grace_releases_network_claim(self):
         self.age(1900)
-        (self.root/self.batch/'absence-observations.json').write_text(json.dumps({'count':1,'last_at':time.time()-700,'first_at':time.time()-700}))
-        self.assertEqual('retired',self.c.status(self.batch)['state'])
+        self.c.client=self.validated_absence
+        with self.assertRaises(ProviderError):self.c.status(self.batch)
+        with patch('batch_control.time.time',return_value=time.time()+700):
+            self.assertEqual('retired',self.c.status(self.batch)['state'])
         self.assertEqual('confirmed_not_found_after_network',self.c.row(self.batch)['error'])
 
     def test_crash_in_submitting_can_be_released_only_after_confirmed_missing(self):
         self.age(1900,state='submitting',error=None)
-        (self.root/self.batch/'absence-observations.json').write_text(json.dumps({'count':1,'last_at':time.time()-700,'first_at':time.time()-700}))
-        self.assertEqual('retired',self.c.status(self.batch)['state'])
+        self.c.client=self.validated_absence
+        with self.assertRaises(ProviderError):self.c.status(self.batch)
+        with patch('batch_control.time.time',return_value=time.time()+700):
+            self.assertEqual('retired',self.c.status(self.batch)['state'])
         self.assertEqual('confirmed_not_found_after_unknown',self.c.row(self.batch)['error'])
+
+    def validated_absence(self,args,timeout):
+        if args[:2]==['kernels','status']:raise ProviderError('not_found')
+        if args[:2]==['kernels','list']:
+            return json.dumps([{'ref':'owner/existing-account-notebook'}]) if args[args.index('--page')+1]=='1' else 'Not found\n'
+        if args[0]=='quota':return '[{"resource":"GPU","remaining":"0h"}]'
+        raise AssertionError(args)
 
     def test_readable_other_kernel_does_not_prove_inaccessible_batch_absent(self):
         old=self.batch
@@ -129,7 +140,8 @@ class UncertainSubmitTests(unittest.TestCase):
         def client(args,timeout):
             calls.append(args)
             if args[:2]==['kernels','status']:raise ProviderError('inaccessible')
-            if args[:2]==['kernels','list']:return 'Not found\n'
+            if args[:2]==['kernels','list']:
+                return json.dumps([{'ref':'owner/existing-account-notebook'}]) if args[args.index('--page')+1]=='1' else 'Not found\n'
             if args[0]=='quota':return '[{"resource":"GPU","remaining":"20h"}]'
             raise AssertionError(args)
         self.c.client=client
@@ -137,8 +149,8 @@ class UncertainSubmitTests(unittest.TestCase):
         self.assertEqual('not_found',err.exception.code)
         proof=json.loads((self.root/self.batch/'absence-observations.json').read_text())
         self.assertEqual(1,proof['count']);self.assertEqual('submit_unknown',self.c.row(self.batch)['state'])
-        proof['last_at']=time.time()-700;(self.root/self.batch/'absence-observations.json').write_text(json.dumps(proof))
-        self.assertEqual('retired',self.c.status(self.batch)['state'])
+        with patch('batch_control.time.time',return_value=time.time()+700):
+            self.assertEqual('retired',self.c.status(self.batch)['state'])
         self.assertEqual('confirmed_not_found_after_unknown',self.c.row(self.batch)['error'])
         self.assertTrue(any(args and args[0]=='quota' for args in calls))
 

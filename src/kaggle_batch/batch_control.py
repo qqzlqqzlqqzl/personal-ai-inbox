@@ -18,10 +18,20 @@ import time
 
 try:
     from .quota_guard import query_client
+    from .recovery_policy import ProviderError, classify_failure
+    from .absence_proof import prove_absent
 except ImportError:
     from quota_guard import query_client
+    from recovery_policy import ProviderError, classify_failure
+    from absence_proof import prove_absent
 
 TERMINAL = {'COMPLETE', 'ERROR', 'CANCELLED', 'CANCELED'}
+
+
+class RetiredManifest(ValueError):
+    def __init__(self,batch_id):
+        self.batch_id=batch_id
+        super().__init__('retired_manifest_requires_new_attempt')
 
 def digest(data):
     return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False,
@@ -60,11 +70,14 @@ class Controller:
             db.close()
 
     def _cli(self, args, timeout):
-        result = subprocess.run([self.kaggle_python, '-m', 'kaggle', *args], timeout=timeout,
-                                capture_output=True, text=True, encoding='utf-8')
+        try:
+            result = subprocess.run([self.kaggle_python, '-m', 'kaggle', *args], timeout=timeout,
+                                    capture_output=True, text=True, encoding='utf-8')
+        except (subprocess.TimeoutExpired, OSError):
+            raise ProviderError('network') from None
         # Never propagate raw client errors: they can include signed URLs.
         if result.returncode:
-            raise RuntimeError('Kaggle command failed: ' + args[1])
+            raise classify_failure(str(result.stderr or '') + '\n' + str(result.stdout or '')) from None
         return result.stdout
 
     def row(self, batch_id):
@@ -106,6 +119,8 @@ class Controller:
             if previous:
                 if previous['manifest_hash'] != canonical:
                     raise ValueError('Batch hash collision')
+                if previous['state']=='retired':
+                    raise RetiredManifest(batch_id)
                 return batch_id
             runtime_manifest = {**manifest, 'batch_id':batch_id, 'manifest_hash':canonical}
             atomic_json(folder/'manifest.json', runtime_manifest)
@@ -150,7 +165,7 @@ class Controller:
             if not re.search(r'Kernel version \d+ successfully pushed', output):
                 raise RuntimeError('Submission acknowledgement missing')
         except Exception as exc:
-            self._set(batch_id,'submit_unknown',error=type(exc).__name__)
+            self._set(batch_id,'submit_unknown',error=exc.code if isinstance(exc,ProviderError) else type(exc).__name__)
             raise RuntimeError('Submission uncertain; reconcile status before any retry') from None
         self._set(batch_id,'submitted')
         return self.row(batch_id)
@@ -162,7 +177,12 @@ class Controller:
 
     def status(self, batch_id):
         before = self.row(batch_id)
-        output = self.client(['kernels','status',self.owner+'/'+batch_id],45)
+        if before['state']=='retired':
+            return before
+        try:
+            output = self.client(['kernels','status',self.owner+'/'+batch_id],45)
+        except ProviderError as exc:
+            return self._reconcile_absence(batch_id,before,exc)
         match = re.search(r'KernelWorkerStatus\.([A-Z]+)',output)
         if not match:
             raise RuntimeError('Unrecognized status; retain previous state')
@@ -176,6 +196,72 @@ class Controller:
         state = 'terminal' if remote in TERMINAL else ('running' if remote=='RUNNING' else 'submitted')
         self._set(batch_id,state,remote)
         return self.row(batch_id)
+
+    def _reconcile_absence(self,batch_id,before,error):
+        """Retire only uncertain, never-observed submissions after repeated proof.
+
+        This performs read-only observations and a local CAS. It never retries,
+        resubmits, cancels remote work, or treats quota depletion as absence.
+        """
+        import math
+        import fcntl
+        now=time.time()
+        eligible=(error.code in {'not_found','inaccessible'}
+                  and before['state'] in {'submitting','submit_unknown'}
+                  and before['remote_status'] is None and now-before['updated']>=1800)
+        if not eligible:
+            raise error
+        folder=self.root/batch_id
+        with (folder/'absence.lock').open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            path=folder/'absence-observations.json'
+            try:
+                proof=prove_absent(self.client,self.owner,batch_id)
+            except (ProviderError,ValueError,OSError,subprocess.SubprocessError):
+                proof=None
+            if not proof:
+                # Failed/ambiguous evidence breaks the sequence; retain the job.
+                if path.exists():
+                    atomic_json(path,{'version':1,'owner':self.owner,'batch_id':batch_id,
+                                      'count':0,'last_at':now,'reason':'absence_not_proven'})
+                raise error
+            fields=('state','remote_status','updated','error','manifest_hash')
+            def unchanged(row):
+                return all(row[key]==before[key] for key in fields)
+            current=self.row(batch_id)
+            if not unchanged(current):
+                return current
+            now=time.time()
+            try:
+                previous=json.loads(path.read_text())
+                valid=(previous.get('version')==1 and previous.get('owner')==self.owner
+                       and previous.get('batch_id')==batch_id and previous.get('state')==before['state']
+                       and previous.get('ledger_updated')==before['updated'] and type(previous.get('count')) is int
+                       and previous['count']==1 and type(previous.get('listed_count')) is int and previous['listed_count']>0
+                       and type(previous.get('pages')) is int and 2<=previous['pages']<=10
+                       and re.fullmatch(r'[0-9a-f]{64}',previous.get('listing_sha256',''))
+                       and math.isfinite(previous['first_at']) and math.isfinite(previous['last_at'])
+                       and 0<=previous['first_at']<=previous['last_at']<=now and now-previous['last_at']<=3600)
+            except (OSError,ValueError,TypeError,KeyError,AttributeError):
+                valid=False
+            if not valid:
+                atomic_json(path,{'version':1,**proof,'state':before['state'],
+                                  'ledger_updated':before['updated'],'count':1,'first_at':now,'last_at':now})
+                raise ProviderError('not_found')
+            if now-previous['last_at']<660:
+                raise ProviderError('not_found')
+            with self.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                current=db.execute('SELECT * FROM batches WHERE id=?',(batch_id,)).fetchone()
+                if not unchanged(current):
+                    return dict(current)
+                reason='network' if before['error']=='network' else 'unknown'
+                db.execute("UPDATE batches SET state='retired',error=?,updated=? WHERE id=?",
+                           ('confirmed_not_found_after_'+reason,now,batch_id))
+            atomic_json(path,{'version':1,**proof,'state':before['state'],
+                              'ledger_updated':before['updated'],'count':2,
+                              'first_at':previous['first_at'],'last_at':now,'retired':True})
+            return self.row(batch_id)
 
     def download(self, batch_id):
         row = self.status(batch_id)
