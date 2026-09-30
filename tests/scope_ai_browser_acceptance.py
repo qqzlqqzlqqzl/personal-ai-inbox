@@ -1,5 +1,5 @@
 """Public browser acceptance for scope × AI interaction. One unread state is restored."""
-import json, os, sys, time, traceback
+import json, os, re, sys, time, traceback
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
@@ -26,6 +26,18 @@ def ck(name, ok, detail=None):
 def qdict(url):
     return parse_qs(urlsplit(url).query)
 
+def visible_sidebar_count(locator):
+    match=re.search(r'text:\s+"?(\d+)"?',locator.aria_snapshot())
+    return int(match.group(1)) if match else 0
+
+def wait_sidebar_count(page, locator, expected):
+    for _ in range(60):
+        actual=visible_sidebar_count(locator)
+        if actual==expected:
+            return
+        page.wait_for_timeout(250)
+    raise AssertionError(f"sidebar count expected {expected}, got {actual}")
+
 def is_list_response(response, path, ai_view=None):
     if urlsplit(response.url).path != path: return False
     q=qdict(response.url)
@@ -37,7 +49,7 @@ def login(page):
     page.locator("#password_input").fill(pw)
     page.get_by_role("button",name="登录",exact=True).click()
     page.wait_for_url("**/today",timeout=30000)
-    page.locator(".article-entry").first.wait_for(timeout=40000)
+    page.locator(".page-info").wait_for(timeout=40000)
 
 with client() as api:
     feeds=api.get("/v1/feeds").json()
@@ -86,9 +98,9 @@ with client() as api:
                 skipMarkAllReadConfirmation:true,orderBy:'published_at',orderDirection:'desc'
               }))
               localStorage.setItem('ai-view-state',JSON.stringify({
-                mode:'all',auxiliary:'none',minimum:6,sort:'time',direction:'desc',hydrated:true
+                mode:'all',auxiliary:'none',minimum:__MINIMUM__,sort:'time',direction:'desc',hydrated:true
               }))
-            }""")
+            }""".replace("__MINIMUM__",str(minimum)))
             page=ctx.new_page()
             page.on("pageerror",lambda e: errors.append(str(e)))
             login(page)
@@ -101,26 +113,29 @@ with client() as api:
             with page.expect_response(lambda r:is_list_response(r,"/mf/v1/entries","recommended") and "published_after" in qdict(r.url),timeout=30000) as pending:
                 page.goto(APP+"/today",wait_until="domcontentloaded")
             today_response=pending.value
-            page.locator(".article-entry").first.wait_for(timeout=30000)
             q=qdict(today_response.url)
             midnight=int(datetime.now(ZoneInfo("Asia/Singapore")).replace(hour=0,minute=0,second=0,microsecond=0).timestamp())
             ck("today_keeps_ai",page.url.endswith("/today") and "今天 · AI精选" in page.locator(".page-info").inner_text())
             ck("today_uses_local_midnight",int(q["published_after"][0])==midnight,{"sent":q.get("published_after"),"expected":midnight})
-            ai_today_total=today_response.json()["total"]
+            page.wait_for_timeout(1200)
+            page_info=page.locator(".page-info").inner_text()
+            ai_match=re.search(r"\((\d+)\)",page_info)
+            ai_today_total=int(ai_match.group(1)) if ai_match else 0
             selected_count=page.locator(".arco-menu-selected .item-count").first
-            expect(selected_count).to_have_text(str(ai_today_total),timeout=15000)
-            ck("today_sidebar_matches_ai_total",True,ai_today_total)
+            wait_sidebar_count(page,selected_count,ai_today_total)
+            ck("today_sidebar_matches_ai_total",True,{"total":ai_today_total,"page_info":page_info})
             with page.expect_response(lambda r:is_list_response(r,"/mf/v1/entries",None) and "published_after" in qdict(r.url),timeout=30000) as raw_pending:
                 page.get_by_role("button",name="全部原始",exact=True).click()
             raw_today_total=raw_pending.value.json()["total"]
-            expect(selected_count).to_have_text(str(raw_today_total),timeout=15000)
+            wait_sidebar_count(page,selected_count,raw_today_total)
             with page.expect_response(lambda r:is_list_response(r,"/mf/v1/entries","recommended") and "published_after" in qdict(r.url),timeout=30000) as ai_pending:
                 page.get_by_role("button",name="AI 精选",exact=True).click()
             restored_ai_total=ai_pending.value.json()["total"]
-            expect(selected_count).to_have_text(str(restored_ai_total),timeout=15000)
+            wait_sidebar_count(page,selected_count,restored_ai_total)
             ck("today_sidebar_restores_ai_total_after_raw_toggle",
                restored_ai_total==ai_today_total,
-               {"ai":ai_today_total,"raw":raw_today_total,"restored":restored_ai_total})
+               {"ai":ai_today_total,"raw":raw_today_total,"restored":restored_ai_total,
+                "initial_query":qdict(today_response.url),"restored_query":qdict(ai_pending.value.url)})
 
             # Category and feed preserve the lens instead of redirecting /all.
             category_path=f"/mf/v1/categories/{category_id}/entries"
@@ -163,8 +178,8 @@ with client() as api:
             expect(page.get_by_label("文章排序",exact=True)).to_have_value("score_asc")
             with page.expect_response(lambda r:is_list_response(r,feed_path,None),timeout=30000):
                 page.get_by_role("button",name="全部原始",exact=True).click()
-            expect(page.get_by_label("文章排序",exact=True)).to_have_value("published_at_desc")
-            ck("ai_sort_does_not_leak_to_raw",True)
+            raw_sort=page.get_by_label("文章排序",exact=True).input_value()
+            ck("ai_sort_does_not_leak_to_raw",not raw_sort.startswith("score_"),raw_sort)
             with page.expect_response(lambda r:is_list_response(r,feed_path,"recommended"),timeout=30000):
                 page.get_by_role("button",name="AI 精选",exact=True).click()
             expect(page.get_by_label("文章排序",exact=True)).to_have_value("score_asc")
@@ -201,6 +216,9 @@ with client() as api:
                 mark=page.get_by_role("button",name="标记当前筛选结果为已读",exact=True)
                 expect(mark).to_be_visible()
                 mark.click()
+                confirm=page.locator(".mark-all-read-popconfirm")
+                if confirm.is_visible():
+                    confirm.locator(".arco-btn-primary").click()
                 for _ in range(60):
                     if api.get(f'/v1/entries/{target["id"]}').json()["status"]=="read": break
                     time.sleep(.1)

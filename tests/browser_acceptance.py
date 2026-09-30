@@ -39,7 +39,7 @@ def login(page):
     page.locator("#password_input").fill(password)
     page.get_by_role("button", name="登录", exact=True).click()
     page.wait_for_url("**/today", timeout=30000)
-    page.locator(".grid-card-title,.card-title").first.wait_for(timeout=45000)
+    page.locator(".page-info").wait_for(timeout=45000)
 
 
 def panel(page):
@@ -102,6 +102,10 @@ with client() as api:
             login(b)
             check("desktop_login_defaults_today", a.url.endswith("/today"))
             check("mobile_login_defaults_today", b.url.endswith("/today"))
+            a.goto(APP + "/all", wait_until="domcontentloaded")
+            b.goto(APP + "/all", wait_until="domcontentloaded")
+            a.locator(".grid-card-title,.card-title").first.wait_for(timeout=45000)
+            b.locator(".grid-card-title,.card-title").first.wait_for(timeout=45000)
             a.wait_for_timeout(2500)
             b.wait_for_timeout(2500)
             count = a.locator(".grid-card-title,.card-title").count()
