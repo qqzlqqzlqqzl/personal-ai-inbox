@@ -16,7 +16,7 @@ def test_ai_detail_hides_internal_scoring_metadata():
 
 def test_runtime_dashboard_is_reader_facing():
     panel = read("patches/AiPanel.jsx")
-    for text in ("运行看板", "已收录文章", "订阅来源", "AI 已完成", "长正文已抓取", "详细诊断"):
+    for text in ("资源看板", "已收录文章", "订阅来源", "AI 已完成", "长正文已抓取", "磁盘已用", "内存已用", "分析数据库", "详细诊断"):
         assert text in panel
 
 

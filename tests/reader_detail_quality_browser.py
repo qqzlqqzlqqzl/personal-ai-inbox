@@ -91,10 +91,10 @@ with sync_playwright() as pw:
     page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
     dialog = page.locator(".ai-dialog")
     dialog.wait_for(timeout=15000)
-    page.get_by_role("button", name="运行看板", exact=True).click()
+    page.get_by_role("button", name="资源看板", exact=True).click()
     dashboard = page.locator(".ai-dashboard")
     expect(dashboard).to_be_visible()
-    for label in ("已收录文章", "AI 已完成", "长正文已抓取", "中文卡片可用", "需要处理"):
+    for label in ("已收录文章", "AI 已完成", "长正文已抓取", "中文卡片可用", "需要处理", "磁盘已用", "内存已用", "分析数据库"):
         expect(dashboard.get_by_text(label, exact=True)).to_be_visible()
     check("reader_facing_dashboard", True)
     details = dashboard.locator("details.ai-diagnostics")

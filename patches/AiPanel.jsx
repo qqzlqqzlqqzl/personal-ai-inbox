@@ -64,10 +64,21 @@ export default function AiPanel({ onClose }) {
   const attention = coverage.needs_attention || 0
   const lanes = Object.values(status?.kaggle?.lanes || {})
   const activeLanes = lanes.filter(l => ["processing","submitted","running"].includes(l?.state)).length
+  const resources = status?.resources || {}
   const percentage = (value,total) => total ? Math.round((value || 0) * 100 / total) : 0
+  const formatBytes = (value) => {
+    const n = Number(value || 0)
+    if (!n) return "—"
+    if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`
+    if (n >= 1024 ** 2) return `${Math.round(n / 1024 ** 2)} MB`
+    if (n >= 1024) return `${Math.round(n / 1024)} KB`
+    return `${n} B`
+  }
+  const diskPct = percentage(resources.disk_used_bytes, resources.disk_total_bytes)
+  const memoryPct = percentage(resources.memory_used_bytes, resources.memory_total_bytes)
   return <dialog className="ai-dialog" ref={dialog} onCancel={onClose} onClose={onClose}>
     <header><h2>个人 AI 资讯控制台</h2><button aria-label="关闭" onClick={onClose}>×</button></header>
-    <nav>{[["settings","模型与偏好"],["status","运行看板"],["sources","来源目录"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
+    <nav>{[["settings","模型与偏好"],["status","资源看板"],["sources","来源目录"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
     {message && <p className="ai-message" role="status">{message}</p>}
     {!config && <p>正在读取服务器配置……</p>}
     {tab === "settings" && config && <section className="ai-form">
@@ -94,6 +105,9 @@ export default function AiPanel({ onClose }) {
         <div><strong>{queued}</strong><span>队列中</span><small>等待抓取 / 模型</small></div>
         <div className={attention ? "needs-attention" : ""}><strong>{attention}</strong><span>需要处理</span><small>抓取或审核异常</small></div>
         <div><strong>{coverage.notes || 0}</strong><span>有笔记文章</span><small>个人沉淀</small></div>
+        <div className={diskPct >= 85 ? "needs-attention" : ""}><strong>{diskPct}%</strong><span>磁盘已用</span><small>剩余 {formatBytes(resources.disk_free_bytes)}</small></div>
+        <div className={memoryPct >= 85 ? "needs-attention" : ""}><strong>{memoryPct}%</strong><span>内存已用</span><small>可用 {formatBytes(resources.memory_available_bytes)}</small></div>
+        <div><strong>{formatBytes(resources.analysis_db_bytes)}</strong><span>分析数据库</span><small>SQLite 文件大小</small></div>
       </div>
       <div className="ai-health-row">
         {[["网页网关",status.services?.gateway],["阅读器",status.services?.reader],["RSSHub",status.services?.rsshub]].map(([label,ok])=>

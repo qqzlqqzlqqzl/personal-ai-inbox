@@ -1,6 +1,6 @@
 """Same-origin reader gateway and authenticated AI extension API."""
 
-import asyncio, json, os, time, contextlib, logging, uuid, mimetypes, math, re
+import asyncio, json, os, time, contextlib, logging, uuid, mimetypes, math, re, shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 import httpx
@@ -253,6 +253,27 @@ async def ai_status(request: Request):
         **summary["coverage"],
         "reader_total": reader_total,
         "source_count": source_count,
+    }
+    disk = shutil.disk_usage(ROOT)
+    mem_total = mem_available = 0
+    try:
+        memory = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            key, value = line.split(":", 1)
+            memory[key] = int(value.strip().split()[0]) * 1024
+        mem_total = memory.get("MemTotal", 0)
+        mem_available = memory.get("MemAvailable", 0)
+    except (OSError, ValueError, IndexError):
+        pass
+    database = ROOT / "state" / "analysis.sqlite3"
+    summary["resources"] = {
+        "disk_total_bytes": disk.total,
+        "disk_used_bytes": disk.used,
+        "disk_free_bytes": disk.free,
+        "memory_total_bytes": mem_total,
+        "memory_used_bytes": max(0, mem_total - mem_available),
+        "memory_available_bytes": mem_available,
+        "analysis_db_bytes": database.stat().st_size if database.exists() else 0,
     }
     return {**summary, **(await health()), "kaggle": campaign}
 
