@@ -110,6 +110,10 @@ def test_previously_observed_or_known_remote_jobs_never_retire(uncertain,state,r
     c,batch,calls,_manifest=uncertain
     c._set(batch,state,remote=remote)
     with c.db() as db:db.execute('UPDATE batches SET updated=100 WHERE id=?',(batch,))
+    if state=='downloaded' and remote=='COMPLETE':
+        assert c.status(batch)['state']=='downloaded'
+        assert calls==[]
+        return
     with patch('batch_control.time.time',return_value=5000),pytest.raises(ProviderError):c.status(batch)
     assert c.row(batch)['state']==state
     assert calls==[['kernels','status','owner/'+batch]]

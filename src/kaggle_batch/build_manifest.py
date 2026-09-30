@@ -52,8 +52,11 @@ def build(sample, versions, runtime_sha256, runtime_source, context_size=65536, 
     cards=[{**row['card'],'entry_id':row['entry_id'],'user_id':row['user_id'],
             **({'upstream_hash':row['upstream_hash']} if row.get('upstream_hash') else {})}
            for row in sample['samples'] if row.get('card')]
-    for index in range(0,len(cards),6):
-        rows=cards[index:index+6]
+    normal=[row for row in cards if not row.get('attempts')]
+    retry=[row for row in cards if row.get('attempts')]
+    groups=[normal[index:index+6] for index in range(0,len(normal),6)]+[[row] for row in retry]
+    for group_index,rows in enumerate(groups):
+        index=group_index*6
         payload={'output_requirements':'只概括明确完整的陈述，不补全截断句。作者署名、发布日期、阅读时长是页面元数据，不能移作事件或测试的时间。first showcase是展示列表的第一项，不表示首次公开。死亡不等于遇害。不得添加程度词、目的或未给出的因果关系。简介用完整句结尾，不保留残词或半句。',
                  'items':[{'id':row['entry_id'],'title':row['original_title'],
                           'excerpt':row['excerpt'],'source_kind':row['source_kind']} for row in rows]}

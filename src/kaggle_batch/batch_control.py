@@ -15,17 +15,20 @@ import sqlite3
 import subprocess
 import sys
 import time
-
 try:
     from .quota_guard import query_client
-    from .recovery_policy import ProviderError, classify_failure
+    from .recovery_policy import ProviderError, classify_failure, classify, exception_code
     from .absence_proof import prove_absent
 except ImportError:
     from quota_guard import query_client
-    from recovery_policy import ProviderError, classify_failure
+    from recovery_policy import ProviderError, classify_failure, classify, exception_code
     from absence_proof import prove_absent
 
 TERMINAL = {'COMPLETE', 'ERROR', 'CANCELLED', 'CANCELED'}
+UNCERTAIN_NOT_FOUND_GRACE = {
+    'quota': 660, 'capacity': 660, 'auth': 660, 'rate_limit': 660,
+    'network': 1800, 'unknown': 1800, 'not_found': 660,
+}
 
 
 class RetiredManifest(ValueError):
@@ -58,6 +61,17 @@ class Controller:
             db.execute('''CREATE TABLE IF NOT EXISTS batches (
                 id TEXT PRIMARY KEY, manifest_hash TEXT NOT NULL, state TEXT NOT NULL,
                 remote_status TEXT, error TEXT, updated REAL NOT NULL)''')
+            db.execute('CREATE TABLE IF NOT EXISTS batch_progress (batch_id TEXT PRIMARY KEY, next_try REAL NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0, error TEXT)')
+            db.execute('CREATE TABLE IF NOT EXISTS batch_claims (batch_id TEXT NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(batch_id,entry_id))')
+        with self.db() as db:
+            pending=[row['id'] for row in db.execute("SELECT id FROM batches WHERE state NOT IN ('imported','retired','resolved')")]
+        for batch in pending:
+            with self.db() as db:
+                if db.execute('SELECT 1 FROM batch_claims WHERE batch_id=? LIMIT 1',(batch,)).fetchone():continue
+            manifest=self.manifest(batch)
+            refs={(batch,int(ref['entry_id'])) for item in manifest['items'] for ref in item.get('source_refs',[])}
+            with self.db() as db:db.executemany('INSERT OR IGNORE INTO batch_claims VALUES (?,?)',refs)
+
 
     @contextmanager
     def db(self):
@@ -68,6 +82,32 @@ class Controller:
                 yield db
         finally:
             db.close()
+
+    def next_pending(self,now=None):
+        now=time.time() if now is None else now
+        with self.db() as db:
+            row=db.execute("""SELECT b.id FROM batches b LEFT JOIN batch_progress p ON p.batch_id=b.id
+                WHERE b.state NOT IN ('imported','retired','resolved') AND COALESCE(p.next_try,0)<=?
+                ORDER BY CASE WHEN b.state IN ('submitting','submitted','running','submit_unknown') THEN 0
+                              WHEN b.state IN ('terminal','downloaded') THEN 1 ELSE 2 END,b.updated LIMIT 1""",(now,)).fetchone()
+        return row['id'] if row else None
+
+    def next_retry(self):
+        with self.db() as db:
+            row=db.execute("""SELECT MIN(p.next_try) FROM batch_progress p JOIN batches b ON b.id=p.batch_id
+                WHERE b.state NOT IN ('imported','retired','resolved') AND p.next_try>?""",(time.time(),)).fetchone()
+        return row[0]
+
+    def defer_local(self,batch_id,code):
+        # Confirmed terminal output recovery never starts another GPU.
+        row=self.row(batch_id)
+        if row['remote_status'] not in TERMINAL:raise ValueError('Only terminal batches may defer local recovery')
+        with self.db() as db:
+            old=db.execute('SELECT failures FROM batch_progress WHERE batch_id=?',(batch_id,)).fetchone()
+            failures=(old[0] if old else 0)+1
+            retry_at=time.time()+min(3600,660*2**min(failures-1,3))
+            db.execute('INSERT OR REPLACE INTO batch_progress VALUES (?,?,?,?)',(batch_id,retry_at,failures,code))
+        return {'batch_id':batch_id,'state':'local_retry_scheduled','retry_at':retry_at,'code':code,'failures':failures,'gpu_resubmitted':False}
 
     def _cli(self, args, timeout):
         try:
@@ -86,6 +126,12 @@ class Controller:
         if row is None:
             raise KeyError(batch_id)
         return dict(row)
+
+    def outstanding(self):
+        with self.db() as db:
+            row=db.execute("SELECT * FROM batches WHERE state NOT IN ('imported','retired','resolved') "
+                           "ORDER BY updated LIMIT 1").fetchone()
+        return dict(row) if row else None
 
     def manifest(self,batch_id):
         value=json.loads((self.root/batch_id/'manifest.json').read_text(encoding='utf-8'))
@@ -137,6 +183,8 @@ class Controller:
                 'dataset_sources':manifest.get('dataset_sources',[]),'competition_sources':[]})
             db.execute('INSERT INTO batches VALUES (?,?,?,NULL,NULL,?)',
                        (batch_id,canonical,'prepared',time.time()))
+            refs={(batch_id,int(ref['entry_id'])) for item in manifest['items'] for ref in item.get('source_refs',[])}
+            db.executemany('INSERT OR IGNORE INTO batch_claims VALUES (?,?)',refs)
         return batch_id
 
     def submit(self, batch_id):
@@ -163,10 +211,13 @@ class Controller:
             output = self.client(['kernels','push','-p',str(self.root/batch_id),
                 '--accelerator','NvidiaTeslaT4','--timeout',str(manifest['session_timeout'])],90)
             if not re.search(r'Kernel version \d+ successfully pushed', output):
-                raise RuntimeError('Submission acknowledgement missing')
+                raise ProviderError(classify(output))
         except Exception as exc:
-            self._set(batch_id,'submit_unknown',error=exc.code if isinstance(exc,ProviderError) else type(exc).__name__)
-            raise RuntimeError('Submission uncertain; reconcile status before any retry') from None
+            code=exception_code(exc)
+            # A typed quota/auth rejection still requires remote reconciliation.
+            self._set(batch_id,'submit_unknown',error=code)
+            atomic_json(folder/'submit-diagnostic.json',{'at':time.time(),'code':code})
+            raise ProviderError(code) from None
         self._set(batch_id,'submitted')
         return self.row(batch_id)
 
@@ -177,7 +228,7 @@ class Controller:
 
     def status(self, batch_id):
         before = self.row(batch_id)
-        if before['state']=='retired':
+        if before['state']=='retired' or (before['state'] in {'terminal','downloaded','imported','resolved'} and before['remote_status'] in TERMINAL):
             return before
         try:
             output = self.client(['kernels','status',self.owner+'/'+batch_id],45)
@@ -185,7 +236,7 @@ class Controller:
             return self._reconcile_absence(batch_id,before,exc)
         match = re.search(r'KernelWorkerStatus\.([A-Z]+)',output)
         if not match:
-            raise RuntimeError('Unrecognized status; retain previous state')
+            raise ProviderError('protocol')
         remote = match[1]
         if remote not in TERMINAL | {'QUEUED','RUNNING'}:
             raise RuntimeError('Unknown remote status: '+remote)
@@ -263,20 +314,21 @@ class Controller:
                               'first_at':previous['first_at'],'last_at':now,'retired':True})
             return self.row(batch_id)
 
-    def download(self, batch_id):
+    def download(self, batch_id, salvage=False):
         row = self.status(batch_id)
         if row['remote_status'] not in TERMINAL:
             raise RuntimeError('Remote job is still active')
         if row['state'] in {'downloaded','imported'}:
-            return self.verify_output(batch_id)
+            return self.verify_output(batch_id,salvage=salvage)
         folder = self.root/batch_id/'output'
         folder.mkdir(exist_ok=True)
         self.client(['kernels','output',self.owner+'/'+batch_id,'-p',str(folder)],180)
-        evidence = self.verify_output(batch_id)
+        evidence = self.verify_output(batch_id,salvage=salvage)
         self._set(batch_id,'downloaded',row['remote_status'])
         return evidence
 
-    def verify_output(self, batch_id):
+    def verify_output(self, batch_id, salvage=False):
+        if salvage:return self.salvage_output(batch_id)
         folder = self.root/batch_id
         manifest = self.manifest(batch_id)
         expected = {item['id']:item['input_hash'] for item in manifest['items']}
@@ -314,6 +366,49 @@ class Controller:
             'downloaded_items':len(results),'missing_ids':evidence['missing_ids'],
             'interrupted_partial_record':truncated_tail,
             'remote_status':self.row(batch_id)['remote_status'],'verified_at':time.time()})
+        return evidence
+
+    def salvage_output(self,batch_id):
+        """Recover independently valid records without ever editing raw output.
+
+        A poisoned/duplicate/mismatched item is excluded, not silently repaired.
+        Strict legacy verify_output remains available for diagnostics/tests.
+        """
+        folder=self.root/batch_id;manifest=self.manifest(batch_id)
+        if self.row(batch_id)['remote_status'] not in TERMINAL:raise ValueError('Output is not terminal')
+        expected={item['id']:item['input_hash'] for item in manifest['items']}
+        path=folder/'output/results.jsonl';valid={};poisoned=set();rejected=[];tail=False
+        if path.exists():
+            if path.stat().st_size>64*1024**2:raise ValueError('Output exceeds bounded parser limit')
+            with path.open('rb') as stream:
+                for index,line in enumerate(stream,1):
+                    key=None;reason=None
+                    try:
+                        if len(line)>2*1024**2:raise ValueError('oversized_record')
+                        value=json.loads(line)
+                        if not isinstance(value,dict):raise ValueError('invalid_record_type')
+                        key=value.get('id')
+                        if not isinstance(key,str) or key not in expected:raise ValueError('unknown_item')
+                        if value.get('batch_id')!=batch_id or value.get('manifest_hash')!=manifest['manifest_hash']:raise ValueError('wrong_batch')
+                        if value.get('input_hash')!=expected[key]:raise ValueError('wrong_input_version')
+                        if value.get('status') not in ('ok','error'):raise ValueError('invalid_item_status')
+                        if value['status']=='ok' and not isinstance(value.get('content'),str):raise ValueError('invalid_content')
+                        if key in valid:
+                            if valid[key]!=value:raise ValueError('conflicting_duplicate')
+                            continue
+                        if key not in poisoned:valid[key]=value
+                    except (ValueError,UnicodeError,TypeError,RecursionError) as exc:
+                        reason=str(exc) if str(exc) in {'oversized_record','invalid_record_type','unknown_item','wrong_batch','wrong_input_version','invalid_item_status','invalid_content','conflicting_duplicate'} else 'malformed_record'
+                        if isinstance(key,str) and key in expected:poisoned.add(key);valid.pop(key,None)
+                        tail=tail or not line.endswith(b'\n')
+                        rejected.append({'line':index,'id':key if isinstance(key,str) and key in expected else None,'code':reason})
+        results=[value for key,value in valid.items() if key not in poisoned]
+        evidence={'batch_id':batch_id,'results':results,'missing_ids':sorted(set(expected)-set(valid)),
+                  'interrupted_partial_record':tail,'rejected_records':rejected,'missing_results_file':not path.exists()}
+        atomic_json(folder/'verified-results.json',evidence)
+        atomic_json(folder/'download-verified.json',{'batch_id':batch_id,'result_sha256':hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None,
+                    'downloaded_items':len(results),'missing_ids':evidence['missing_ids'],'rejected_records':rejected,
+                    'remote_status':self.row(batch_id)['remote_status'],'verified_at':time.time(),'salvage':True})
         return evidence
 
     def retry(self,batch_id,template,invalid_ids=()):
