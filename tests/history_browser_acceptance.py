@@ -133,6 +133,8 @@ try:
             summary.click(); summary.click()
             assert len([path for path in calls if path.endswith("/history")]) == 1, "Reopening reuses displayed result"
             assert page.locator(".ai-dialog").evaluate("el => el.scrollWidth <= el.clientWidth"), "Dialog must not overflow horizontally"
+            page.locator('.ai-source-history').scroll_into_view_if_needed()
+            expect(page.get_by_text("RSS/Atom 本次暴露 4 条", exact=True)).to_be_in_viewport()
             screenshot = ROOT / "runtime" / f"history-{name}.png"
             page.screenshot(path=str(screenshot), full_page=True)
 
@@ -161,7 +163,11 @@ try:
             expect(refresh).to_be_disabled()
             page.get_by_role("button", name="关闭", exact=True).click()
             expect(page.locator(".ai-dialog")).to_have_count(0)
-            pending.clear()
+            while pending:
+                try:
+                    pending.pop().abort()
+                except PlaywrightError:
+                    pass  # The component may already have aborted this mock request.
             mode["value"] = "success"
             page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
             page.get_by_role("button", name="来源目录", exact=True).click()
@@ -187,6 +193,7 @@ try:
             page.screenshot(path=str(ROOT/'runtime'/f'quota-{name}.png'),full_page=True)
             assert not errors, errors
             report.append({"viewport": name, "passed": True, "checks": ["lazy query", "stored bounds/count", "feed window/date caveats", "collapse/reopen", "no overflow", "duplicate clicks", "failure/retry", "pending close/reopen", "Escape", "quota protection", "running recovery retained", "quota drop/restore"], "screenshot": str(screenshot)})
+            context.unroute_all(behavior='wait')
             context.close()
         browser.close()
 except Exception as exc:
