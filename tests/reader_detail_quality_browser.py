@@ -88,6 +88,7 @@ with sync_playwright() as pw:
     )
     check("proxy_attachment_preview_decodes", preview.evaluate("el=>el.naturalWidth") > 20)
 
+    page.get_by_role("button", name="关闭文章", exact=True).click()
     page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
     dialog = page.locator(".ai-dialog")
     dialog.wait_for(timeout=15000)
