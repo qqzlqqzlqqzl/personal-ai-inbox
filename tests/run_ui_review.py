@@ -27,6 +27,7 @@ stages=[
  ('fetch-js',[NODE,'tests/test_fetch_content.mjs'],None,30),
  ('prefetch-js',[NODE,'tests/test_reading_session.mjs'],None,30),
  ('ui-browser',[PY,'tests/ui_review_browser.py'],'artifacts/ui-review/browser.json',240),
+ ('reader-detail',[PY,'tests/reader_detail_quality_browser.py'],'artifacts/reader-detail-quality.json',120),
  ('native-tail',[PY,'tests/native_tail_acceptance.py'],'artifacts/ui-review/native-tail.json',210),
  ('comprehensive',[PY,'tests/browser_acceptance.py'],'artifacts/browser-acceptance-public.json',160),
  ('scroll',[PY,'tests/scroll_session_acceptance.py'],'artifacts/scroll-session/browser.json',260),
