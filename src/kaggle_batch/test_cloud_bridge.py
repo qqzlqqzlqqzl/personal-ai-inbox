@@ -105,8 +105,10 @@ class SourceVersionTests(unittest.TestCase):
         folder=Path(__file__).parent/'test-runs'/uuid.uuid4().hex
         folder.mkdir(parents=True)
         (folder/'before-import.sqlite3').write_bytes(b'incomplete')
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(sqlite3.OperationalError):
             backup_before_import(folder/'source.sqlite3',folder)
+        self.assertFalse((folder/'backup-complete.json').exists())
+        self.assertEqual(b'incomplete',next(folder.glob('incomplete-backup-*.sqlite3')).read_bytes())
 
 
 if __name__=='__main__':

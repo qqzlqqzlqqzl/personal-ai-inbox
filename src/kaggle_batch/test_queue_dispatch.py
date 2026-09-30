@@ -7,7 +7,7 @@ import unittest
 import uuid
 
 from cloud_cycle import drain
-from queue_dispatch import claimed_entries,defer_unresolved
+from queue_dispatch import claimed_entries,defer_unresolved,recovery_generation
 import test_import_results
 
 
@@ -27,6 +27,27 @@ class QueueTests(unittest.TestCase):
             roots.append(folder)
         self.assertEqual({11,12},claimed_entries(roots))
 
+    def test_uncertain_resume_reconciles_without_initial_poll_sleep(self):
+        root=Path(__file__).parent/'test-runs'/uuid.uuid4().hex;root.mkdir(parents=True)
+        state={'b':'submit_unknown'};sleeps=[]
+        control=SimpleNamespace(root=root,row=lambda batch:{'state':state[batch]})
+        def call(config,action,*args,timeout):
+            if action=='prepare':return {'existing_batch':'b'}
+            self.assertEqual('advance',action);state['b']='retired';return {'state':'retired'}
+        result=drain('config',{'batch_limit':20,'drain_queue':False},control,call,
+                     sleeps.append,lambda:0)
+        self.assertEqual('retired_missing_remote',result['state']);self.assertEqual(0,result['completed_batches']);self.assertEqual([],sleeps)
+
+    def test_single_batch_local_retry_is_not_reported_as_completed(self):
+        root=Path(__file__).parent/'test-runs'/uuid.uuid4().hex;root.mkdir(parents=True)
+        control=SimpleNamespace(root=root,row=lambda batch:{'state':'downloaded'})
+        def call(config,action,*args,timeout):
+            if action=='prepare':return {'existing_batch':'cached'}
+            return {'state':'local_retry_scheduled','retry_at':time.time()+660}
+        result=drain('config',{'batch_limit':20,'drain_queue':False},control,call,lambda n:None,lambda:0)
+        self.assertEqual('local_retry_scheduled',result['state'])
+        self.assertEqual(0,result['completed_batches'])
+
     def test_failed_input_retries_are_idempotent_and_bounded(self):
         fixture=test_import_results.ImportTests()
         fixture.setUp()
@@ -39,6 +60,24 @@ class QueueTests(unittest.TestCase):
             defer_unresolved(fixture.path,fixture.manifest,outcome)
             self.assertEqual(attempt,fixture.read()['attempts'])
         self.assertEqual('requires_model_review',fixture.read()['state'])
+        self.assertIsNone(fixture.read()['result'])
+
+    def test_infrastructure_failures_preserve_quality_budget_and_new_retry_identity(self):
+        fixture=test_import_results.ImportTests();fixture.setUp()
+        with fixture.db() as db:db.execute('UPDATE analyses SET attempts=1,next_try=0')
+        last_delay=0
+        for attempt in range(1,5):
+            fixture.manifest['batch_id']='interrupted-'+str(attempt)
+            outcome={'items':[{'id':'analysis-1','state':'invalid'}]}
+            actions=defer_unresolved(fixture.path,fixture.manifest,outcome,delay=660,infrastructure_ids={'analysis-1'})
+            self.assertEqual('infrastructure_retry_scheduled',actions[0]['action'])
+            self.assertEqual(1,fixture.read()['attempts']);self.assertEqual('ai_error',fixture.read()['state'])
+            self.assertEqual(attempt,recovery_generation(fixture.path,fixture.manifest))
+            before=fixture.read()
+            defer_unresolved(fixture.path,fixture.manifest,outcome,delay=660,infrastructure_ids={'analysis-1'})
+            self.assertEqual(before,fixture.read());self.assertEqual(attempt,recovery_generation(fixture.path,fixture.manifest))
+            delay=fixture.read()['next_try']-fixture.read()['updated_at']
+            self.assertGreaterEqual(delay,last_delay);last_delay=delay
         self.assertIsNone(fixture.read()['result'])
 
     def test_retry_preserves_changed_sources_and_concurrent_success(self):
