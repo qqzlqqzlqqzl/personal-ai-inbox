@@ -38,13 +38,13 @@ class FulltextBridgeTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.db.close()
 
-    async def prepare(self,fetch,excluded=(),allowed=None):
+    async def prepare(self,fetch,excluded=(),allowed=None,independent=False):
         with patch('cloud_bridge.load_inbox',return_value=(self.core,self.worker,self.cards)), \
              patch.dict('sys.modules',{'content_input':SimpleNamespace(content_text=lambda text:(text,0),is_our_social_feed=lambda url:False),
                                       'product_source':SimpleNamespace(is_product_entry=lambda entry:False),
                                       'prepared_content':SimpleNamespace(apply=lambda entry:entry)}), \
              patch('fulltext_source.fetch',fetch):
-            return await prepare_sample('.',1,excluded,allowed)
+            return await prepare_sample('.',1,excluded,allowed,independent_cards=independent)
 
     async def test_pilot_allowlist_excludes_other_queue_entries(self):
         fetch=AsyncMock(return_value=self.body)
@@ -68,6 +68,25 @@ class FulltextBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1,len(self.enqueued))
         self.worker.process_one.assert_not_called()
 
+    async def test_edited_headline_does_not_block_unfinished_article(self):
+        self.entry['title']='Updated title'
+        sample=await self.prepare(AsyncMock(return_value=self.body),independent=True)
+        self.assertEqual('Updated title',sample['samples'][0]['title'])
+        self.assertEqual('Complete publisher article',sample['samples'][0]['source_text'])
+        self.assertEqual('Updated title',self.db.execute('SELECT title FROM analyses').fetchone()[0])
+
+    async def test_title_refresh_does_not_accept_changed_url_or_owner(self):
+        for field,value in (('url','https://other.example/article'),('user_id',9)):
+            with self.subTest(field=field):
+                original=self.entry.copy()
+                self.entry.update(title='Updated title',**{field:value})
+                fetch=AsyncMock(return_value=self.body)
+                sample=await self.prepare(fetch,independent=True)
+                self.assertEqual([],sample['samples'])
+                fetch.assert_not_called()
+                self.assertEqual('Title',self.db.execute('SELECT title FROM analyses').fetchone()[0])
+                self.entry.clear();self.entry.update(original)
+
     async def test_empty_rss_does_not_prevent_fetching_publisher_body(self):
         self.entry['content']=''
         self.db.execute("UPDATE analyses SET source_text=NULL,content_hash=NULL,state='pending'")
@@ -88,6 +107,31 @@ class FulltextBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([],sample['samples'])
         self.assertEqual('upstream_changed_during_fulltext',sample['skipped'][0]['state'])
         self.assertEqual('Old RSS excerpt',self.db.execute('SELECT source_text FROM analyses').fetchone()[0])
+
+    async def test_independent_card_translation_never_scores_missing_body(self):
+        self.db.execute("INSERT INTO card_translations VALUES(1,2,'pending',0,0)")
+        sample=await self.prepare(AsyncMock(side_effect=FulltextUnavailable('missing_body')),independent=True)
+        self.assertEqual(1,len(sample['samples']))
+        self.assertTrue(sample['samples'][0]['skip_analysis'])
+        self.assertEqual('pending',sample['samples'][0]['card']['status'])
+        self.assertEqual('requires_fulltext_adapter',self.db.execute('SELECT state FROM analyses').fetchone()[0])
+
+    async def test_blocked_analysis_can_retry_card_without_fetching_body(self):
+        self.db.execute("UPDATE analyses SET state='requires_fulltext_adapter'")
+        self.db.execute("INSERT INTO card_translations VALUES(1,2,'pending',0,0)")
+        fetch=AsyncMock(side_effect=AssertionError('Must not score excerpt'))
+        sample=await self.prepare(fetch,independent=True)
+        self.assertTrue(sample['samples'][0]['skip_analysis'])
+        fetch.assert_not_called()
+
+    async def test_transient_fetch_failure_has_bounded_delayed_retry(self):
+        import time
+        sample=await self.prepare(AsyncMock(side_effect=FulltextUnavailable('original_fetch_ReadTimeout')))
+        row=self.db.execute('SELECT state,attempts,next_try FROM analyses').fetchone()
+        self.assertEqual('fetch_error',row['state'])
+        self.assertEqual(1,row['attempts'])
+        self.assertGreaterEqual(row['next_try'],time.time()+650)
+        self.assertEqual([],sample['samples'])
 
     async def test_concurrent_completed_result_is_preserved(self):
         async def fetch(url):
