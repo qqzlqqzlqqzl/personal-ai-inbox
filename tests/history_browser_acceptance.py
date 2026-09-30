@@ -59,15 +59,17 @@ try:
         for name, width in [("desktop", 1440), ("mobile", 390)]:
             context = browser.new_context(viewport={"width": width, "height": 900}, locale="zh-CN", service_workers="block")
             context.add_init_script("localStorage.setItem('auth', JSON.stringify({server: location.origin + '/mf', token: 'test-only', username:'', password:''}))")
-            pending, calls, errors = [], [], []
+            pending, calls, errors, writes = [], [], [], []
             mode = {"value": "success"}
             quota = {"available": True}
             feed = {"id": 7, "user_id": 1, "title": "Manual source", "feed_url": "https://example.org/feed",
                     "site_url": "https://example.org", "category": {"id": 1, "title": "技术博客"}}
 
-            def api_route(route, _request, *, calls=calls, mode=mode, pending=pending, feed=feed, quota=quota):
+            def api_route(route, _request, *, calls=calls, mode=mode, pending=pending, feed=feed, quota=quota, writes=writes):
                 path = urlsplit(route.request.url).path
                 calls.append(path)
+                if route.request.method not in ("GET", "HEAD", "OPTIONS"):
+                    writes.append((route.request.method, path))
                 if path.endswith("/history"):
                     if mode["value"] == "pending":
                         pending.append(route)
@@ -119,6 +121,20 @@ try:
             page.set_default_timeout(15000)
             page.on("pageerror", lambda err, errors=errors: errors.append(str(err)))
             page.goto(base + "/inbox/today")
+            # Both lenses name their scope; cancelling must not update any entries.
+            page.get_by_role("button", name="全部原始", exact=True).click()
+            mark = page.get_by_role("button", name="标记今天的全部文章为已读", exact=True)
+            expect(mark).to_be_visible()
+            before_writes = list(writes)
+            mark.click()
+            confirm = page.locator(".mark-all-read-popconfirm")
+            expect(confirm.get_by_text("标记今天的全部文章为已读？", exact=True)).to_be_visible()
+            confirm.get_by_role("button", name="取消", exact=True).click()
+            expect(confirm).to_be_hidden()
+            assert writes == before_writes, "Cancel must not mark entries read"
+            page.get_by_role("button", name="AI 精选", exact=True).click()
+            expect(page.get_by_role("button", name="标记今天筛选出的文章为已读", exact=True)).to_be_visible()
+            assert page.url.endswith("/today"), "Changing lenses must preserve Today"
             page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
             page.get_by_role("button", name="来源目录", exact=True).click()
             expect(page.get_by_text("Manual source", exact=True)).to_be_visible()
@@ -192,7 +208,7 @@ try:
             assert dialog.evaluate('el => el.scrollWidth <= el.clientWidth'), 'Quota dashboard must not overflow'
             page.screenshot(path=str(ROOT/'runtime'/f'quota-{name}.png'),full_page=True)
             assert not errors, errors
-            report.append({"viewport": name, "passed": True, "checks": ["lazy query", "stored bounds/count", "feed window/date caveats", "collapse/reopen", "no overflow", "duplicate clicks", "failure/retry", "pending close/reopen", "Escape", "quota protection", "running recovery retained", "quota drop/restore"], "screenshot": str(screenshot)})
+            report.append({"viewport": name, "passed": True, "checks": ["bulk read scope labels", "bulk cancel without writes", "lens preserves Today", "lazy query", "stored bounds/count", "feed window/date caveats", "collapse/reopen", "no overflow", "duplicate clicks", "failure/retry", "pending close/reopen", "Escape", "quota protection", "running recovery retained", "quota drop/restore"], "screenshot": str(screenshot)})
             context.unroute_all(behavior='wait')
             context.close()
         browser.close()
@@ -209,3 +225,4 @@ finally:
     server.server_close()
     (ROOT/'runtime/browser-acceptance.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
 print(json.dumps(report, ensure_ascii=False, indent=2))
+

@@ -339,6 +339,12 @@ patch(
 )
 
 # Bulk mark-read must use exactly the visible result set.
+shutil.copy2(ROOT / "patches/bulk-read-label.js", WEB / "src/utils/bulk-read-label.js")
+patch(
+    "src/components/Content/FooterPanel.jsx",
+    'import findAdjacentItem from "@/utils/navigation"',
+    'import findAdjacentItem from "@/utils/navigation"\nimport { bulkReadLabel } from "@/utils/bulk-read-label"',
+)
 patch(
     "src/components/Content/FooterPanel.jsx",
     '''  getFeedEntries,
@@ -364,17 +370,19 @@ patch(
     'const MarkAllReadButton = ({ from, onConfirm }) => {',
     'const MarkAllReadButton = ({ filtered, from, onConfirm }) => {',
 )
-patch(
+normalize(
     "src/components/Content/FooterPanel.jsx",
-    '''  const markAllReadLabel = polyglot.t("article_list.mark_all_as_read_tooltip")''',
-    '''  const markAllReadLabel = filtered
+    ['  const markAllReadLabel = polyglot.t("article_list.mark_all_as_read_tooltip")',
+     '''  const markAllReadLabel = filtered
     ? "标记当前筛选结果为已读"
-    : polyglot.t("article_list.mark_all_as_read_tooltip")''',
+    : polyglot.t("article_list.mark_all_as_read_tooltip")'''],
+    '  const markAllReadLabel = bulkReadLabel(from, filtered)',
 )
-patch(
+normalize(
     "src/components/Content/FooterPanel.jsx",
-    '      title={polyglot.t("article_list.mark_all_as_read_confirm")}',
-    '      title={filtered ? "标记当前筛选结果为已读？" : polyglot.t("article_list.mark_all_as_read_confirm")}',
+    ['      title={polyglot.t("article_list.mark_all_as_read_confirm")}',
+     '      title={filtered ? "标记当前筛选结果为已读？" : polyglot.t("article_list.mark_all_as_read_confirm")}'],
+    '      title={`${markAllReadLabel}？`}',
 )
 patch(
     "src/components/Content/FooterPanel.jsx",
@@ -510,4 +518,5 @@ for original in BACK.rglob("*"):
             ))
 (ROOT / "patches/reactflux.patch").write_text("".join(diffs))
 print("Scope × AI filter overlay applied")
+
 

@@ -213,7 +213,7 @@ with client() as api:
                 with page.expect_response(lambda r:is_list_response(r,feed_path,"recommended") and qdict(r.url).get("search")==[term],timeout=30000):
                     page.get_by_role("button",name="确定",exact=True).click()
                 page.locator(f'[data-entry-id="{target["id"]}"]').wait_for(timeout=30000)
-                mark=page.get_by_role("button",name="标记当前筛选结果为已读",exact=True)
+                mark=page.get_by_role("button",name="标记当前订阅源筛选出的文章为已读",exact=True)
                 expect(mark).to_be_visible()
                 mark.click()
                 confirm=page.locator(".mark-all-read-popconfirm")
@@ -243,3 +243,4 @@ report["passed"]=not report.get("error") and all(c["passed"] for c in report["ch
 (OUT/"browser.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
 print(json.dumps({"passed":report["passed"],"checks":len(report["checks"]),"error":report.get("error")},ensure_ascii=False))
 raise SystemExit(0 if report["passed"] else 1)
+
