@@ -109,11 +109,20 @@ async def process_one(client, row, cfg):
             return
         from product_source import is_product_entry, enrich_product_entry
         product = is_product_entry(entry)
+        from adafruit_source import is_adafruit, resolve as resolve_adafruit
+        adafruit = is_adafruit(entry['url'])
         social = is_our_social_feed(entry.get("feed", {}).get("feed_url", ""))
         source = "social_adapter_post" if social else "original_url"
         current = entry.get("content", "")
         cover_url = row["cover_url"] if "cover_url" in row.keys() else None
         cover_source = row["cover_source"] if "cover_source" in row.keys() else None
+        if adafruit:
+            fulltext = await resolve_adafruit(entry)
+            current = fulltext['html']
+            source = fulltext['receipt']['source']
+            if source == 'adafruit_linked_original':
+                from prepared_content import remember
+                remember(entry,current,source,fulltext['receipt'])
         if product:
             prepared = await enrich_product_entry(client, entry, MF, worker_headers())
             current = prepared["content"]
@@ -128,7 +137,7 @@ async def process_one(client, row, cfg):
             )
             if cover_url:
                 update(entry_id, cover_url=cover_url, cover_source=cover_source)
-        if not social and not product and (
+        if not social and not product and not adafruit and (
             not row["extracted_at"] or hash_text(current) != row["content_hash"]
         ):
             update(entry_id, state="fetching")
@@ -145,7 +154,7 @@ async def process_one(client, row, cfg):
                     log.warning("ai-news body_image_repair deferred entry_id=%s", entry_id)
             if not current:
                 raise ValueError("Original extraction returned no content")
-        if not social and not product:
+        if not social and not product and not adafruit:
             current = await add_original_cover(
                 client, entry, current, MF, worker_headers()
             )

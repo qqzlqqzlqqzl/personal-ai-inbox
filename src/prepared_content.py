@@ -1,5 +1,6 @@
 """Durable prepared article bodies: feed polling must not erase non-AI repairs."""
 import hashlib
+import json
 import time
 from bs4 import BeautifulSoup
 import core
@@ -13,6 +14,9 @@ def migrate():
           entry_id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,url TEXT NOT NULL,
           title TEXT NOT NULL,content TEXT NOT NULL,kind TEXT NOT NULL,
           input_text_hash TEXT NOT NULL,prepared_at REAL NOT NULL)''')
+        columns = {row[1] for row in db.execute('PRAGMA table_info(prepared_articles)')}
+        if 'source_receipt' not in columns:
+            db.execute('ALTER TABLE prepared_articles ADD COLUMN source_receipt TEXT')
 
 
 def text_hash(html):
@@ -20,15 +24,18 @@ def text_hash(html):
     return hashlib.sha256(' '.join(text.split()).encode()).hexdigest()
 
 
-def remember(entry, content, kind):
-    if kind not in ('product_page', 'body_images_repaired'):
+def remember(entry, content, kind, receipt=None):
+    if kind not in ('product_page', 'body_images_repaired', 'adafruit_linked_original'):
         raise ValueError('unsupported_prepared_content_kind')
     if not content or len(content.encode()) > 2 * 1024 * 1024:
         raise ValueError('prepared_content_invalid_size')
     with core.connect() as db:
-        db.execute('''INSERT OR REPLACE INTO prepared_articles VALUES (?,?,?,?,?,?,?,?)''',
+        db.execute('''INSERT OR REPLACE INTO prepared_articles
+                   (entry_id,user_id,url,title,content,kind,input_text_hash,prepared_at,source_receipt)
+                   VALUES (?,?,?,?,?,?,?,?,?)''',
                    (entry['id'], entry['user_id'], entry['url'], entry['title'], content,
-                    kind, text_hash(entry.get('content', '')), time.time()))
+                    kind, text_hash(entry.get('content', '')), time.time(),
+                    json.dumps(receipt) if receipt else None))
 
 
 def apply(entry):
@@ -45,9 +52,15 @@ def apply(entry):
         # Never hide a new longer source article or overwrite already enriched copy.
         if PRODUCT_LABEL in raw or len(BeautifulSoup(raw,'html.parser').get_text(' ',strip=True)) > 800:
             return entry
+    elif row['kind'] == 'adafruit_linked_original':
+        # A changed upstream body invalidates the repair rather than silently hiding it.
+        if text_hash(raw) != row['input_text_hash']:
+            return entry
     else:
         from media_repair import needs_repair
         if not needs_repair(raw) or text_hash(raw) != row['input_text_hash']:
             return entry
     return {**entry, 'content':row['content'], 'prepared_source':row['kind'],
-            'prepared_at':row['prepared_at']}
+            'prepared_at':row['prepared_at'],
+            **({'content_source_url':json.loads(row['source_receipt']).get('url'),
+                'fulltext_receipt':json.loads(row['source_receipt'])} if row['source_receipt'] else {})}
