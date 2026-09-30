@@ -104,6 +104,13 @@ with sync_playwright() as pw:
     expect(dashboard.get_by_text("阅读器 · 正常", exact=True)).to_be_visible()
     expect(dashboard.get_by_text("RSSHub · 正常", exact=True)).to_be_visible()
     check("dashboard_service_health", True)
+    kaggle_cards = dashboard.locator(".ai-kaggle-card")
+    expect(kaggle_cards).to_have_count(5)
+    for number in range(1, 6):
+        expect(dashboard.get_by_text(f"Kaggle {number}", exact=True)).to_be_visible()
+    check("five_kaggle_lanes_visible", True)
+    quota_text = " ".join(kaggle_cards.all_inner_texts())
+    check("kaggle_gpu_quota_visible", "GPU / 30.00h" in quota_text and "剩余" in quota_text, quota_text[:900])
     check("no_fatal_javascript_errors", not errors, errors)
     browser.close()
 
