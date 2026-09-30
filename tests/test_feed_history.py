@@ -348,3 +348,31 @@ async def test_invalid_feed_url_keeps_available_stored_history(history_api,url):
     assert value['stored']['count']==19
     assert value['feed_window']['state']=='unavailable'
     assert url not in str(value['feed_window'])
+
+
+@pytest.mark.asyncio
+async def test_stored_legacy_miniflux_reports_supported_status_scope():
+    def upstream(request):
+        if "removed" in request.url.params.get_list("status"):
+            return httpx.Response(400, json={"error_message": 'invalid entry status, valid status values are: "read" and "unread"'})
+        assert request.url.params.get_list("status") == ["read", "unread"]
+        date = "2020-01-01T00:00:00Z" if request.url.params["direction"] == "asc" else "2026-09-22T00:00:00Z"
+        return httpx.Response(200, json={"total": 168, "entries": [{"published_at": date}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        result = await history.stored_history(client, "http://reader", {}, 36)
+    assert result["state"] == "ok" and result["count"] == 168
+    assert result["includes_removed"] is False
+    assert result["oldest_published_at"] == "2020-01-01T00:00:00Z"
+    assert result["newest_published_at"] == "2026-09-22T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_stored_unrelated_bad_request_is_not_retried():
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(400, json={"error_message": "invalid feed"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        result = await history.stored_history(client, "http://reader", {}, 36)
+    assert result == {"state": "unavailable", "count": None}
+    assert len(calls) <= 2
