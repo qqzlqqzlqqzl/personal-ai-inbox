@@ -1,7 +1,7 @@
 """Isolated built-reader history QA; every API request is mocked, no live data.
 
 Usage: AI_NEWS_TEST_BUILD=runtime/history-build python tests/history_browser_acceptance.py
-Requires a built /inbox/ reader, Playwright, and CHROMIUM_EXECUTABLE (default chromium).
+Requires a built /inbox/ reader and Playwright's Chromium (or CHROMIUM_EXECUTABLE).
 """
 import functools
 import json
@@ -11,6 +11,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,21 +49,23 @@ server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, direct
 thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 base = f"http://127.0.0.1:{server.server_port}"
+local_origin = (urlsplit(base).scheme, urlsplit(base).netloc)
 report = []
+ROOT.joinpath('runtime').mkdir(exist_ok=True)
 try:
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_EXECUTABLE", "/usr/bin/chromium"),
-                                    headless=True, args=["--no-sandbox"],
-                                    env={**os.environ, "HOME": str(ROOT / "runtime/browser-test-home")})
+        browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_EXECUTABLE") or None,
+                                    headless=True, args=["--no-sandbox"])
         for name, width in [("desktop", 1440), ("mobile", 390)]:
             context = browser.new_context(viewport={"width": width, "height": 900}, locale="zh-CN", service_workers="block")
             context.add_init_script("localStorage.setItem('auth', JSON.stringify({server: location.origin + '/mf', token: 'test-only', username:'', password:''}))")
             pending, calls, errors = [], [], []
             mode = {"value": "success"}
+            quota = {"available": True}
             feed = {"id": 7, "user_id": 1, "title": "Manual source", "feed_url": "https://example.org/feed",
                     "site_url": "https://example.org", "category": {"id": 1, "title": "技术博客"}}
 
-            def api_route(route, calls=calls, mode=mode, pending=pending, feed=feed):
+            def api_route(route, calls=calls, mode=mode, pending=pending, feed=feed, quota=quota):
                 path = urlsplit(route.request.url).path
                 calls.append(path)
                 if path.endswith("/history"):
@@ -76,13 +79,27 @@ try:
                 elif path.endswith("/ai/settings"):
                     body = {"enabled": False, "translation_enabled": False, "base_url": "https://example.org", "model": "test-model", "prompt": "test", "minimum_score": 6, "daily_articles": 80, "daily_tokens": 500000, "max_chars": 40000, "json_mode": True}
                 elif path.endswith("/ai/status"):
-                    body = {"counts": {}, "coverage": {}, "usage": [], "events": [], "kaggle": {}, "resources": {}}
+                    def lane(remaining, state, allowed, active=False):
+                        return {"service":{"ActiveState":"active" if active else "inactive"},
+                                "outstanding":{"state":"running"} if active else None,
+                                "quota":{"state":"ok" if state!='quota_unknown' else 'stale',
+                                         "gpu":{"remaining_hours":remaining,"total_hours":30,"used_hours":0}},
+                                "quota_gate":{"state":state,"allowed":allowed}}
+                    body = {"counts": {}, "coverage": {}, "usage": [], "events": [], "resources": {},
+                            "kaggle":{"enabled":True,"lanes":{
+                                "primary":lane(0.26,'quota_reserved',False,True),
+                                "secondary":lane(0,'quota_reserved',False),
+                                "third":lane(1.01 if quota['available'] else 1.00,'available' if quota['available'] else 'quota_reserved',quota['available']),
+                                "fourth":lane(20,'quota_unknown',False),
+                                "fifth":lane(None,'quota_unknown',False)}}}
                 elif path.endswith("/ai/catalog"):
                     body = [{"name": feed["title"], "url": feed["feed_url"], "category": "技术博客", "status": "subscribed", "subscribed": True, "feed_id": 7}]
                 elif path.endswith("/ai/x/roster"):
                     body = {"counts": {"total": 0, "timeline_nonempty": 0, "timeline_empty": 0, "empty_with_fallback": 0}, "sources": []}
                 elif path.endswith("/me"):
                     body = {"id": 1, "username": "test", "is_admin": True}
+                elif path.endswith("/version"):
+                    body = {"version":"2.3.3"}
                 elif path.endswith("/categories"):
                     body = [{"id": 1, "title": "技术博客"}]
                 elif path.endswith("/feeds/counters"):
@@ -97,8 +114,9 @@ try:
 
             context.route("**/mf/**", api_route)
             # No external requests (including version checks) leave this harness.
-            context.route(lambda url: not url.startswith(base), lambda route: route.abort())
+            context.route(lambda url: (urlsplit(url).scheme,urlsplit(url).netloc)!=local_origin, lambda route: route.abort())
             page = context.new_page()
+            page.set_default_timeout(15000)
             page.on("pageerror", lambda err, errors=errors: errors.append(str(err)))
             page.goto(base + "/inbox/today")
             page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
@@ -152,11 +170,35 @@ try:
             expect(page.get_by_text("RSS/Atom 本次暴露 4 条", exact=True)).to_be_visible()
             page.keyboard.press("Escape")
             expect(page.locator(".ai-dialog")).to_have_count(0)
+            page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
+            dialog=page.locator('.ai-dialog')
+            dialog.get_by_role('button',name='资源看板',exact=True).click()
+            expect(dialog.locator('[data-quota-state="quota_reserved"]')).to_have_count(2)
+            expect(dialog.locator('[data-quota-state="quota_unknown"]')).to_have_count(2)
+            expect(dialog.locator('[data-quota-state="available"]')).to_have_count(1)
+            expect(dialog.locator('.ai-kaggle-card').filter(has_text='Kaggle 1').get_by_text('运行中',exact=True)).to_be_visible()
+            quota['available']=False
+            dialog.get_by_role('button',name='刷新看板',exact=True).click()
+            expect(dialog.locator('[data-quota-state="quota_reserved"]')).to_have_count(3)
+            quota['available']=True
+            dialog.get_by_role('button',name='刷新看板',exact=True).click()
+            expect(dialog.locator('[data-quota-state="available"]')).to_have_count(1)
+            assert dialog.evaluate('el => el.scrollWidth <= el.clientWidth'), 'Quota dashboard must not overflow'
+            page.screenshot(path=str(ROOT/'runtime'/f'quota-{name}.png'),full_page=True)
             assert not errors, errors
-            report.append({"viewport": name, "passed": True, "checks": ["lazy query", "stored bounds/count", "feed window/date caveats", "collapse/reopen", "no overflow", "duplicate clicks", "failure/retry", "pending close/reopen", "Escape"], "screenshot": str(screenshot)})
+            report.append({"viewport": name, "passed": True, "checks": ["lazy query", "stored bounds/count", "feed window/date caveats", "collapse/reopen", "no overflow", "duplicate clicks", "failure/retry", "pending close/reopen", "Escape", "quota protection", "running recovery retained", "quota drop/restore"], "screenshot": str(screenshot)})
             context.close()
         browser.close()
+except Exception as exc:
+    report.append({'passed':False,'error_type':type(exc).__name__})
+    try:
+        if 'page' in locals() and not page.is_closed():
+            page.screenshot(path=str(ROOT/'runtime/browser-failure.png'),full_page=True)
+    except (PlaywrightError,OSError):
+        pass  # Preserve the original failure even if the browser has already closed.
+    raise
 finally:
     server.shutdown()
     server.server_close()
+    (ROOT/'runtime/browser-acceptance.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
 print(json.dumps(report, ensure_ascii=False, indent=2))
