@@ -213,7 +213,7 @@ async def probe_feed(feed, user_id):
                         break
     except httpx.HTTPStatusError as exc:
         result = {"state": "unavailable", "reason": f"http_{exc.response.status_code}", "checked_at": checked_at}
-    except (httpx.HTTPError, TimeoutError, ValueError, OSError) as exc:
+    except (httpx.InvalidURL, httpx.HTTPError, TimeoutError, ValueError, OSError) as exc:
         # Do not echo exception text: it can contain private feed URLs/tokens.
         reason = str(exc) if type(exc) is ValueError and str(exc) in {
             "unsupported_redirect", "feed_too_large", "unsupported_xml_declaration",

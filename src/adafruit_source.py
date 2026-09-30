@@ -179,7 +179,8 @@ async def resolve(entry, client=None):
                        page_sha256=hashlib.sha256(raw).hexdigest())
         result.update(html=body, source_text=text,
                       image_count=len(BeautifulSoup(body,'html.parser').find_all('img')))
-    except (OriginalUnavailable, httpx.HTTPError, asyncio.TimeoutError) as exc:
-        receipt['follow_status'] = str(exc) if isinstance(exc,OriginalUnavailable) else type(exc).__name__
+    except (ValueError, httpx.InvalidURL, httpx.HTTPError, asyncio.TimeoutError) as exc:
+        receipt['follow_status'] = (str(exc) if isinstance(exc,OriginalUnavailable)
+            else 'original_invalid_url' if isinstance(exc,(ValueError,httpx.InvalidURL)) else type(exc).__name__)
     receipt.update(chars=len(result['source_text']), body_sha256=hashlib.sha256(result['source_text'].encode()).hexdigest())
     return result

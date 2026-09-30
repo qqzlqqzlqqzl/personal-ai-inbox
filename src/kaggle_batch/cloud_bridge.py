@@ -12,7 +12,7 @@ import sys
 import time
 import sqlite3
 
-from batch_control import Controller, TERMINAL, atomic_json, digest
+from batch_control import Controller, RetiredManifest, TERMINAL, atomic_json, digest
 from build_manifest import build
 from live_scope import resolve_entry_ids
 from import_results import import_validated
@@ -303,7 +303,12 @@ def main():
             manifest['parallel_requests']=config.get('parallel_requests',1)
             manifest['split_mode']=config.get('split_mode','layer')
             manifest['ubatch_size']=config.get('ubatch_size',128)
-            batch=control.prepare(manifest,Path(__file__).with_name('batch_runner.py').read_text(encoding='utf-8'))
+            try:
+                batch=control.prepare(manifest,Path(__file__).with_name('batch_runner.py').read_text(encoding='utf-8'))
+            except RetiredManifest as exc:
+                print(json.dumps({'state':'retired_manifest_requires_new_attempt','batch_id':exc.batch_id,
+                                  'gpu_started':False,'recovery_required':True}))
+                return
             if batch:
                 atomic_json(root/batch/'extraction-report.json',{'selected':len(sample['samples']),'skipped':sample['skipped']})
             print(json.dumps({'batch_id':batch,'selected':len(sample['samples']),'skipped':len(sample['skipped']),
@@ -313,7 +318,7 @@ def main():
         if not args.batch:
             raise ValueError('advance requires --batch')
         row=control.row(args.batch)
-        if row['state'] in {'imported','resolved'}:
+        if row['state'] in {'imported','resolved','retired'}:
             print(json.dumps(row))
             return
         if row['state']=='prepared':

@@ -89,6 +89,25 @@ async def test_http_failure_and_timeout_keep_summary():
     assert result['receipt']['follow_status']=='ReadTimeout'
 
 
+@pytest.mark.parametrize('malformed',['body_link','canonical','redirect'])
+@pytest.mark.asyncio
+async def test_malformed_external_urls_preserve_complete_summary(malformed):
+    def respond(request):
+        if malformed=='redirect':
+            return httpx.Response(302,headers={'location':'http://[broken'})
+        body=page()
+        if malformed=='canonical':
+            body=body.replace(f'href="{ORIGINAL}"','href="http://[broken"')
+        else:
+            body=body.replace('Last paragraph.','Last paragraph.<a href="http://[broken">broken</a>')
+        return httpx.Response(200,text=body,headers={'content-type':'text/html'})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result=await resolve(entry(),client)
+    assert result['html']==SUMMARY
+    assert result['receipt']['source']=='adafruit_summary'
+    assert result['receipt']['follow_status']=='original_invalid_url'
+
+
 @pytest.mark.parametrize('target',['http://127.0.0.1/','https://medium.com/story','https://user@ep-news.web.cern.ch/story'])
 @pytest.mark.asyncio
 async def test_redirect_target_rejected_before_request(target):
