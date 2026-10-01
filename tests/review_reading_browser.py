@@ -6,6 +6,7 @@ from playwright.sync_api import expect
 h=Harness('review-reading');p=h.page
 modes={'save_error':False,'load_error':False,'hold_save':False,'image_ok':False}
 pending=[]
+h.feeds[0].update(icon={'feed_id':7,'icon_id':0},checked_at='2026-10-01T08:00:00Z',parsing_error_count=0,parsing_error_message='',disabled=False,hide_globally=False)
 content='<h2>第一章 控制原理</h2>'+''.join(f'<p>第{i}段：这是隔离阅读测试，检查排版与恢复操作，不发送生产请求。</p>' for i in range(12))+'<img src="https://images.example.test/board.svg" alt="电路板示意图"><h2>第二章 设计验证</h2><p>读取完整正文和笔记。</p>'
 def entry(eid):
     return {'id':eid,'user_id':1,'feed_id':7,'title':f'阅读验证文章 {eid}','url':f'https://example.test/article/{eid}','comments_url':'','author':'测试作者','content':content,'hash':str(eid),'published_at':'2026-10-01T08:00:00Z','created_at':'2026-10-01T08:00:00Z','changed_at':'2026-10-01T08:00:00Z','status':'read','starred':False,'reading_time':4,'enclosures':[],'feed':h.feeds[0],'ai':{'status':'pending','has_note':True}}
