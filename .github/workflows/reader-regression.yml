@@ -63,8 +63,23 @@ jobs:
       - name: Install hosted Chromium headless shell
         # The browser tests launch headless Chromium without a channel override.
         run: python -m playwright install --only-shell chromium
+      - name: Resolve CJK font from refreshed APT indices
+        id: cjk-package
+        # install-deps above refreshes signed APT indices; never cache this manifest.
+        run: python tests/ci_cjk_font.py prepare --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
+      - name: Restore exact CJK font archive
+        id: cjk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: 1
+        with:
+          path: ${{ runner.temp }}/reader-cjk-deb
+          key: ${{ steps.cjk-package.outputs.key }}
       - name: Install CJK fonts for browser evidence
-        run: sudo apt-get install -y fonts-noto-cjk
+        # Cache hits are untrusted: check every entry, size and SHA256 before sudo.
+        run: python tests/ci_cjk_font.py install --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
+      - name: Verify rendered Chinese glyph fonts
+        run: python tests/cjk_font_browser_acceptance.py
       - name: Desktop and mobile viewport UI regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -77,6 +92,12 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: python tests/review_reading_browser.py
+      - name: Save verified CJK font archive after full regression
+        if: steps.cjk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/reader-cjk-deb
+          key: ${{ steps.cjk-package.outputs.key }}
       - name: Retain synthetic test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -89,6 +110,7 @@ jobs:
             runtime/history-*.png
             runtime/quota-*.png
             runtime/browser-failure.png
+            runtime/cjk-font/
             runtime/review-console/
             runtime/review-reading/
             runtime/browser-build/
