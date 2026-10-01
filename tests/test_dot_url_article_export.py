@@ -364,6 +364,12 @@ class URLExportTests(unittest.TestCase):
         with mock.patch.object(exporter, 'export', side_effect=RuntimeError('SECRET_SENTINEL')), mock.patch('sys.stdout', output):
             self.assertEqual(exporter.main(argv), 1)
         self.assertEqual(json.loads(output.getvalue()), {'read_only': True, 'state': 'blocked', 'error': 'RuntimeError'})
+        for failure, expected in [(ValueError('secret_sentinel'), 'ValueError'),
+                                  (ValueError('invalid_batch_limit'), 'invalid_batch_limit')]:
+            output = io.StringIO()
+            with mock.patch.object(exporter, 'export', side_effect=failure), mock.patch('sys.stdout', output):
+                self.assertEqual(exporter.main(argv), 1)
+            self.assertEqual(json.loads(output.getvalue())['error'], expected)
 
 
 if __name__ == '__main__':

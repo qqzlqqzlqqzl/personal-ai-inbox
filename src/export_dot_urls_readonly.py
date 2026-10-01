@@ -20,6 +20,14 @@ import dot_url_article_import as contract
 from export_dot_articles_readonly import CARD_ELIGIBLE, ELIGIBLE, FINISHED, digest, ro
 
 EXPORTER_VERSION = 'dot-url-exporter-v1'
+SAFE_ERROR_CODES = frozenset({
+    'invalid_exclusion_ids', 'duplicate_exclusion_ids', 'invalid_live_feed_catalog',
+    'invalid_source_url', 'sensitive_source_url', 'complete_lane_roots_required',
+    'invalid_lane_state', 'orphan_lane_claim', 'incomplete_lane_manifest',
+    'invalid_lane_claim', 'invalid_prepare_lease', 'explicit_scope_user_mismatch',
+    'invalid_batch_limit', 'existing_paid_workers_enabled', 'invalid_analysis_prompt',
+    'invalid_output_token_policy',
+})
 HASH_SPEC = {
     'version': 'python-json-sha256-v1',
     'algorithm': 'sha256',
@@ -298,7 +306,7 @@ def main(argv=None):
         print(json.dumps(packet, ensure_ascii=False, allow_nan=False))
     except Exception as exc:  # noqa: BLE001 -- sanitize every CLI failure, including I/O/provider errors
         # Exception text can contain credentials, SQL, paths or private data.
-        code = str(exc) if type(exc) is ValueError and legacy.re_code(str(exc)) else type(exc).__name__
+        code = str(exc) if type(exc) is ValueError and str(exc) in SAFE_ERROR_CODES else type(exc).__name__
         print(json.dumps({'read_only': True, 'state': 'blocked', 'error': code}))
         return 1
     return 0
