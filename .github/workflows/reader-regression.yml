@@ -58,14 +58,26 @@ jobs:
           node tests/source_history_component_acceptance.mjs
       - name: Build isolated reader
         run: python tests/build_ci_reader.py
-      - name: Install Chromium system dependencies
-        run: python -m playwright install-deps chromium
+      - name: Resolve Chromium dependency archive transaction
+        id: playwright-deps
+        # Refresh signed indices exactly once; the manifest stays outside cache.
+        run: python tests/ci_playwright_deps.py prepare --cache "$RUNNER_TEMP/reader-playwright-debs" --manifest "$RUNNER_TEMP/reader-playwright-packages.json"
+      - name: Restore exact Playwright dependency archives
+        id: playwright-deps-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: 1
+        with:
+          path: ${{ runner.temp }}/reader-playwright-debs
+          key: ${{ steps.playwright-deps.outputs.key }}
+      - name: Verify and install Chromium system dependencies
+        run: python tests/ci_playwright_deps.py install --cache "$RUNNER_TEMP/reader-playwright-debs" --manifest "$RUNNER_TEMP/reader-playwright-packages.json"
       - name: Install hosted Chromium headless shell
         # The browser tests launch headless Chromium without a channel override.
         run: python -m playwright install --only-shell chromium
       - name: Resolve CJK font from refreshed APT indices
         id: cjk-package
-        # install-deps above refreshes signed APT indices; never cache this manifest.
+        # The dependency prepare step refreshes signed indices; never cache this manifest.
         run: python tests/ci_cjk_font.py prepare --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
       - name: Restore exact CJK font archive
         id: cjk-cache
@@ -92,6 +104,12 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: python tests/review_reading_browser.py
+      - name: Save verified Playwright dependency archives after full regression
+        if: steps.playwright-deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/reader-playwright-debs
+          key: ${{ steps.playwright-deps.outputs.key }}
       - name: Save verified CJK font archive after full regression
         if: steps.cjk-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -111,6 +129,7 @@ jobs:
             runtime/quota-*.png
             runtime/browser-failure.png
             runtime/cjk-font/
+            runtime/playwright-deps/
             runtime/review-console/
             runtime/review-reading/
             runtime/browser-build/
