@@ -26,7 +26,7 @@
   },
   "test_sha256": {
     "internal/api/entry_metadata_handler_test.go": "70f45e152c11b2eb1540840e3ab1ed65da4439f5e6fa8d22c77c6b21ac9bfee9",
-    "internal/api/entry_metadata_postgres_test.go": "a98aee8bee91eb9e3dcbb200f69d9d7930c09350f02e9a249881b4ec112c9632",
+    "internal/api/entry_metadata_postgres_test.go": "b2ca7638e5be0ebf7c97d5828a7a4fb9d4d556424f199e787effde6066526265",
     "internal/storage/entry_metadata_test.go": "b771920bc5c572cb5bc820e9598f975a7769aa0ea85ba2b82d16eac2f4e44e4c"
   }
 }

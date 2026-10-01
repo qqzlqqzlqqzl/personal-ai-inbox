@@ -3,6 +3,7 @@
 import copy
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest import mock
 
@@ -19,6 +20,7 @@ class CompatibilityGateTests(unittest.TestCase):
         self.origin = verify.PINS["upstream_repository"]
         self.blobs = copy.deepcopy(verify.PINS["upstream_blobs"])
         self.status = ""
+        self.others = ""
 
     def git(self, *args, cwd=None):
         self.assertEqual(cwd, self.source)
@@ -30,6 +32,8 @@ class CompatibilityGateTests(unittest.TestCase):
             return self.blobs[args[2][5:]]
         if args == ("git", "status", "--porcelain", "--untracked-files=all"):
             return self.status
+        if args == ("git", "ls-files", "--others"):
+            return self.others
         self.fail(f"unexpected gate command: {args}")
 
     def check_source(self):
@@ -59,6 +63,17 @@ class CompatibilityGateTests(unittest.TestCase):
             self.status = status
             with self.assertRaisesRegex(ValueError, "pristine"):
                 self.check_source()
+
+    def test_ignored_go_source_cannot_bypass_admission(self):
+        subprocess.run(["git", "init", "--quiet", str(self.source)], check=True)
+        (self.source / ".git/info/exclude").write_text("go.mod\nhidden.go\n")
+        (self.source / "hidden.go").write_text("package main\n")
+        hidden = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard"], cwd=self.source, text=True)
+        self.assertEqual(hidden, "", "fixture must be invisible to the former check")
+        self.others = subprocess.check_output(["git", "ls-files", "--others"], cwd=self.source, text=True).strip()
+        self.assertIn("hidden.go", self.others)
+        with self.assertRaisesRegex(ValueError, "including ignored build inputs"):
+            self.check_source()
 
     def test_toolchain_requirement_drift_is_rejected(self):
         (self.source / "go.mod").write_text("module miniflux.app/v2\n\ngo 1.27.0\n")

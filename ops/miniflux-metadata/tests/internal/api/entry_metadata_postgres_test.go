@@ -190,7 +190,7 @@ func (f *metadataPGFixture) exec(t *testing.T, query string, args ...any) {
 }
 func (f *metadataPGFixture) entry(t *testing.T, id int64, user int, status, published string) {
 	t.Helper()
-	f.exec(t, `INSERT INTO entries (id,user_id,feed_id,hash,published_at,changed_at,title,url,content,status) VALUES ($1,$2,$3,$4,$5,$5,$6,'https://example.invalid/entry',repeat('private-body-',100000),$7)`, id, f.users[user].ID, f.feeds[user], fmt.Sprintf("hash-%d", id), published, fmt.Sprintf("Title %d", id), status)
+	f.exec(t, `INSERT INTO entries (id,user_id,feed_id,hash,published_at,changed_at,title,url,author,content,status) VALUES ($1,$2,$3,$4,$5,$5,$6,'https://example.invalid/entry','',repeat('private-body-',100000),$7)`, id, f.users[user].ID, f.feeds[user], fmt.Sprintf("hash-%d", id), published, fmt.Sprintf("Title %d", id), status)
 }
 func (f *metadataPGFixture) call(method, path, body, token, username, password string, ctx context.Context) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -352,7 +352,7 @@ func TestMetadataPostgres(t *testing.T) {
 		if err := f.db.QueryRow(`INSERT INTO feeds(user_id,category_id,title,feed_url,site_url) VALUES ($1,$2,'deleted','https://example.invalid/deleted','https://example.invalid') RETURNING id`, f.users[0].ID, f.cats[0]).Scan(&doomed); err != nil {
 			t.Fatal(err)
 		}
-		f.exec(t, `INSERT INTO entries(id,user_id,feed_id,hash,published_at,changed_at,title,url) VALUES(77,$1,$2,'deleted',now(),now(),'deleted','https://example.invalid')`, f.users[0].ID, doomed)
+		f.exec(t, `INSERT INTO entries(id,user_id,feed_id,hash,published_at,changed_at,title,url,author) VALUES(77,$1,$2,'deleted',now(),now(),'deleted','https://example.invalid','')`, f.users[0].ID, doomed)
 		f.exec(t, `DELETE FROM feeds WHERE id=$1`, doomed)
 		w = f.call(http.MethodPost, endpoint, `{"entry_ids":[2,5,77,999999999]}`, f.tokens[0], "", "", nil)
 		if got := metadataIDs(t, w, f.users[0].ID); len(got) != 0 {
@@ -427,7 +427,7 @@ func TestMetadataPostgres(t *testing.T) {
 		f.assertQueryAudit(t, 0, 2)
 		w = f.call(http.MethodPost, endpoint, `{"entry_ids":[9223372036854775807]}`, f.tokens[0], "", "", nil)
 		metadataIDs(t, w, f.users[0].ID)
-		f.exec(t, `INSERT INTO entries(id,user_id,feed_id,hash,published_at,changed_at,title,url) SELECT n,$1,$2,'boundary-'||n,now(),now(),'boundary title','https://example.invalid' FROM generate_series(100,10099) n`, f.users[0].ID, f.feeds[0])
+		f.exec(t, `INSERT INTO entries(id,user_id,feed_id,hash,published_at,changed_at,title,url,author) SELECT n,$1,$2,'boundary-'||n,now(),now(),'boundary title','https://example.invalid','' FROM generate_series(100,10099) n`, f.users[0].ID, f.feeds[0])
 		ids := make([]int64, 10000)
 		for i := range ids {
 			ids[i] = int64(100 + i)

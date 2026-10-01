@@ -48,6 +48,7 @@ def verify_source(source, patched=False):
     require("\ngo 1.26.0\n" in (source / "go.mod").read_text(), "upstream Go requirement drift")
     if not patched:
         require(not run("git", "status", "--porcelain", "--untracked-files=all", cwd=source), "source tree must be pristine before application")
+        require(not run("git", "ls-files", "--others", cwd=source), "source tree contains additional files, including ignored build inputs")
         return
     files = {**PINS["patched_sha256"], **PINS["test_sha256"]}
     for name, sha in files.items():
@@ -55,7 +56,7 @@ def verify_source(source, patched=False):
     tracked = set(filter(None, run("git", "diff", "--name-only", cwd=source).splitlines()))
     require(tracked == {"internal/api/api.go"}, f"unexpected tracked edits: {tracked}")
     require(not run("git", "diff", "--cached", "--name-only", cwd=source), "unexpected staged changes")
-    untracked = set(filter(None, run("git", "ls-files", "--others", "--exclude-standard", cwd=source).splitlines()))
+    untracked = set(filter(None, run("git", "ls-files", "--others", cwd=source).splitlines()))
     require(untracked == set(files) - {"internal/api/api.go"}, f"unexpected source additions: {untracked}")
 
 
