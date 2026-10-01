@@ -161,7 +161,9 @@ patch(
     '''  const handleKeyDown = (event) => {
     if (event.key === "Enter") {''',
     '''  const handleKeyDown = (event) => {
-    if (event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229) return
+    if (event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229) {
+      return
+    }
     if (event.key === "Enter") {''',
 )
 if '  const scoreOrder =' in (WEB / search_path).read_text():
@@ -361,9 +363,9 @@ normalize(
         value={modalInputValue}''',
     ],
     '''      <SearchModal
-        returnFocusRef={searchOpenerRef}
         aiSearch={aiList}
         notesSearch={notesList}
+        returnFocusRef={searchOpenerRef}
         value={modalInputValue}''',
 )
 
@@ -371,13 +373,20 @@ normalize(
 # AccessibleModal's optional returnFocusRef is installed by the reviewed overlay.
 patch(
     search_path,
-    '    <AccessibleModal\n      afterOpen={handleAfterOpen}',
-    '    <AccessibleModal\n      returnFocusRef={returnFocusRef}\n      fallbackFocusSelector=".reader-search-trigger"\n      afterOpen={handleAfterOpen}',
+    '''      closeLabel={polyglot.t("actions.close_dialog", { name: modalTitle })}
+      title={modalTitle}''',
+    '''      closeLabel={polyglot.t("actions.close_dialog", { name: modalTitle })}
+      fallbackFocusSelector=".reader-search-trigger"
+      returnFocusRef={returnFocusRef}
+      title={modalTitle}''',
 )
 patch(
     search_path,
-    '    <Button\n      aria-expanded={expanded}',
-    '    <Button\n      className="reader-search-trigger"\n      aria-expanded={expanded}',
+    '''      aria-label={tooltip}
+      icon={icon}''',
+    '''      aria-label={tooltip}
+      className="reader-search-trigger"
+      icon={icon}''',
 )
 # The search hint duplicates the button's accessible name. A native title keeps
 # that hover label without a body portal mixing scaled/unscaled zoom coordinates.
@@ -390,8 +399,11 @@ patch(
 patch(search_path, '    />\n  </CustomTooltip>\n)', '    />\n  </>\n)')
 patch(
     search_path,
-    '      aria-label={tooltip}\n      icon={icon}',
-    '      aria-label={tooltip}\n      title={tooltip}\n      icon={icon}',
+    '''      size="small"
+      style={{''',
+    '''      size="small"
+      title={tooltip}
+      style={{''',
 )
 patch(
     search_path,
