@@ -1,0 +1,178 @@
+diff --git a/internal/api/api.go b/internal/api/api.go
+--- a/internal/api/api.go
++++ b/internal/api/api.go
+@@ -55,6 +55,7 @@
+ 	mux.HandleFunc("POST /v1/feeds/{feedID}/entries/import", handler.importFeedEntryHandler)
+ 	mux.HandleFunc("GET /v1/feeds/{feedID}/entries/{entryID}", handler.getFeedEntryHandler)
+ 	mux.HandleFunc("GET /v1/entries/ids", handler.getEntryIDsHandler)
++	mux.HandleFunc("POST /v1/entries/metadata", handler.getEntryMetadataHandler)
+ 	mux.HandleFunc("GET /v1/entries", handler.getEntriesHandler)
+ 	mux.HandleFunc("PUT /v1/entries", handler.setEntryStatusAndStarredHandler)
+ 	mux.HandleFunc("GET /v1/entries/{entryID}", handler.getEntryHandler)
+diff --git a/internal/api/entry_metadata_handler.go b/internal/api/entry_metadata_handler.go
+new file mode 100644
+--- /dev/null
++++ b/internal/api/entry_metadata_handler.go
+@@ -0,0 +1,81 @@
++// SPDX-License-Identifier: Apache-2.0
++
++package api
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"time"
++
++	"miniflux.app/v2/internal/http/request"
++	"miniflux.app/v2/internal/http/response"
++	"miniflux.app/v2/internal/storage"
++)
++
++const maxEntryMetadataRequestBytes = 256 << 10
++
++type entryMetadataResponse struct {
++	Entries []storage.EntryMetadata `json:"entries"`
++}
++
++// decodeEntryMetadataIDs admits exactly one object with exactly one entry_ids key.
++// Token parsing rejects duplicate keys and case aliases as well as unknown fields.
++func decodeEntryMetadataIDs(body io.Reader) ([]int64, error) {
++	invalid := errors.New("expected one JSON object containing only an entry_ids array of at most 10000 positive int64 IDs")
++	decoder := json.NewDecoder(body)
++	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
++		return nil, invalid
++	}
++	if token, err := decoder.Token(); err != nil || token != "entry_ids" {
++		return nil, invalid
++	}
++	var ids []int64
++	if err := decoder.Decode(&ids); err != nil || ids == nil || len(ids) > storage.MaxEntryMetadataIDs {
++		return nil, invalid
++	}
++	for _, id := range ids {
++		if id <= 0 {
++			return nil, invalid
++		}
++	}
++	if token, err := decoder.Token(); err != nil || token != json.Delim('}') {
++		return nil, invalid
++	}
++	var extra any
++	if err := decoder.Decode(&extra); err != io.EOF {
++		return nil, invalid
++	}
++	return ids, nil
++}
++
++// getEntryMetadataHandler is read-only; POST avoids URL size limits and ID logs.
++// NewHandler wraps it in the unchanged API-key and Basic-auth middleware.
++func (h *handler) getEntryMetadataHandler(w http.ResponseWriter, r *http.Request) {
++	w.Header().Set("Cache-Control", "no-store")
++	w.Header().Set("X-Reader-Entry-Metadata", "1")
++	if !request.IsAuthenticated(r) || request.UserID(r) <= 0 {
++		response.JSONUnauthorized(w, r)
++		return
++	}
++	if r.URL.RawQuery != "" || r.URL.ForceQuery {
++		response.JSONBadRequest(w, r, errors.New("metadata accepts only entry_ids in the JSON body"))
++		return
++	}
++	r.Body = http.MaxBytesReader(w, r.Body, maxEntryMetadataRequestBytes)
++	ids, err := decodeEntryMetadataIDs(r.Body)
++	if err != nil {
++		response.JSONBadRequest(w, r, err)
++		return
++	}
++	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
++	defer cancel()
++	entries, err := h.store.EntryMetadataByIDs(ctx, request.UserID(r), ids)
++	if err != nil {
++		response.JSONServerError(w, r, err)
++		return
++	}
++	response.JSON(w, r, entryMetadataResponse{Entries: entries})
++}
+diff --git a/internal/storage/entry_metadata.go b/internal/storage/entry_metadata.go
+new file mode 100644
+--- /dev/null
++++ b/internal/storage/entry_metadata.go
+@@ -0,0 +1,76 @@
++// SPDX-License-Identifier: Apache-2.0
++
++package storage
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"time"
++
++	"github.com/lib/pq"
++	"miniflux.app/v2/internal/timezone"
++)
++
++// MaxEntryMetadataIDs is an admission bound, not a pagination limit.
++// Oversized requests fail explicitly; callers must never truncate the ID set.
++const MaxEntryMetadataIDs = 10000
++
++// EntryMetadata deliberately cannot serialize content, enclosures or feed secrets.
++type EntryMetadata struct {
++	ID          int64     `json:"id"`
++	UserID      int64     `json:"user_id"`
++	FeedID      int64     `json:"feed_id"`
++	Title       string    `json:"title"`
++	PublishedAt time.Time `json:"published_at"`
++}
++
++// entryMetadataSQL is one statement: all candidate metadata shares one DB snapshot.
++// Keep the published_at conversion identical to EntryQueryBuilder.fetchEntries.
++const entryMetadataSQL = `
++	SELECT e.id, e.user_id, e.feed_id, e.title,
++	       e.published_at AT TIME ZONE u.timezone, u.timezone
++	FROM entries e
++	JOIN feeds f ON f.id = e.feed_id AND f.user_id = e.user_id
++	JOIN categories c ON c.id = f.category_id AND c.user_id = e.user_id
++	JOIN users u ON u.id = e.user_id
++	WHERE e.user_id = $1 AND e.id = ANY($2)
++	  AND e.status IN ('read', 'unread')
++	ORDER BY e.id ASC`
++
++// EntryMetadataByIDs uses only the existing Miniflux database connection.
++func (s *Storage) EntryMetadataByIDs(ctx context.Context, userID int64, ids []int64) ([]EntryMetadata, error) {
++	if userID <= 0 || len(ids) > MaxEntryMetadataIDs {
++		return nil, errors.New("store: invalid entry metadata request")
++	}
++	for _, id := range ids {
++		if id <= 0 {
++			return nil, errors.New("store: invalid entry metadata ID")
++		}
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	entries := make([]EntryMetadata, 0, len(ids))
++	if len(ids) == 0 {
++		return entries, nil
++	}
++	rows, err := s.db.QueryContext(ctx, entryMetadataSQL, userID, pq.Int64Array(ids))
++	if err != nil {
++		return nil, fmt.Errorf("store: unable to get entry metadata: %w", err)
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var entry EntryMetadata
++		var tz string
++		if err := rows.Scan(&entry.ID, &entry.UserID, &entry.FeedID, &entry.Title, &entry.PublishedAt, &tz); err != nil {
++			return nil, fmt.Errorf("store: unable to scan entry metadata: %w", err)
++		}
++		entry.PublishedAt = timezone.Convert(tz, entry.PublishedAt)
++		entries = append(entries, entry)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, fmt.Errorf("store: unable to read entry metadata: %w", err)
++	}
++	return entries, nil
++}
