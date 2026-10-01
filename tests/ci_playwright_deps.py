@@ -39,11 +39,11 @@ def command(*args, **kwargs):
     return result
 
 
-def bounded(args, timeout=60, limit=65536):
+def bounded(args, timeout=60, limit=65536, env=None, new_session=True):
     """Bound both output streams while the official CLI (and its children) run."""
     start = time.monotonic()
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               env=ENV, start_new_session=True)
+                               env=ENV if env is None else env, start_new_session=new_session)
     streams = {"stdout": bytearray(), "stderr": bytearray()}
     try:
         with selectors.DefaultSelector() as selector:
@@ -67,7 +67,10 @@ def bounded(args, timeout=60, limit=65536):
             code = process.wait(timeout=remaining)
     except BaseException:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            if new_session:
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
         except ProcessLookupError:
             pass
         process.wait()
@@ -96,11 +99,64 @@ def parse_official(code, stdout, stderr):
     return names
 
 
-def official():
+def capture_apt(path):
+    """Transparent, one-invocation adapter for the pinned official dry-run.
+
+    This runs only as the normal user. It never changes the official APT argv,
+    and the absolute executable prevents the temporary PATH entry recursing.
+    """
+    args = sys.argv[1:]
+    validate_capture_args(args)
+    # Exclusive creation rejects a second invocation, even with identical argv.
+    with open(path, "x", encoding="utf-8") as output:
+        code, stdout, stderr = bounded(["/usr/bin/apt-get", *args], timeout=55, new_session=False)
+        json.dump(dict(arguments=args, code=code, stdout=stdout, stderr=stderr), output)
+    sys.stdout.write(stdout)
+    sys.stderr.write(stderr)
+    raise SystemExit(code)
+
+
+def validate_capture_args(args):
+    if (args[:3] != ["install", "-s", "--no-install-recommends"] or not 1 <= len(args[3:]) <= 256
+            or any(not re.fullmatch(TOKEN, token) for token in args[3:])):
+        raise ValueError("Unexpected official APT invocation")
+
+
+def captured_plan(result, captured):
+    missing = parse_official(*result)
+    if set(captured) != {"arguments", "code", "stdout", "stderr"}:
+        raise ValueError("Invalid original APT capture")
+    validate_capture_args(captured["arguments"])
+    if (captured["code"] != 0 or captured["stderr"] or len(captured["stdout"].encode()) > 65536):
+        raise ValueError("Original APT simulation failed or exceeded output limits")
+    selected = parse_plan(captured["stdout"])
+    if sorted(r["package"] for r in selected) != sorted(token_name(name) for name in missing):
+        raise ValueError("Official report and original APT transaction disagree")
+    return missing, selected
+
+
+def official_plan():
     start = time.monotonic()
-    result = parse_official(*bounded([sys.executable, "-m", "playwright", "install-deps", "chromium", "--dry-run"]))
-    print(json.dumps({"official_missing": result, "resolver_seconds": round(time.monotonic() - start, 3)}), flush=True)
-    return result
+    # Capture the exact simulation Playwright actually invokes. A second
+    # simulation of names alone cannot prove the original selected versions.
+    with tempfile.TemporaryDirectory(prefix="reader-playwright-plan-") as temporary:
+        folder = Path(temporary)
+        capture = folder / "transaction.json"
+        wrapper = folder / "apt-get"
+        wrapper.write_text(f"#!{sys.executable}\nimport runpy\n"
+                           f"runpy.run_path({str(Path(__file__).absolute())!r})['capture_apt']({str(capture)!r})\n",
+                           encoding="utf-8")
+        wrapper.chmod(0o700)
+        result = bounded([sys.executable, "-m", "playwright", "install-deps", "chromium", "--dry-run"],
+                         env={**ENV, "PATH": str(folder) + os.pathsep + ENV["PATH"]})
+        missing, selected = captured_plan(result, json.loads(capture.read_text(encoding="utf-8")))
+    print(json.dumps({"official_missing": missing, "original_apt_plan": selected,
+                      "resolver_seconds": round(time.monotonic() - start, 3)}), flush=True)
+    return missing, selected
+
+
+def official():
+    return official_plan()[0]
 
 
 def supported_environment():
@@ -139,7 +195,7 @@ def parse_plan(text):
             continue
         match = operation.fullmatch(line)
         if not match:
-            raise ValueError("Unrecognized APT operation")
+            raise ValueError(f"Unrecognized APT operation: {line!r}")
         action, token, previous, version, arch = match.groups()
         name = token_name(token)
         target = installs if action == "Inst" else configured
@@ -211,14 +267,9 @@ def metadata(selected):
 
 
 def resolve(identity):
-    missing = official()
+    missing, selected = official_plan()
     if not missing:
-        if simulate([]):
-            raise ValueError("APT has a transaction despite an empty official result")
         return dict(identity, packages=[])
-    selected = simulate(missing)
-    if sorted(record["package"] for record in selected) != sorted(token_name(name) for name in missing):
-        raise ValueError("Official and APT transaction package sets disagree")
     held = command("apt-mark", "showhold", capture_output=True)
     if held.stderr or set(held.stdout.split()) & {record["package"] for record in selected}:
         raise ValueError("APT transaction affects held packages")

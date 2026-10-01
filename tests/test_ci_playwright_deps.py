@@ -1,5 +1,7 @@
 """Offline trust-boundary fixtures; hosted Ubuntu CI supplies integration evidence."""
 import hashlib
+import io
+import json
 import importlib.util
 import os
 from pathlib import Path
@@ -101,15 +103,15 @@ class ResolutionTests(unittest.TestCase):
                 deps.parse_plan(text)
 
     def test_official_apt_and_pinned_plan_drift(self):
-        for plans in [[[]], [[SELECTED], []]]:
-            with patch.object(deps, "official", return_value=["fonts-example"]), \
+        for plans in [[[]], [[dict(SELECTED, version="1:2.3-5")]]]:
+            with patch.object(deps, "official_plan", return_value=(["fonts-example"], [SELECTED])), \
                     patch.object(deps, "simulate", side_effect=plans), \
                     patch.object(deps, "command", return_value=subprocess.CompletedProcess([], 0, "", "")), \
                     self.assertRaises(ValueError):
                 deps.resolve(IDENTITY)
 
     def test_held_package(self):
-        with patch.object(deps, "official", return_value=["fonts-example"]), \
+        with patch.object(deps, "official_plan", return_value=(["fonts-example"], [SELECTED])), \
                 patch.object(deps, "simulate", return_value=[SELECTED]), \
                 patch.object(deps, "command", return_value=subprocess.CompletedProcess([], 0, "fonts-example\n", "")), \
                 self.assertRaises(ValueError):
@@ -123,12 +125,47 @@ class ResolutionTests(unittest.TestCase):
                 self.assertRaises(ValueError):
             deps.simulate(["fonts-example"])
 
-    def test_empty_official_result_still_checks_pending_apt_work(self):
-        with patch.object(deps, "official", return_value=[]), patch.object(deps, "simulate", return_value=[]) as simulate:
-            self.assertEqual(deps.resolve(IDENTITY), dict(IDENTITY, packages=[]))
-            simulate.assert_called_once_with([])
-        with patch.object(deps, "official", return_value=[]), patch.object(deps, "simulate", return_value=[SELECTED]), self.assertRaises(ValueError):
+    def test_original_capture_rejects_pending_config_and_same_name_version_drift(self):
+        captured = dict(arguments=["install", "-s", "--no-install-recommends", "fonts-example"],
+                        code=0, stdout=PLAN, stderr="")
+        missing = "Missing system dependencies (1):\n  fonts-example\n"
+        self.assertEqual(deps.captured_plan((1, missing, ""), captured), (["fonts-example"], [SELECTED]))
+        # Same names are insufficient: selected versions must match original APT.
+        with patch.object(deps, "official_plan", return_value=(["fonts-example"], [SELECTED])), \
+                patch.object(deps, "simulate", return_value=[dict(SELECTED, version="1:2.3-5")]), \
+                patch.object(deps, "command", return_value=subprocess.CompletedProcess([], 0, "", "")), self.assertRaises(ValueError):
             deps.resolve(IDENTITY)
+        only_conf = PLAN.replace("Inst fonts-example (1:2.3-4 Ubuntu:24.04/noble [all])\n", "").replace("1 newly", "0 newly")
+        with self.assertRaises(ValueError):
+            deps.captured_plan((0, "All system dependencies are installed.\n", ""), dict(captured, stdout=only_conf))
+        for changed in [dict(captured, code=100), dict(captured, stderr="warning"),
+                        dict(captured, arguments=["update"]), dict(captured, stdout=PLAN * 5000)]:
+            with self.subTest(changed=list(changed)), self.assertRaises(ValueError):
+                deps.captured_plan((1, missing, ""), changed)
+
+    def test_capture_adapter_relays_exact_streams_and_code_once(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = str(Path(root) / "capture.json")
+            out, err = io.StringIO(), io.StringIO()
+            args = ["apt-get", "install", "-s", "--no-install-recommends", "fonts-example"]
+            with patch.object(sys, "argv", args), patch.object(sys, "stdout", out), patch.object(sys, "stderr", err), \
+                    patch.object(deps, "bounded", return_value=(100, "original stdout\n", "original stderr\n")) as bounded:
+                with self.assertRaises(SystemExit) as exit:
+                    deps.capture_apt(output)
+                self.assertEqual(exit.exception.code, 100)
+                with self.assertRaises(FileExistsError):
+                    deps.capture_apt(output)
+                bounded.assert_called_once_with(["/usr/bin/apt-get", *args[1:]], timeout=55, new_session=False)
+            self.assertEqual(out.getvalue(), "original stdout\n")
+            self.assertEqual(err.getvalue(), "original stderr\n")
+            self.assertEqual(json.loads(Path(output).read_text())["arguments"], args[1:])
+
+    def test_capture_adapter_rejects_wrong_invocation(self):
+        for args in [["install", "--simulate", "--no-install-recommends", "fonts-example"],
+                     ["install", "-s", "--no-install-recommends", "--bad"],
+                     ["install", "-s", "--no-install-recommends"], ["update"]]:
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                deps.validate_capture_args(args)
 
     def test_metadata_contract(self):
         digest = "a" * 64
