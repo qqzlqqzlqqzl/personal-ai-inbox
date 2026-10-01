@@ -15,7 +15,7 @@ STAGES = (
     'patch_frontend.py', 'polish_frontend.py', 'specialize_login.py',
     'patch_reading_session.py', 'patch_ui_review.py', 'patch_article_notes.py',
     'patch_reading_telemetry.py', 'patch_scope_ai_filters.py',
-    'patch_reader_detail_quality.py', 'patch_reader_entry_defaults.py',
+    'patch_reader_detail_quality.py', 'patch_reader_entry_defaults.py', 'patch_interaction_review.py',
 )
 
 
