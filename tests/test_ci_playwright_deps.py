@@ -78,6 +78,18 @@ class ResolutionTests(unittest.TestCase):
     def test_simulation_includes_preamble_and_exact_operations(self):
         self.assertEqual(deps.parse_plan(PLAN), [SELECTED])
 
+    def test_hosted_apt_empty_transient_annotation(self):
+        # Captured from Ubuntu 24.04 job 110564879588, 2026-10-01.
+        operation = ("Inst libgl1-mesa-dri [25.2.8-0ubuntu0.24.04.2] "
+                     "(25.2.8-0ubuntu0.24.04.3 Ubuntu:24.04/noble-updates [amd64]) []")
+        plan = ("1 upgraded, 0 newly installed, 0 to remove and 20 not upgraded.\n" + operation + "\n"
+                "Conf libgl1-mesa-dri (25.2.8-0ubuntu0.24.04.3 Ubuntu:24.04/noble-updates [amd64])\n")
+        with patch.object(deps, "command"):
+            self.assertEqual(deps.parse_plan(plan), [dict(package="libgl1-mesa-dri", version="25.2.8-0ubuntu0.24.04.3", architecture="amd64")])
+        for annotation in ["[otherpkg]", "[otherpkg:amd64 ]", "[ ]", "[] trailing"]:
+            with self.subTest(annotation=annotation), patch.object(deps, "command"), self.assertRaises(ValueError):
+                deps.parse_plan(plan.replace("[]", annotation))
+
     def test_upgrade_uses_debian_comparator(self):
         upgraded = PLAN.replace("0 upgraded, 1 newly", "1 upgraded, 0 newly").replace(
             "Inst fonts-example (", "Inst fonts-example [1:2.2-9] (")

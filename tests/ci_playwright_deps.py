@@ -149,7 +149,13 @@ def official_plan():
         wrapper.chmod(0o700)
         result = bounded([sys.executable, "-m", "playwright", "install-deps", "chromium", "--dry-run"],
                          env={**ENV, "PATH": str(folder) + os.pathsep + ENV["PATH"]})
-        missing, selected = captured_plan(result, json.loads(capture.read_text(encoding="utf-8")))
+        captured = json.loads(capture.read_text(encoding="utf-8"))
+        evidence(f"official-plan-{time.monotonic_ns()}.json", captured)
+        try:
+            missing, selected = captured_plan(result, captured)
+        except ValueError:
+            print(json.dumps({"rejected_original_apt_capture": captured}), flush=True)
+            raise
     print(json.dumps({"official_missing": missing, "original_apt_plan": selected,
                       "resolver_seconds": round(time.monotonic() - start, 3)}), flush=True)
     return missing, selected
@@ -187,7 +193,7 @@ def parse_plan(text):
     if len(summaries) != 1 or int(summaries[0][2]):
         raise ValueError("APT transaction has removals or an unknown summary")
     installs, configured, upgrades = {}, {}, 0
-    operation = re.compile(rf"(Inst|Conf) ({TOKEN}) (?:\[({VERSION})\] )?\(({VERSION}) .+ \[(amd64|all)\]\)")
+    operation = re.compile(rf"(Inst|Conf) ({TOKEN}) (?:\[({VERSION})\] )?\(({VERSION}) .+ \[(amd64|all)\]\)( \[\])?")
     for line in text.splitlines():
         if line.startswith(("Remv ", "Purg ")):
             raise ValueError("APT removal rejected")
@@ -196,7 +202,9 @@ def parse_plan(text):
         match = operation.fullmatch(line)
         if not match:
             raise ValueError(f"Unrecognized APT operation: {line!r}")
-        action, token, previous, version, arch = match.groups()
+        action, token, previous, version, arch, empty_annotation = match.groups()
+        if action != "Inst" and empty_annotation:
+            raise ValueError("Unexpected APT configure annotation")
         name = token_name(token)
         target = installs if action == "Inst" else configured
         if name in target or (action == "Conf" and previous):
