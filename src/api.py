@@ -1001,6 +1001,13 @@ async def subscribe(request: Request):
     )
 
 
+@app.get("/mf/v1/ai/vendor-sources")
+async def get_vendor_source_status(request: Request):
+    await authorize(request, admin=True)
+    from vendor_sources import status
+    return await asyncio.to_thread(status)
+
+
 @app.api_route(
     "/mf/{path:path}",
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -1169,3 +1176,7 @@ def positive_id(value):
 from month_control import router as month_control_router
 app.include_router(month_control_router)
 
+
+# Read-only RSS snapshots for local Miniflux; admin-visible adapter diagnostics.
+from vendor_routes import router as vendor_sources_router
+app.include_router(vendor_sources_router)
