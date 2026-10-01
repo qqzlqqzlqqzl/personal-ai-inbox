@@ -22,7 +22,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$target"
           git merge-base --is-ancestor "$base" "$target"
           mkdir -p transfer
-          git bundle create transfer/reader-ui-release.bundle "$target" "^$base"
+          git bundle create transfer/reader-ui-release.bundle HEAD "^$base"
           git bundle verify transfer/reader-ui-release.bundle
           git bundle list-heads transfer/reader-ui-release.bundle > transfer/bundle-heads.txt
           git diff --stat "$base" "$target" > transfer/changed-files.txt
