@@ -20,6 +20,7 @@ for name, width, zoom in [('desktop', 1440, 1), ('mobile', 390, 1), ('desktop-cs
     h = Harness('sort-' + name)
     p = h.page
     p.set_viewport_size({'width': width, 'height': 900 if width > 390 else 844})
+    p.add_init_script("if (!localStorage.getItem('settings')) localStorage.setItem('settings', JSON.stringify({orderBy:'published_at',orderDirection:'desc',articleListLayout:'list',showStatus:'all'}))")
     requests, observations = [], []
     h.feeds[0].update(icon={'feed_id': 7, 'icon_id': 0}, checked_at='2026-10-01T08:00:00Z',
                       parsing_error_count=0, parsing_error_message='', disabled=False, hide_globally=False)
@@ -79,6 +80,8 @@ for name, width, zoom in [('desktop', 1440, 1), ('mobile', 390, 1), ('desktop-cs
                     'ai_state': p.evaluate('JSON.parse(localStorage.getItem("ai-view-state"))'),
                     'native_settings': p.evaluate('JSON.parse(localStorage.getItem("settings"))')}
         observations.append(observed)
+        if observed['errors'] or observed['displayed'] != expected:
+            p.screenshot(path=str(h.out / (value + '-failure.png')), full_page=True)
         record(value + ' selector matches choice', select.input_value() == value)
         record(value + ' requests new sorted list', bool(observed['requests']))
         record(value + ' displayed order matches choice', observed['displayed'] == expected)

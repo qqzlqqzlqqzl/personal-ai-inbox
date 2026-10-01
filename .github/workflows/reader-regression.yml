@@ -123,5 +123,6 @@ jobs:
             runtime/review-reading/
             runtime/search-ime-*/
             runtime/sort-*/
+            runtime/sort-component.json
             runtime/browser-build/
           retention-days: 7

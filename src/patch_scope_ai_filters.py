@@ -154,6 +154,13 @@ patch(
 # deployments already have the selector. Normalize the former explicitly so a
 # pristine pinned build does not depend on an untracked intermediate patch.
 search_path = "src/components/Article/SearchAndSortBar.jsx"
+# The selector changes persistent AI state; the list hook refetches only when
+# its revision/settings request key changes. Bind the existing invalidator.
+patch(
+    search_path,
+    '  dynamicCountState,\n  setFilterDate,',
+    '  dynamicCountState,\n  invalidateArticleList,\n  setFilterDate,',
+)
 # Enter can confirm an IME candidate without submitting the article search.
 # React carries isComposing on nativeEvent; keyCode 229 covers legacy IMEs.
 patch(
