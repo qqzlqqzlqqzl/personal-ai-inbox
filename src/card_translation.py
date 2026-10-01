@@ -59,38 +59,61 @@ def source_card(entry, model):
     fingerprint = core.hash_text(json.dumps([VERSION,model,title,excerpt],ensure_ascii=False))
     return title, excerpt, kind, fingerprint
 
+def _enqueue_card(db, entry, source, model, now, priority):
+    title, excerpt, kind, digest = source
+
+    def current():
+        old = db.execute('SELECT * FROM card_translations WHERE entry_id=?', (entry['id'],)).fetchone()
+        same = old is not None and old['user_id'] == entry['user_id'] and old['source_hash'] == digest
+        version = None
+        if not same or old['status'] not in ('done', 'native'):
+            version = db.execute('''SELECT * FROM card_translation_versions
+              WHERE entry_id=? AND user_id=? AND source_hash=?''',
+              (entry['id'],entry['user_id'],digest)).fetchone()
+        return old, same, version
+
+    old, same, version = current()
+    if same and not version and (old['priority'] or 0) >= priority:
+        return
+    # Only a real change enters a writer transaction. Recheck after acquiring it:
+    # concurrent requests may have completed/promoted this same card meanwhile.
+    if not db.in_transaction:
+        db.execute('BEGIN IMMEDIATE')
+        old, same, version = current()
+    if same and not version:
+        if (old['priority'] or 0) < priority:
+            db.execute('UPDATE card_translations SET priority=? WHERE entry_id=?', (priority,entry['id']))
+        return
+    if old and old['status'] == 'done' and not same:
+        cache_version(db, old)
+    if version:
+        priority = max(priority, old['priority'] or 0) if same else priority
+        db.execute('''INSERT OR REPLACE INTO card_translations
+          (entry_id,user_id,source_hash,original_title,excerpt,source_kind,status,priority,model,updated_at,title_zh,summary_zh,translated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+          (entry['id'],entry['user_id'],digest,title,excerpt,kind,'done',priority,model,now,
+           version['title_zh'],version['summary_zh'],version['translated_at']))
+        return
+    native = is_chinese(title) and (not excerpt or is_chinese(excerpt))
+    db.execute('''INSERT OR REPLACE INTO card_translations
+      (entry_id,user_id,source_hash,original_title,excerpt,source_kind,status,priority,model,updated_at,title_zh,summary_zh)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', (entry['id'],entry['user_id'],digest,title,excerpt,kind,
+      'native' if native else 'pending',priority,model,now,title if native else None,excerpt[:240] if native else None))
+
+
 def enqueue(entries, priority=0):
     from prepared_content import apply as apply_prepared
-    entries = [apply_prepared(e) for e in entries]
-    cfg = core.settings()
-    model = cfg['model']
+    entries = [apply_prepared(e) for e in entries
+               if 'id' in e and 'user_id' in e and not e.get('content_deferred')]
+    if not entries:
+        return
+    model = core.settings()['model']
+    # Parse before opening the transaction, including applicable prepared content.
+    sources = [(entry, source_card(entry, model)) for entry in entries]
     now = time.time()
     with core.connect() as db:
-        for entry in entries:
-            if 'id' not in entry or 'user_id' not in entry or entry.get('content_deferred'):
-                continue
-            title, excerpt, kind, digest = source_card(entry, model)
-            old = db.execute('SELECT * FROM card_translations WHERE entry_id=?', (entry['id'],)).fetchone()
-            if old and old['status'] == 'done':
-                cache_version(db, old)
-            version = db.execute('''SELECT * FROM card_translation_versions
-              WHERE entry_id=? AND user_id=? AND source_hash=?''', (entry['id'],entry['user_id'],digest)).fetchone()
-            if version and (not old or old['source_hash'] != digest or old['status'] != 'done'):
-                db.execute('''INSERT OR REPLACE INTO card_translations
-                  (entry_id,user_id,source_hash,original_title,excerpt,source_kind,status,priority,model,updated_at,title_zh,summary_zh,translated_at)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                  (entry['id'],entry['user_id'],digest,title,excerpt,kind,'done',priority,model,now,
-                   version['title_zh'],version['summary_zh'],version['translated_at']))
-                continue
-            if old and old['source_hash'] == digest:
-                if priority:
-                    db.execute('UPDATE card_translations SET priority=MAX(priority,?) WHERE entry_id=?', (priority,entry['id']))
-                continue
-            native = is_chinese(title) and (not excerpt or is_chinese(excerpt))
-            db.execute('''INSERT OR REPLACE INTO card_translations
-              (entry_id,user_id,source_hash,original_title,excerpt,source_kind,status,priority,model,updated_at,title_zh,summary_zh)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', (entry['id'],entry['user_id'],digest,title,excerpt,kind,
-              'native' if native else 'pending',priority,model,now,title if native else None,excerpt[:240] if native else None))
+        for entry, source in sources:
+            _enqueue_card(db, entry, source, model, now, priority)
 
 def attach(entry, user_id):
     with core.connect() as db:
