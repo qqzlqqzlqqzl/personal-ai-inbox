@@ -88,4 +88,5 @@ jobs:
             runtime/browser-failure.png
             runtime/review-console/
             runtime/review-reading/
+            runtime/browser-build/
           retention-days: 7

@@ -36,7 +36,7 @@ def close_article():p.get_by_role('button',name='关闭文章',exact=True).click
 try:
     h.goto();writes=len(h.writes)
     p.keyboard.press('Control+k');expect(p.get_by_role('dialog',name='快速跳转',exact=True)).to_be_visible()
-    search=p.get_by_role('combobox',name='搜索视图、分类或订阅');search.fill('已订阅技术源');expect(p.get_by_role('option')).to_have_count(1);search.press('Enter');p.wait_for_url('**/inbox/feed/7')
+    search=p.get_by_role('combobox',name='搜索视图、分类或订阅');search.fill('已订阅技术源');expect(p.locator('#review-command-list').get_by_role('option')).to_have_count(1);search.press('Enter');p.wait_for_url('**/inbox/feed/7')
     h.check('R08_feed_navigation_zero_writes',len(h.writes)==writes)
     trigger=p.get_by_role('button',name='快速跳转',exact=False);trigger.click();search=p.get_by_role('combobox',name='搜索视图、分类或订阅');search.fill('不存在的内容');search.press('ArrowDown');search.press('Enter');expect(p.get_by_role('dialog',name='快速跳转')).to_be_visible();search.press('Escape')
     h.check('R08_empty_keyboard_and_focus_restore',trigger.evaluate('e=>e===document.activeElement'))
