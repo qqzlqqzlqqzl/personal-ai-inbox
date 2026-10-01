@@ -11,25 +11,27 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 4a5397ac182440e5492414fc659de4dae5cfe7d1
+          ref: 5ea9d9d522f346bdf43b082d68d4307784e19750
           fetch-depth: 0
           persist-credentials: false
       - name: Bundle only verified release changes since production
         run: |
           set -eu
-          base=24877e12ce182c4b612a2659c7d8c3712845dd60
-          target=4a5397ac182440e5492414fc659de4dae5cfe7d1
+          base=4a5397ac182440e5492414fc659de4dae5cfe7d1
+          target=5ea9d9d522f346bdf43b082d68d4307784e19750
           test "$(git rev-parse HEAD)" = "$target"
           git merge-base --is-ancestor "$base" "$target"
+          test "$(git diff --name-only \"$base\" \"$target\" | LC_ALL=C sort)" = "$(printf '%s\n' src/dot_article_import.py src/export_dot_articles_readonly.py tests/test_dot_article_export.py tests/test_dot_article_import.py | LC_ALL=C sort)"
+          test "$(git diff --name-status \"$base\" \"$target\" | cut -f1 | sort -u)" = A
           mkdir -p transfer
-          git bundle create transfer/reader-ui-release.bundle HEAD "^$base"
-          git bundle verify transfer/reader-ui-release.bundle
-          git bundle list-heads transfer/reader-ui-release.bundle > transfer/bundle-heads.txt
+          git bundle create transfer/dot-article-release.bundle HEAD "^$base"
+          git bundle verify transfer/dot-article-release.bundle
+          git bundle list-heads transfer/dot-article-release.bundle > transfer/bundle-heads.txt
           git diff --stat "$base" "$target" > transfer/changed-files.txt
           printf 'base=%s\ntarget=%s\ntree=%s\n' "$base" "$target" "$(git rev-parse HEAD^{tree})" > transfer/manifest.txt
-          sha256sum transfer/reader-ui-release.bundle >> transfer/manifest.txt
+          sha256sum transfer/dot-article-release.bundle >> transfer/manifest.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: reader-verified-release-4a5397ac
+          name: dot-verified-release-5ea9d9d5
           path: transfer/
           retention-days: 7
