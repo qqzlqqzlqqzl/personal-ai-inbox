@@ -1,5 +1,5 @@
 """R05–R08 actual built UI. Synthetic APIs only; never reads production data."""
-import json
+import json,re
 from review_reader_harness import Harness
 from playwright.sync_api import expect
 
@@ -76,6 +76,17 @@ try:
     before_images=len(image_calls);p.wait_for_timeout(250);h.check('R07_failure_no_automatic_retry',len(image_calls)==before_images)
     modes['image_ok']=True;notice.get_by_role('button',name='重试这张图片',exact=True).click();expect(p.locator('img[alt="电路板示意图"]')).to_be_visible();expect(p.locator('.image-overlay-button').first).to_be_enabled();h.check('R07_manual_retry_success_enables_preview')
     p.locator('.image-overlay-button').first.click();expect(p.get_by_role('dialog',name='Lightbox',exact=True)).to_be_visible();p.keyboard.press('Control+k');expect(p.locator('.review-navigation-dialog')).to_have_count(0);h.check('R08_does_not_nest_in_lightbox');p.keyboard.press('Escape');expect(p.get_by_role('dialog',name='Lightbox',exact=True)).to_have_count(0);expect(p.locator('img[alt="电路板示意图"]').first).to_be_visible();h.check('R07_lightbox_return')
+    # Bound repeated manual requests and exercise TOC search on the actual reader.
+    p.get_by_role('button',name=re.compile('目录|Table of Contents')).click()
+    toc=p.get_by_label('搜索文章目录',exact=True);toc.fill('不存在章节');expect(p.get_by_role('button',name='清除目录搜索',exact=True)).to_be_visible();p.get_by_role('button',name='清除目录搜索',exact=True).click();expect(toc).to_have_value('');p.keyboard.press('Escape');h.check('R06_TOC_search_empty_reset')
+    modes['image_ok']=False;p.reload();expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_enabled();p.locator('.article-note').scroll_into_view_if_needed();notice=p.get_by_role('group',name='图片加载恢复');expect(notice).to_be_visible();before_images=len(image_calls)
+    for attempt in range(1,4):
+        notice.get_by_role('button',name='重试这张图片',exact=True).click();expect(notice).to_contain_text(f'已手动重试 {attempt} / 3 次')
+    expect(notice.get_by_role('button',name='已达本次重试上限',exact=True)).to_be_disabled();h.check('R07_three_manual_retries_maximum',len(image_calls)==before_images+3)
+    # 200% visual zoom in the isolated page; retain the same reading state.
+    p.evaluate("document.documentElement.style.zoom='2'")
+    h.check('R06_200_percent_zoom_no_horizontal_overflow',p.evaluate('document.documentElement.scrollWidth<=innerWidth'))
+    p.evaluate("document.documentElement.style.zoom=''")
     p.set_viewport_size({'width':390,'height':844});p.locator('.review-reading-controls summary').click();expect(p.get_by_label('正文栏宽',exact=True)).to_be_disabled();h.check('R06_mobile_controls_no_overflow',p.evaluate('document.documentElement.scrollWidth<=innerWidth'))
     p.screenshot(path=str(h.out/'mobile-reading.png'),full_page=True);p.locator('.review-reading-controls summary').click();close_article()
     p.get_by_role('button',name='快速跳转',exact=False).click();expect(p.get_by_role('dialog',name='快速跳转')).to_be_visible();h.check('R08_mobile_palette_no_overflow',p.locator('.review-navigation-dialog').evaluate('e=>e.scrollWidth<=e.clientWidth'));p.screenshot(path=str(h.out/'mobile-navigation.png'),full_page=True);p.keyboard.press('Escape')
