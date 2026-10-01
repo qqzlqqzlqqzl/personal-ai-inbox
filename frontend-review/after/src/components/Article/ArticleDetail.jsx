@@ -684,7 +684,7 @@ const ArticleDetail = forwardRef((_, ref) => {
                   onImagePreview={togglePhotoSlider}
                   onOpenChange={handleEnclosuresOpenChange}
                 />
-                <ArticleNote entry={activeContent} />
+                <ArticleNote entry={activeContent} key={activeContent.id} />
                 {sourceUrl && (
                   <footer className="article-source-footer">
                     <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
