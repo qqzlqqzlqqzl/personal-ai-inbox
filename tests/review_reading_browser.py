@@ -27,7 +27,7 @@ h.ctx.route('https://images.example.test/**',image_route)
 h.ctx.grant_permissions(['clipboard-read','clipboard-write'])
 p.on('dialog',lambda d:d.accept())
 def open_entry(eid,recovering=False):
-    h.goto(f'/inbox/all/entry/{eid}')
+    p.goto(h.base+f'/inbox/all/entry/{eid}',wait_until='domcontentloaded')
     if recovering:expect(p.get_by_role('button',name='恢复本地草稿',exact=True)).to_be_visible()
     else:expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_enabled()
 def draft_key(eid):
@@ -61,7 +61,7 @@ try:
     for route in pending:
         eid=route.request.url.rsplit('/',1)[-1];h.notes[eid]=route.request.post_data_json['note'];route.fulfill(json={'note':h.notes[eid],'updated_at':'2026-10-01T12:00:00Z'})
     pending.clear();expect(note_b).to_have_value('服务器原始笔记 B');h.check('R05_A_response_cannot_replace_B')
-    close_article();modes['load_error']=True;h.goto('/inbox/all/entry/102');expect(p.get_by_role('button',name='重新加载笔记',exact=True)).to_be_enabled();before=len(note_writes());expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_disabled();h.check('R05_load_failure_zero_writes',len(note_writes())==before)
+    close_article();modes['load_error']=True;p.goto(h.base+'/inbox/all/entry/102',wait_until='domcontentloaded');expect(p.get_by_role('button',name='重新加载笔记',exact=True)).to_be_enabled();before=len(note_writes());expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_disabled();h.check('R05_load_failure_zero_writes',len(note_writes())==before)
     modes['load_error']=False;p.get_by_role('button',name='重新加载笔记',exact=True).click();expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_have_value('服务器原始笔记 B');h.check('R05_retry_load_recovers')
     # Existing reader state remains unchanged by typography controls.
     before=[w for w in h.writes if '/v1/entries' in w[1]]
