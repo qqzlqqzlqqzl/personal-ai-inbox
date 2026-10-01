@@ -7,6 +7,7 @@ on:
       - 'src/api.py'
       - 'src/notes_metadata.py'
       - 'tests/test_notes_metadata.py'
+      - 'tests/notes_pair_acceptance.py'
       - '.github/workflows/miniflux-metadata.yml'
   workflow_dispatch:
 
@@ -46,6 +47,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          fetch-depth: 0 # Compare runtime src/ against the exact reviewed paired baseline.
       - name: Verify package and fetch exact official upstream
         shell: bash
         run: |
@@ -63,6 +65,19 @@ jobs:
       - name: Compile and run upstream, protocol, failure and real PostgreSQL auth tests
         shell: bash
         run: bash ops/miniflux-metadata/scripts/test.sh "$RUNNER_TEMP/issue73-miniflux" "$RUNNER_TEMP/issue73-evidence"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # same reviewed Reader pin
+        with:
+          python-version: '3.12'
+      - name: Install existing locked Reader dependencies
+        run: python -m pip install -r requirements.dev.lock.txt
+      - name: Real Reader and candidate binary paired acceptance
+        env:
+          ISSUE73_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python tests/notes_pair_acceptance.py \
+            --binary "$RUNNER_TEMP/issue73-evidence/miniflux-issue73-linux-amd64" \
+            --postgres-container "$ISSUE73_POSTGRES_CONTAINER" \
+            --evidence "$RUNNER_TEMP/issue73-evidence/paired"
       - name: Upload fixture-only verification evidence and candidate binary
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
