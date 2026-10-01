@@ -36,6 +36,7 @@ SSH tunnel 仅用于维护或公网故障备用。示例与主机校验要求见
 - [HTTPS 访问与备用通道](docs/ops/LOCAL_ACCESS.md)
 - [重新构建与接手说明](docs/ops/HANDOFF.md)
 - [请求日志与只读诊断](docs/ops/LOGGING.md) · [X 无个人 Token 接入调查](docs/research/X-NO-TOKEN.md)
+- [只读 URL manifest 与续批导出](docs/ops/DOT-URL-EXPORT.md)
 - [自动化测试结果](artifacts/unit-tests.xml) · [真实接口与数据验收](artifacts/live-acceptance.json) · [真实浏览器验收](artifacts/browser-acceptance.json) · [隔离恢复验证](artifacts/restore-test.json)
 
 ## 必须知道的边界
