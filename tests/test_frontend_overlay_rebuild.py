@@ -52,6 +52,9 @@ def test_pristine_pinned_overlay_and_repeat_are_equivalent(tmp_path, monkeypatch
     assert sorter.count('searchOpenerRef.current = document.activeElement') == 1
     assert sorter.count('fallbackFocusSelector=".reader-search-trigger"') == 1
     assert sorter.count('returnFocusRef={searchOpenerRef}') == 1
+    assert 'aria-label={tooltip}\n      title={tooltip}' in sorter
+    assert '<CustomTooltip mini content={selectDateLabel}>' in sorter
+    assert 'search.syntax_help' in sorter
     assert 'const sortDirection = aiList ? (ai.direction || "desc") : orderDirection' in sorter
     assert 'const { orderBy, orderDirection }' in sorter
     assert 'const displayTitle = title && aiModeLabel' in sorter

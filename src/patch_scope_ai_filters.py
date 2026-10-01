@@ -379,6 +379,20 @@ patch(
     '    <Button\n      aria-expanded={expanded}',
     '    <Button\n      className="reader-search-trigger"\n      aria-expanded={expanded}',
 )
+# The search hint duplicates the button's accessible name. A native title keeps
+# that hover label without a body portal mixing scaled/unscaled zoom coordinates.
+# Only ActiveButton's search tooltip matches these anchors; other tooltips stay.
+patch(
+    search_path,
+    'const ActiveButton = ({ active, expanded, icon, tooltip, onClick }) => (\n  <CustomTooltip mini content={tooltip}>',
+    'const ActiveButton = ({ active, expanded, icon, tooltip, onClick }) => (\n  <>',
+)
+patch(search_path, '    />\n  </CustomTooltip>\n)', '    />\n  </>\n)')
+patch(
+    search_path,
+    '      aria-label={tooltip}\n      icon={icon}',
+    '      aria-label={tooltip}\n      title={tooltip}\n      icon={icon}',
+)
 patch(
     search_path,
     '  const [modalInputValue, setModalInputValue] = useState("")',

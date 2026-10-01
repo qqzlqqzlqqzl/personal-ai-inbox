@@ -87,6 +87,8 @@ for name,width,zoom in [('desktop',1440,1),('mobile',390,1),('desktop-css-zoom-2
     add_feed.click();modal=p.locator('.add-feed-modal');expect(modal).to_be_visible();modal.get_by_role('textbox',name='订阅源 URL',exact=True).press('Escape');expect(modal).to_be_hidden();expect(add_feed).to_be_focused()
    record('existing no-new-prop add-feed modal retains focus behavior',True)
   record('no horizontal overflow',p.evaluate('document.documentElement.scrollWidth<=innerWidth'))
+  expect(trigger).to_have_attribute('title',trigger.get_attribute('aria-label'))
+  record('search trigger retains matching accessible name and native hover label',bool(trigger.get_attribute('title')))
   record('zero API writes',len(h.writes)==0)
   p.screenshot(path=str(h.out/'complete.png'),full_page=True)
   (h.out/'requests.json').write_text(json.dumps(requests,ensure_ascii=False,indent=2))
