@@ -57,11 +57,38 @@ for name,width,zoom in [('desktop',1440,1),('mobile',390,1),('desktop-css-zoom-2
    field.press('Enter')
   expect(field).to_be_hidden()
   expect(trigger).to_have_attribute('aria-label',re.compile('已确认搜索'))
+  expect(trigger).to_be_focused()
   record('ordinary Enter submits',True)
   trigger.click();field=p.locator('.search-modal input');field.fill('取消草稿');before=len(requests);p.locator('.search-modal').get_by_role('button',name='取消',exact=True).click();expect(field).to_be_hidden();expect(trigger).to_be_focused()
   record('Cancel leaves committed filter',not any('search=' in url for url in requests[before:]))
+  # Retained portal: each dismissal must restore focus even after repeated opens.
+  for cycle,action in enumerate(['cancel','escape','submit']):
+   committed=trigger.get_attribute('aria-label');trigger.click();field=p.locator('.search-modal input');expect(field).to_be_visible();field.fill('循环搜索 '+str(cycle));before=len(requests)
+   if action=='cancel':p.locator('.search-modal').get_by_role('button',name='取消',exact=True).click()
+   elif action=='escape':field.press('Escape')
+   else:
+    with p.expect_request(lambda request: parse_qs(urlsplit(request.url).query).get('search')==['循环搜索 '+str(cycle)]):field.press('Enter')
+   expect(field).to_be_hidden();expect(trigger).to_be_focused()
+   record('repeat '+action+' restores focus',True)
+   if action!='submit':
+    expect(trigger).to_have_attribute('aria-label',committed)
+    record('repeat '+action+' keeps committed filter',not any('search=' in url for url in requests[before:]))
+  # Keyboard invocation can originate outside the search trigger. If that
+  # synthetic opener disappears, the visible search control is the fallback.
+  p.evaluate("const b=document.createElement('button');b.id='fixture-search-opener';b.textContent='Synthetic opener';document.body.append(b);b.focus()")
+  p.keyboard.press('/');expect(p.locator('.search-modal input')).to_be_visible()
+  p.evaluate("document.getElementById('fixture-search-opener').remove()")
+  p.locator('.search-modal input').press('Escape');expect(p.locator('.search-modal input')).to_be_hidden();expect(trigger).to_be_focused()
+  record('removed keyboard opener uses search fallback',True)
+  # Existing add-feed modal has no returnFocusRef prop; no form is submitted.
+  if width==1440 and zoom==1:
+   add_feed=p.get_by_role('button',name='添加订阅源',exact=True)
+   for cycle in range(3):
+    add_feed.click();modal=p.locator('.add-feed-modal');expect(modal).to_be_visible();modal.get_by_role('textbox',name='订阅源 URL',exact=True).press('Escape');expect(modal).to_be_hidden();expect(add_feed).to_be_focused()
+   record('existing no-new-prop add-feed modal retains focus behavior',True)
   record('no horizontal overflow',p.evaluate('document.documentElement.scrollWidth<=innerWidth'))
   record('zero API writes',len(h.writes)==0)
+  p.screenshot(path=str(h.out/'complete.png'),full_page=True)
   (h.out/'requests.json').write_text(json.dumps(requests,ensure_ascii=False,indent=2))
  except Exception as exc:
   h.errors.append(str(exc));failures.append(name+': '+str(exc));p.screenshot(path=str(h.out/'failure.png'),full_page=True)

@@ -219,10 +219,22 @@ patch(
     'import { aiState } from "@/store/aiState"',
     'import { aiFilterEnabled, aiState } from "@/store/aiState"',
 )
-patch(
-    "src/components/Article/SearchAndSortBar.jsx",
-    'const SearchModal = memo(({ value, visible, onCancel, onConfirm, onChange }) => {\n  const { polyglot } = useStore(polyglotState)\n  const tooltipLines = polyglot.t("search.article_tooltip").split("\\n")',
+normalize(
+    search_path,
+    [
+    '''const SearchModal = memo(({ value, visible, onCancel, onConfirm, onChange }) => {
+  const { polyglot } = useStore(polyglotState)
+  const tooltipLines = polyglot.t("search.article_tooltip").split("\\n")''',
     '''const SearchModal = memo(({ aiSearch, notesSearch, value, visible, onCancel, onConfirm, onChange }) => {
+  const { polyglot } = useStore(polyglotState)
+  const aiSearchLabel = notesSearch
+    ? "搜索标题、AI分析和个人笔记"
+    : "搜索标题、AI摘要、理由和标签"
+  const tooltipLines = aiSearch ? [aiSearchLabel] : polyglot.t("search.article_tooltip").split("\\n")
+  const inputLabel = aiSearch ? aiSearchLabel : polyglot.t("search.article_input_label")
+  const placeholder = aiSearch ? `${aiSearchLabel}...` : polyglot.t("search.article_placeholder")''',
+    ],
+    '''const SearchModal = memo(({ aiSearch, notesSearch, value, visible, onCancel, onConfirm, onChange, returnFocusRef }) => {
   const { polyglot } = useStore(polyglotState)
   const aiSearchLabel = notesSearch
     ? "搜索标题、AI分析和个人笔记"
@@ -338,14 +350,44 @@ patch(
     '              {title}\n',
     '              {displayTitle}\n',
 )
-patch(
-    "src/components/Article/SearchAndSortBar.jsx",
+normalize(
+    search_path,
+    [
     '''      <SearchModal
         value={modalInputValue}''',
     '''      <SearchModal
         aiSearch={aiList}
         notesSearch={notesList}
         value={modalInputValue}''',
+    ],
+    '''      <SearchModal
+        returnFocusRef={searchOpenerRef}
+        aiSearch={aiList}
+        notesSearch={notesList}
+        value={modalInputValue}''',
+)
+
+# Capture the search opener before a retained modal's child focus lock runs.
+# AccessibleModal's optional returnFocusRef is installed by the reviewed overlay.
+patch(
+    search_path,
+    '    <AccessibleModal\n      afterOpen={handleAfterOpen}',
+    '    <AccessibleModal\n      returnFocusRef={returnFocusRef}\n      fallbackFocusSelector=".reader-search-trigger"\n      afterOpen={handleAfterOpen}',
+)
+patch(
+    search_path,
+    '    <Button\n      aria-expanded={expanded}',
+    '    <Button\n      className="reader-search-trigger"\n      aria-expanded={expanded}',
+)
+patch(
+    search_path,
+    '  const [modalInputValue, setModalInputValue] = useState("")',
+    '  const [modalInputValue, setModalInputValue] = useState("")\n  const searchOpenerRef = useRef(null)',
+)
+patch(
+    search_path,
+    '  const openSearchModal = () => {\n    setModalInputValue(filterString)',
+    '  const openSearchModal = () => {\n    searchOpenerRef.current = document.activeElement\n    setModalInputValue(filterString)',
 )
 
 # Bulk mark-read must use exactly the visible result set.
@@ -528,4 +570,3 @@ for original in BACK.rglob("*"):
             ))
 (ROOT / "patches/reactflux.patch").write_text("".join(diffs))
 print("Scope × AI filter overlay applied")
-
