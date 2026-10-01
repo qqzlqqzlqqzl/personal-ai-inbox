@@ -9,7 +9,7 @@ let checks=0
 function check(name,run){run();checks++;console.log('PASS',name)}
 check('Enabled idle is waiting, never continuous production',()=>{
  const value=kaggleStatus(snapshot({primary:lane()}),now)
- assert.equal(value.running,0);assert.match(value.text,/已启用 · 0 批运行 · 等待调度/)
+ assert.equal(value.running,0);assert.match(value.text,/已启用 · 已确认运行 0 批 · 等待调度/)
  assert.doesNotMatch(value.text,/持续增量处理|正常/)
 })
 check('Production-shaped five-lane cooldown keeps quota separate',()=>{
@@ -18,7 +18,7 @@ check('Production-shaped five-lane cooldown keeps quota separate',()=>{
   service:{ActiveState:'active'},quota:quota([0,0,8.68,9.84,2.64][index]),
   quota_gate:{allowed:index>1,state:index>1?'available':'quota_reserved'}})]))
  const value=kaggleStatus(snapshot(lanes),now)
- assert.equal(value.running,0);assert.equal(value.cooldown,5);assert.match(value.text,/0 批运行 · 5 条冷却/)
+ assert.equal(value.running,0);assert.equal(value.cooldown,5);assert.match(value.text,/已确认运行 0 批 · 5 条冷却/)
  for(const key of ['third','fourth','fifth']){
   const current=kaggleLaneStatus(lanes[key],now)
   assert.equal(current.kind,'cooldown');assert.match(kaggleQuotaText(lanes[key],true,current),/额度条件满足 · 冷却后仍需恢复调度/)
@@ -61,6 +61,9 @@ check('Unknown submission and cooldown override local active and stale running c
  assert.match(kaggleQuotaText(value,true,current),/先核对已有提交结果/)
  const cooling=lane({outstanding:{state:'running',remote_status:'RUNNING'},recovery:{code:'provider_unavailable',retry_at:now+600}})
  assert.equal(kaggleLaneStatus(cooling,now).kind,'cooldown')
+ assert.match(kaggleLaneStatus(cooling,now).detail,/上次确认运行，当前状态待核对/)
+ assert.match(kaggleStatus(snapshot({primary:cooling}),now).text,/已确认运行 0 批 · 1 条冷却/)
+ assert.doesNotMatch(kaggleLaneStatus(cooling,now).detail,/已停止|已取消|无消耗/)
  const scheduler=lane({outstanding:{state:'running'}})
  assert.equal(kaggleLaneStatus(scheduler,now,{retry_at:now+300}).kind,'cooldown')
 })
@@ -73,7 +76,7 @@ check('Submitted, prepared and local recovery do not count as running',()=>{
 })
 check('Disabled dispatch and already-running work are distinct',()=>{
  const value=kaggleStatus({enabled:false,lanes:{primary:lane({outstanding:{state:'running',remote_status:'RUNNING'}})}},now)
- assert.match(value.text,/调度已暂停 · 1 批运行/)
+ assert.match(value.text,/调度已暂停 · 已确认运行 1 批/)
  assert.match(kaggleQuotaText(lane(),false),/调度已暂停/)
 })
 check('Unknown, null, invalid or stale quota remains closed',()=>{

@@ -23,7 +23,7 @@ export function kaggleLaneStatus(lane, now = Date.now() / 1000, schedulerLane = 
     return result('submission_unknown', state === 'submitting' ? '提交中 · 尚未确认' : '提交结果未确认',
       cooling ? `冷却 · ${reason} · ${retryDetail}` : '先核对已有提交结果，尚未确认运行')
   }
-  if (cooling) return result('cooldown', '冷却', `${reason} · ${retryDetail}`)
+  if (cooling) return result('cooldown', '冷却', `${state === 'running' && remote === 'RUNNING' ? '上次确认运行，当前状态待核对 · ' : ''}${reason} · ${retryDetail}`)
   if (state === 'running' && remote === 'RUNNING') {
     return result('running', '运行中', '已有批次正在运行，完成后再导入结果', 'ok')
   }
@@ -53,7 +53,7 @@ export function kaggleStatus(kaggle, now = Date.now() / 1000) {
   const parts = [enabled === true ? '已启用' : enabled === false ? '调度已暂停' : '启用状态未确认']
   if (!lanes.length) parts.push('批次状态未确认')
   else {
-    parts.push(`${running} 批运行`)
+    parts.push(`已确认运行 ${running} 批`)
     if (cooldown) parts.push(`${cooldown} 条冷却`)
     if (submissionUnknown) parts.push(`${submissionUnknown} 批提交未确认`)
     if (unknown) parts.push(`${unknown} 条状态未确认`)
