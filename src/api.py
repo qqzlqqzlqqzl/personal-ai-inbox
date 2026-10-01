@@ -28,6 +28,7 @@ from worker import run_worker, MF
 from preview_worker import run_preview_worker, run_discovery_worker
 from content_input import first_image_src
 from card_translation import enqueue as enqueue_cards, run_translation_worker
+from reader_work import reader_work
 
 
 @asynccontextmanager
@@ -369,6 +370,41 @@ def entry_published_timestamp(entry):
         return 0.0
 
 
+def reader_rows(sql, values):
+    """Open, consume and close the connection inside one synchronous worker."""
+    with connect() as c:
+        return [dict(row) for row in c.execute(sql, values)]
+
+
+def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False):
+    enqueue_cards(entries, priority=40 if detail else 30)
+    result = []
+    for entry in entries:
+        item = decorate(entry, uid if uid is not None else entry["user_id"],
+                        include_source_fallback=detail)
+        if recommended:
+            ai = item.setdefault("ai", {})
+            if not ai.get("cover_url"):
+                cover = first_image_src(item.get("content", ""))
+                if cover:
+                    ai["cover_url"] = cover
+                    ai["cover_source"] = "extracted_content"
+            # Fingerprint/enqueue must see the real content before it is deferred.
+            item["content"] = ""
+            item["content_deferred"] = True
+        result.append(item)
+    return result
+
+
+def enrich_reader_response(content):
+    data = json.loads(content)
+    if isinstance(data, dict) and isinstance(data.get("entries"), list):
+        data["entries"] = enrich_reader_entries(data["entries"])
+    elif isinstance(data, dict) and all(key in data for key in ("content", "user_id", "id")):
+        data = enrich_reader_entries([data], detail=True)[0]
+    return json.dumps(data, ensure_ascii=False).encode()
+
+
 async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=None, category_id=None):
     """List user notes without requiring an AI-analysis row for the article."""
     p = request.query_params
@@ -390,16 +426,11 @@ async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=N
             except (ValueError, OverflowError):
                 raise HTTPException(400, "Invalid date filter")
 
-    with connect() as c:
-        notes = [
-            dict(row)
-            for row in c.execute(
-                """SELECT entry_id,note,updated_at FROM entry_notes
-                   WHERE user_id=? AND length(trim(note))>0""",
-                (uid,),
-            )
-            if row["entry_id"] in allowed_ids
-        ]
+    notes = [row for row in await reader_work.run(
+        reader_rows,
+        """SELECT entry_id,note,updated_at FROM entry_notes
+           WHERE user_id=? AND length(trim(note))>0""", (uid,)
+    ) if row["entry_id"] in allowed_ids]
     if not notes:
         return {"total": 0, "entries": []}
 
@@ -457,10 +488,9 @@ async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=N
     else:
         filtered.sort(key=lambda item: (item[2], int(item[1]["id"])), reverse=reverse)
     total = len(filtered)
-    result = []
-    for _, entry, _ in filtered[offset : offset + limit]:
-        enqueue_cards([entry], priority=30)
-        result.append(decorate(entry, uid))
+    result = await reader_work.run(
+        enrich_reader_entries, [entry for _, entry, _ in filtered[offset : offset + limit]], uid
+    )
     return {"total": total, "entries": result}
 
 
@@ -471,7 +501,10 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
     if p.get("status") and p["status"] not in ["read", "unread"]:
         raise HTTPException(400, "Invalid status")
     try:
-        minimum = float(p.get("ai_min", settings()["minimum_score"]))
+        minimum = p.get("ai_min")
+        if minimum is None:
+            minimum = (await reader_work.run(settings))["minimum_score"]
+        minimum = float(minimum)
         limit = max(1, min(100, int(p.get("limit", 40))))
         offset = max(0, int(p.get("offset", 0)))
         if not 0 <= minimum <= 10:
@@ -597,18 +630,14 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
                    WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id),0)""",
     }[sort_key]
     sql_direction = direction.upper()
-    with connect() as c:
-        candidates = [
-            dict(x)
-            for x in c.execute(
-                "SELECT entry_id,feed_id FROM analyses WHERE "
-                + " AND ".join(where)
-                + " ORDER BY "
-                + order
-                + f" {sql_direction},entry_id {sql_direction}",
-                values,
-            )
-        ]
+    candidates = await reader_work.run(
+        reader_rows,
+        "SELECT entry_id,feed_id FROM analyses WHERE "
+        + " AND ".join(where)
+        + " ORDER BY " + order
+        + f" {sql_direction},entry_id {sql_direction}",
+        values,
+    )
     feeds_response = await app.state.client.get(
         MF + "/v1/feeds", headers=upstream_headers
     )
@@ -641,22 +670,13 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
                 MF + f"/v1/entries/{eid}", headers=upstream_headers
             )
             r.raise_for_status()
-            raw_entry = r.json()
-            enqueue_cards([raw_entry], priority=30)
-            item = decorate(raw_entry, uid)
-            if p.get("ai_view") == "recommended":
-                ai = item.setdefault("ai", {})
-                if not ai.get("cover_url"):
-                    cover = first_image_src(item.get("content", ""))
-                    if cover:
-                        ai["cover_url"] = cover
-                        ai["cover_source"] = "extracted_content"
-                item["content"] = ""
-                item["content_deferred"] = True
-            return item
+            return r.json()
 
-    entries = await asyncio.gather(
+    raw_entries = await asyncio.gather(
         *(fetch_entry(eid) for eid in ids[offset : offset + limit])
+    )
+    entries = await reader_work.run(
+        enrich_reader_entries, raw_entries, uid, recommended=p.get("ai_view") == "recommended"
     )
     return {"total": len(ids), "entries": entries}
 
@@ -1066,19 +1086,7 @@ async def proxy(path: str, request: Request):
             and content_type.startswith("application/json")
             and path.startswith("v1/")
         ):
-            data = r.json()
-            if isinstance(data, dict) and isinstance(data.get("entries"), list):
-                enqueue_cards(data["entries"], priority=30)
-                data["entries"] = [decorate(e, e["user_id"]) for e in data["entries"]]
-            elif (
-                isinstance(data, dict)
-                and "content" in data
-                and "user_id" in data
-                and "id" in data
-            ):
-                enqueue_cards([data], priority=40)
-                data = decorate(data, data["user_id"], include_source_fallback=True)
-            content = json.dumps(data, ensure_ascii=False).encode()
+            content = await reader_work.run(enrich_reader_response, r.content)
         if "json" in content_type or "text/html" in content_type:
             content = content.replace(b"http://127.0.0.1:8092/mf", b"/mf")
         keep = {
