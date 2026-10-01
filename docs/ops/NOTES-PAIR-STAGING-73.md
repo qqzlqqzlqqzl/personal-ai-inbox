@@ -25,6 +25,16 @@ is changed. Reader AI and translation are explicitly disabled in its temporary
 SQLite fixture, and no model/worker credential is passed to the child processes.
 Miniflux scheduling is disabled so synthetic feeds are never fetched.
 
+Admission hashes every actual `src/` file against the reviewed Git tree and checks
+file types, executable bits, index masking flags and unexpected files/imports.
+Children run from the empty temporary fixture with explicit `PYTHONPATH`, user-site
+imports and bytecode writes disabled. The selected running Docker container must
+actually publish its PostgreSQL `5432/tcp` on IPv4 loopback port `55473` before any
+migration or admin bootstrap. A different empty container is insufficient. Process
+liveness and `/proc/PID/exe` binary identity are also checked. Offline negative
+tests exercise masking flags, real-byte drift, modes/symlinks/extra imports and
+wrong container/image/port mappings; hosted paired execution is still required.
+
 ## Required outcomes
 
 - Absent flag and explicit `0`: original legacy path, 200 candidate body requests
@@ -41,6 +51,8 @@ Miniflux scheduling is disabled so synthetic feeds are never fetched.
 - Missing capability/route/provider failure has no body fallback or fake empty total
 - Selected body 403/500 remains explicit failure, not evidence of deletion
 - Real selected 404 causes one bounded reselect; original notes are preserved
+- A real Reader restart from `1` back to `0` restores the legacy path before any
+  Miniflux replacement; this does not exercise production binary rollback
 
 Results and fixture-only process logs are retained in `paired/` inside the existing
 Miniflux workflow artifact. Full original Reader/Go/PostgreSQL regressions remain

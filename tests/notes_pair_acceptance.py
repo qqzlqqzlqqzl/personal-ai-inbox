@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -42,6 +43,50 @@ def require(value, message):
 
 def command(*args, **kw):
     return subprocess.check_output(args, text=True, **kw).strip()
+
+
+def verify_runtime_source(root, baseline=CODE):
+    """Read actual import-tree bytes; do not trust Git's cached stat/index view."""
+    source = root / 'src'
+    require(source.is_dir() and not source.is_symlink(), 'invalid runtime source directory')
+    tags = command('git','ls-files','-v','-z','--','src',cwd=root)
+    require(all(row.startswith('H ') for row in tags.split('\0') if row), 'masked runtime index entry')
+    entries = command('git','ls-tree','-r','-z',baseline,'--','src',cwd=root)
+    expected = set()
+    for entry in filter(None,entries.split('\0')):
+        header,name=entry.split('\t',1)
+        mode,kind,sha=header.split()
+        require(kind=='blob' and mode in {'100644','100755'}, 'unsupported runtime source object')
+        path=root/name
+        require(path.is_file() and not path.is_symlink(), 'runtime file type mismatch')
+        require(not any(p.is_symlink() for p in path.parents if p!=root), 'runtime parent symlink')
+        require(bool(path.stat().st_mode & 0o111)==(mode=='100755'), 'runtime executable mode mismatch')
+        data=path.read_bytes()
+        require(hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()==sha, 'runtime bytes mismatch')
+        expected.add(path.relative_to(source).as_posix())
+    actual=set()
+    for path in source.rglob('*'):
+        require(not path.is_symlink(), 'unexpected runtime symlink')
+        if not path.is_dir():
+            require(path.is_file(), 'unexpected runtime file type')
+            actual.add(path.relative_to(source).as_posix())
+    require(expected and actual==expected, 'unexpected or missing runtime files/imports')
+
+
+def verify_container_binding(info, container):
+    """Bind the inspected empty fixture to the exact TCP endpoint used by Miniflux."""
+    require(info.get('Id','').startswith(container), 'container identity mismatch')
+    require(info.get('Config',{}).get('Image')==IMAGE, 'not the pinned disposable PostgreSQL service')
+    require(info.get('State',{}).get('Running') is True, 'fixture container is not running')
+    ports=info.get('NetworkSettings',{}).get('Ports',{}).get('5432/tcp') or []
+    require(any(p.get('HostPort')=='55473' and p.get('HostIp') in {'127.0.0.1','0.0.0.0'} for p in ports),
+            'fixture container does not own IPv4 loopback port 55473 for PostgreSQL 5432')
+
+
+def require_process_identity(proc, expected_sha):
+    require(proc.poll() is None, 'candidate Miniflux process exited')
+    require(hashlib.sha256(Path(f'/proc/{proc.pid}/exe').read_bytes()).hexdigest()==expected_sha,
+            'running Miniflux executable identity mismatch')
 
 
 class Wire:
@@ -138,7 +183,7 @@ def proxy_handler(wire):
 @contextlib.contextmanager
 def process(args, env, log):
     with log.open('w') as output:
-        proc = subprocess.Popen(args, env=env, stdout=output, stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(args, env=env, cwd=env['AI_NEWS_ROOT'], stdout=output, stderr=subprocess.STDOUT)
         try:
             yield proc
         finally:
@@ -172,10 +217,14 @@ def main():
     require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('ISSUE73_DISPOSABLE_POSTGRES') == '1',
             'requires hosted disposable fixture markers')
     require(re.fullmatch(r'[a-f0-9]{12,64}', args.postgres_container), 'invalid service container ID')
-    require(command('docker', 'inspect', '--format', '{{.Config.Image}}', args.postgres_container) == IMAGE,
-            'not the pinned disposable PostgreSQL service')
+    inspected=json.loads(command('docker','inspect',args.postgres_container))
+    require(isinstance(inspected,list) and len(inspected)==1,'unexpected container inspection')
+    verify_container_binding(inspected[0],args.postgres_container)
     require(hashlib.sha256(args.binary.read_bytes()).hexdigest() == BINARY_SHA, 'unexpected candidate binary')
-    command('git', 'diff', '--exit-code', CODE, '--', 'src', cwd=root)
+    verify_runtime_source(root)
+    for port in (8092,8093):
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1',port)) # Reject pre-existing listeners before any fixture mutation.
     evidence = args.evidence.resolve()
     evidence.mkdir(parents=True, exist_ok=True)
     def sql(query):
@@ -193,10 +242,11 @@ def main():
         with tempfile.TemporaryDirectory(prefix='issue73-pair-', dir=os.environ['RUNNER_TEMP']) as tmp:
             fixture = Path(tmp)
             env = {'PATH': os.environ['PATH'], 'HOME': str(fixture), 'LANG': 'C.UTF-8',
-                   'AI_NEWS_ROOT': str(fixture), 'PYTHONPATH': str(root / 'src')}
+                   'AI_NEWS_ROOT': str(fixture), 'PYTHONPATH': str(root / 'src'),
+                   'PYTHONNOUSERSITE':'1','PYTHONDONTWRITEBYTECODE':'1'}
             init = ('import core; core.init_db(); core.init_usage(); core.migrate(); '
                     'core.save_settings({"enabled":False,"translation_enabled":False})')
-            subprocess.run([sys.executable, '-c', init], check=True, env=env)
+            subprocess.run([sys.executable, '-c', init], check=True, env=env, cwd=fixture)
             mf_env = {**env, 'DATABASE_URL': DSN, 'RUN_MIGRATIONS': '1', 'CREATE_ADMIN': '1',
                       'ADMIN_USERNAME': ADMIN[0], 'ADMIN_PASSWORD': ADMIN[1],
                       'BASE_URL': MINIFLUX, 'LISTEN_ADDR': '127.0.0.1:8093',
@@ -204,6 +254,7 @@ def main():
             with httpx.Client(timeout=30, trust_env=False) as client, process(
                     [str(args.binary.resolve())], mf_env, evidence / 'miniflux.log') as mf:
                 wait_http(client, MINIFLUX + '/healthcheck', mf)
+                require_process_identity(mf,BINARY_SHA)
                 owner = client.get(MINIFLUX + '/v1/me', auth=ADMIN).json()['id']
                 response = client.post(MINIFLUX + '/v1/users', auth=ADMIN,
                                        json={'username': SECOND[0], 'password': SECOND[1]})
@@ -229,6 +280,7 @@ def main():
                     db.execute("INSERT INTO entry_notes VALUES(2,1001,'second private note',0,99999)")
                     db.execute("INSERT INTO entry_notes VALUES(2,1,'foreign trap',0,99999)")
                 def record(name, response, expected=200, **facts):
+                    require(mf.poll() is None and reader.poll() is None,'paired child process exited')
                     require(response.status_code == expected, f'{name}: expected {expected}, got {response.status_code}')
                     results.append({'case': name, 'passed': True, 'http_status': response.status_code,
                                     **facts, 'upstream_calls': wire.snapshot()})
@@ -236,13 +288,13 @@ def main():
                 def listing(auth=ADMIN, **params):
                     return client.get(READER+'/mf/v1/entries', auth=auth,
                                       params={'ai_view':'notes','ai_min':0,'search':'target','limit':24,**params})
-                for mode in (None, '0', '1'):
+                for stage,mode in enumerate((None, '0', '1', '0')):
                     reader_env = dict(env)
                     if mode is not None:
                         reader_env['READER_NOTES_METADATA'] = mode
                     with process([sys.executable,'-m','uvicorn','api:app','--host','127.0.0.1',
                                   '--port','8092','--log-level','warning'], reader_env,
-                                 evidence / f'reader-{mode or "unset"}.log') as reader:
+                                 evidence / f'reader-{stage}-{mode or "unset"}.log') as reader:
                         wait_http(client, READER+'/', reader)
                         wire.reset('legacy' if mode != '1' else 'enabled',
                                    body_faults={i:500 for i in range(25,201)} if mode=='1' else None)
@@ -256,7 +308,7 @@ def main():
                                 'effective flag/body count')
                         require(len(wire.snapshot())==(29 if mode=='1' else 204), 'HTTP count includes /me authentication')
                         require(all(x['forwarded'] for x in wire.snapshot()), 'successful cases must hit actual Miniflux')
-                        record(f'flag_{mode or "unset"}',response,body_calls=expected_bodies,
+                        record('rollback_1_to_0' if stage==3 else f'flag_{mode or "unset"}',response,body_calls=expected_bodies,
                                total_http_calls=len(wire.snapshot()),effective_flag=mode)
                         if mode!='1':
                             continue
@@ -309,14 +361,23 @@ def main():
                                 any(x.get('entry_id')==24 and x['status']==404 and x['forwarded'] for x in wire.snapshot()),
                                 'real selected404 bounded reselection')
                         record('real_selected_404_reselect',response,metadata_snapshots=2,body_calls=6)
+                        # Restore only the deleted synthetic entry for the actual 1 -> 0 restart check.
+                        sql("""INSERT INTO entries(id,user_id,feed_id,hash,published_at,changed_at,title,url,author,content,status)
+                            VALUES(24,1,1,'pair-24','2026-09-28T00:00:00Z','2026-09-28T00:00:00Z',
+                                   'target 24','https://example.invalid/entry/24','','<p>synthetic body 24</p>','unread');""")
                 with sqlite3.connect(database) as db:
                     require(db.execute('SELECT count(*) FROM analyses').fetchone()[0]==0,'legacy notes need no analysis rows')
                     require(db.execute('SELECT count(*) FROM entry_notes').fetchone()[0]==203,'no note deletion')
                     prefs=json.loads(db.execute("SELECT value FROM settings WHERE name='preferences'").fetchone()[0])
                     require(not prefs['enabled'] and not prefs['translation_enabled'],'paid workers remain disabled')
+                require_process_identity(mf,BINARY_SHA)
+                verify_runtime_source(root)
                 report={'passed':True,'runtime_source_commit':CODE,'candidate_binary_sha256':BINARY_SHA,
                         'actual_miniflux_process':True,'actual_reader_process':True,'actual_postgresql':True,
                         'external_model_credentials':False,'production_acceptance':False,
+                        'runtime_admission':{'actual_bytes_verified':True,'index_flags_verified':True,
+                                             'extra_imports_rejected':True,'miniflux_proc_exe_verified':True,
+                                             'postgres_container_port_binding_verified':True},
                         'limitations':['Synthetic loopback HTTP proxy, not production Nginx/TLS or real cardinality.',
                                        '403/500 response and missing-header cases explicitly inject transport faults.',
                                        'Only selected404 deletes synthetic PG fixture data; notes remain intact.'],

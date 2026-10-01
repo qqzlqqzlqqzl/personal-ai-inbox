@@ -8,6 +8,7 @@ on:
       - 'src/notes_metadata.py'
       - 'tests/test_notes_metadata.py'
       - 'tests/notes_pair_acceptance.py'
+      - 'tests/test_notes_pair_guards.py'
       - '.github/workflows/miniflux-metadata.yml'
   workflow_dispatch:
 
@@ -70,6 +71,8 @@ jobs:
           python-version: '3.12'
       - name: Install existing locked Reader dependencies
         run: python -m pip install -r requirements.dev.lock.txt
+      - name: Negative source and container admission checks
+        run: python -m unittest discover -s tests -p test_notes_pair_guards.py -v
       - name: Real Reader and candidate binary paired acceptance
         env:
           ISSUE73_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
