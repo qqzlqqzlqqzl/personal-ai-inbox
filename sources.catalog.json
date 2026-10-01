@@ -1055,5 +1055,101 @@
     "status": "ok",
     "original_text_verified": false,
     "transport": "RSSHub YouTube"
+  },
+  {
+    "name": "NXP 恩智浦技术博文",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/nxp.xml",
+    "status": "ok",
+    "checked_at": "2026-09-24T16:03:40.679958+00:00",
+    "original_text_verified": false
+  },
+  {
+    "name": "Quectel 移远技术博客",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/quectel.xml",
+    "status": "ok",
+    "checked_at": "2026-09-24T16:03:40.679978+00:00",
+    "original_text_verified": false
+  },
+  {
+    "name": "Nidec 尼得科新案例",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/nidec.xml",
+    "status": "ok",
+    "checked_at": "2026-09-24T16:03:40.679982+00:00",
+    "original_text_verified": false
+  },
+  {
+    "name": "TI 德州仪器技术与制造案例",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/ti.xml",
+    "status": "ok",
+    "checked_at": "2026-09-24T16:03:40.679985+00:00",
+    "original_text_verified": false
+  },
+  {
+    "name": "Renesas 瑞萨技术博客",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/renesas.xml",
+    "status": "ok",
+    "checked_at": "2026-09-24T16:03:40.679987+00:00",
+    "original_text_verified": false
+  },
+  {
+    "name": "Kickstarter 设计与科技精选（邮件归档）",
+    "category": "产品灵感",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/kickstarter.xml",
+    "status": "ok",
+    "original_text_verified": false,
+    "note": "第三方邮件归档；邮件文字可读，项目详情与直达链接未取得"
+  },
+  {
+    "name": "ADI 官方参考设计",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/adi.xml",
+    "status": "ok",
+    "original_text_verified": false,
+    "transport": "direct HTTP"
+  },
+  {
+    "name": "Microchip 电机应用与参考设计",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/microchip.xml",
+    "status": "ok",
+    "original_text_verified": false,
+    "transport": "Jina Reader anonymous API"
+  },
+  {
+    "name": "Nordic 客户应用案例",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/nordic.xml",
+    "status": "ok",
+    "original_text_verified": false,
+    "transport": "Jina Reader anonymous API"
+  },
+  {
+    "name": "乐鑫 ESP RainMaker 客户案例",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/espressif.xml",
+    "status": "ok",
+    "original_text_verified": false,
+    "transport": "direct HTTP"
+  },
+  {
+    "name": "maxon 技术博客与应用故事",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/maxon.xml",
+    "status": "ok",
+    "original_text_verified": false,
+    "transport": "direct HTTP"
+  },
+  {
+    "name": "安森美 工业技术博客",
+    "category": "大厂技术与案例",
+    "url": "http://127.0.0.1:8092/internal/vendor-feeds/onsemi.xml",
+    "status": "ok",
+    "original_text_verified": false,
+    "transport": "direct HTTP"
   }
 ]
