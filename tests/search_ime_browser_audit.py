@@ -14,6 +14,7 @@ for name,width,zoom in [('desktop',1440,1),('mobile',390,1),('desktop-css-zoom-2
  h=Harness('search-ime-'+name);p=h.page
  p.set_viewport_size({'width':width,'height':900 if width>390 else 844})
  requests=[];p.on('request',lambda req:requests.append(req.url))
+ p.add_init_script("window.auditFocus=[];document.addEventListener('focusin',e=>window.auditFocus.push({tag:e.target.tagName,label:e.target.getAttribute('aria-label'),text:e.target.textContent?.slice(0,60),at:performance.now()}))")
  def intercept(route,path,method):
   if path.endswith('/entries'):
    q=parse_qs(urlsplit(route.request.url).query)
@@ -65,6 +66,7 @@ for name,width,zoom in [('desktop',1440,1),('mobile',390,1),('desktop-css-zoom-2
  except Exception as exc:
   h.errors.append(str(exc));failures.append(name+': '+str(exc));p.screenshot(path=str(h.out/'failure.png'),full_page=True)
  finally:
+  (h.out/'focus-diagnostics.json').write_text(json.dumps(p.evaluate('({active:document.activeElement?.outerHTML,events:window.auditFocus})'),ensure_ascii=False,indent=2))
   try:h.close()
   except AssertionError as exc:
    failures.append(name+': harness result '+str(exc))

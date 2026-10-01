@@ -154,6 +154,16 @@ patch(
 # deployments already have the selector. Normalize the former explicitly so a
 # pristine pinned build does not depend on an untracked intermediate patch.
 search_path = "src/components/Article/SearchAndSortBar.jsx"
+# Enter can confirm an IME candidate without submitting the article search.
+# React carries isComposing on nativeEvent; keyCode 229 covers legacy IMEs.
+patch(
+    search_path,
+    '''  const handleKeyDown = (event) => {
+    if (event.key === "Enter") {''',
+    '''  const handleKeyDown = (event) => {
+    if (event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229) return
+    if (event.key === "Enter") {''',
+)
 if '  const scoreOrder =' in (WEB / search_path).read_text():
     patch(search_path,
           '  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })',
@@ -518,5 +528,4 @@ for original in BACK.rglob("*"):
             ))
 (ROOT / "patches/reactflux.patch").write_text("".join(diffs))
 print("Scope × AI filter overlay applied")
-
 
