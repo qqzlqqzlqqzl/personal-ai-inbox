@@ -218,7 +218,9 @@ def export(config, *, scope_user_id, limit, exclude_entry_ids, feed_reader=None)
             for row in rows:
                 eid = row['entry_id']
                 reason = None
-                if eid in excluded:
+                if not positive_id(eid):
+                    reason = 'invalid_analysis_identity'
+                elif eid in excluded:
                     reason = 'explicitly_excluded'
                 elif row['feed_id'] not in feeds:
                     reason = 'feed_not_current_enabled_owned'

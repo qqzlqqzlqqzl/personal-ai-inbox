@@ -210,6 +210,19 @@ class URLExportTests(unittest.TestCase):
                 self.assertNotIn(12, packet['entry_ids'])
                 self.assertEqual(packet['selection']['skip_counts']['unsafe_url'], 1)
 
+    def test_second_explicit_user_and_invalid_entry_identity(self):
+        self.config['scope_user_id'] = 2
+        self.feeds.append({'id': 2, 'user_id': 2, 'disabled': False})
+        self.change('UPDATE analyses SET user_id=2,feed_id=2 WHERE entry_id=12')
+        packet = self.export(scope_user_id=2)
+        self.assertEqual(packet['scope_user_id'], 2)
+        self.assertEqual(packet['entry_ids'], [12])
+        self.assertEqual(packet['enabled_feed_ids'], [2])
+        self.change('UPDATE analyses SET entry_id=0 WHERE entry_id=12')
+        packet = self.export(scope_user_id=2)
+        self.assertEqual(packet['entry_ids'], [])
+        self.assertEqual(packet['selection']['skip_counts'], {'invalid_analysis_identity': 1})
+
     def test_all_peer_claims_and_live_lease_boundaries(self):
         self.claim(self.f.f.peer, 12)
         for name, eid in [('second', 11), ('third', 10), ('fourth', 9), ('fifth', 8)]:
