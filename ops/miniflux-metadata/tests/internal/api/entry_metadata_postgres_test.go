@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/database"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/storage"
@@ -274,6 +275,12 @@ func (f *metadataPGFixture) assertQueryAudit(t *testing.T, count, authWrites int
 
 func TestMetadataPostgres(t *testing.T) {
 	f := newMetadataPGFixture(t)
+	// The ordinary entry route uses the application's media-proxy configuration.
+	// Match initialized application defaults without reading environment or secrets.
+	// This parent test is deliberately serial; restore state before parallel tests.
+	previousOptions := config.Opts
+	config.Opts = config.NewConfigOptions()
+	t.Cleanup(func() { config.Opts = previousOptions })
 	const endpoint = "/v1/entries/metadata"
 	const mixed = `{"entry_ids":[5,4,3,2,1,1,999999999]}`
 
