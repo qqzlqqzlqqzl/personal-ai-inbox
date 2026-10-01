@@ -37,16 +37,21 @@ class CjkFontCacheTests(unittest.TestCase):
     def test_valid_cached_bytes_are_copied_before_install_without_download(self):
         self.archive.write_bytes(self.data)
         def execute(*args, **kwargs):
-            self.assertEqual(args[:4], ("sudo", "apt-get", "install", "-y"))
-            staged = Path(args[4])
-            self.assertNotEqual(staged, self.archive)
-            self.assertEqual(staged.read_bytes(), self.data)
-            # Mutation after validation cannot change the independent install copy.
-            self.archive.write_bytes(b"X" * len(self.data))
-            self.assertEqual(staged.read_bytes(), self.data)
+            if args[1] == "install":
+                self.assertEqual(args[:5], ("sudo", "install", "-m", "0644", "--"))
+                staged = Path(args[5])
+                self.assertNotEqual(staged, self.archive)
+                self.assertEqual(staged.read_bytes(), self.data)
+                self.assertEqual(args[6], "/var/cache/apt/archives/fonts-noto-cjk_1%3a20220127+repack1-1_all.deb")
+                # Mutation after validation cannot change the independent install copy.
+                self.archive.write_bytes(b"X" * len(self.data))
+                self.assertEqual(staged.read_bytes(), self.data)
+            else:
+                self.assertEqual(args, ("sudo", "apt-get", "install", "-y", "--no-download",
+                                        f"{font.PACKAGE}={self.record['version']}"))
         with patch.object(font, "command", side_effect=execute) as command:
             font.install(self.cache, self.record)
-            self.assertEqual(command.call_count, 1)
+            self.assertEqual(command.call_count, 2)
 
     def test_cold_cache_downloads_exact_version_and_verifies_before_sudo(self):
         calls = []
@@ -55,11 +60,13 @@ class CjkFontCacheTests(unittest.TestCase):
             if args[0] == "apt-get":
                 self.assertEqual(args, ("apt-get", "download", f"{font.PACKAGE}={self.record['version']}"))
                 Path(kwargs["cwd"], "fonts-noto-cjk_1%3a20220127+repack1-1_all.deb").write_bytes(self.data)
+            elif args[1] == "install":
+                self.assertEqual(Path(args[5]).read_bytes(), self.data)
             else:
-                self.assertEqual(Path(args[4]).read_bytes(), self.data)
+                self.assertIn("--no-download", args)
         with patch.object(font, "command", side_effect=execute):
             font.install(self.cache, self.record)
-        self.assertEqual([call[0] for call in calls], ["apt-get", "sudo"])
+        self.assertEqual([call[0] for call in calls], ["apt-get", "sudo", "sudo"])
         self.assertEqual(self.archive.read_bytes(), self.data)
 
     def test_download_failure_stays_failure(self):
@@ -144,8 +151,13 @@ class CjkFontCacheTests(unittest.TestCase):
                     subprocess.CompletedProcess([], 0, body)]
         with patch.object(font, "command", side_effect=responses(stanza)):
             self.assertEqual(font.metadata(), self.record)
+        with patch.object(font, "command", side_effect=responses(stanza + "\n" + stanza)):
+            self.assertEqual(font.metadata(), self.record)
+        status_only = (f"Package: {font.PACKAGE}\nStatus: install ok installed\n"
+                       f"Version: {self.record['version']}\nArchitecture: all\n")
         for invalid in [stanza.replace("SHA256:", "MD5sum:"), stanza.replace("Architecture: all", "Architecture: amd64"),
-                        stanza + "\n" + stanza.replace(self.record["sha256"], "f" * 64)]:
+                        stanza + "\n" + stanza.replace(self.record["sha256"], "f" * 64),
+                        status_only, stanza + "\n" + status_only]:
             with patch.object(font, "command", side_effect=responses(invalid)):
                 with self.assertRaises(ValueError):
                     font.metadata()

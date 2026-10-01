@@ -56,7 +56,7 @@ def cache_key(record, release, architecture):
     distro = "-".join(release[k] for k in ("ID", "VERSION_ID"))
     if not re.fullmatch(r"[a-zA-Z0-9.\-]+", distro + "-" + architecture):
         raise ValueError("Invalid runner distribution/architecture")
-    return (f"reader-cjk-deb-v1-{distro}-{architecture}-{record['sha256']}-"
+    return (f"reader-cjk-deb-v2-{distro}-{architecture}-{record['sha256']}-"
             f"{hashlib.sha256(identity).hexdigest()[:16]}")
 
 
@@ -118,7 +118,13 @@ def install(cache, record):
             verified_copy(cache, CACHED_FILE, record, target)
         print(json.dumps({"font_package": record, "source": "apt-download" if empty else "verified-cache",
                           "prepare_seconds": round(time.monotonic() - start, 3)}), flush=True)
-        command("sudo", "apt-get", "install", "-y", str(archive))
+        # APT can prefer a repository even when given a local .deb of the same
+        # version. Seed its standard archive name AFTER verification, then
+        # forbid downloads during installation. APT archive reuse only checks
+        # size in some versions; our explicit SHA256 check above is essential.
+        apt_name = f"{PACKAGE}_{record['version'].replace(':', '%3a')}_all.deb"
+        command("sudo", "install", "-m", "0644", "--", str(archive), f"/var/cache/apt/archives/{apt_name}")
+        command("sudo", "apt-get", "install", "-y", "--no-download", f"{PACKAGE}={record['version']}")
     print(f"CJK font download/verify/install: {time.monotonic() - start:.3f}s", flush=True)
 
 
