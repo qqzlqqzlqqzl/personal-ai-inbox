@@ -1,0 +1,15 @@
+{
+  "src/components/Ai/AiPanel.jsx": [
+    "2c444def6db7593dd7613359d8f862b02fec17e7fc90bd08582f2a10401a22f3",
+    "9a6325646e3bc21c5d2f6935391887c9e78c5ae4ecd803a2e10a94636ade2b1e",
+    "f9dd2c352f2caf20ae218a198f5655eb27f499e0b5adeb4ac6350138c0b6ed3d",
+    "2c622804495502acbe2057fc400a92121ea3e6862f32b02f944d7f4fa52f39e2"
+  ],
+  "src/components/Ai/AiToolbar.jsx": [
+    "a1ffae4d97766e4394641aadfda91773aa8584dc4b7d47237d3aa3a87a4d784f",
+    "aaede7b9bdae0ec48e9fbcdd2b4c3d5f85c312b92cfd509898d3fe174bc0c14a"
+  ],
+  "src/components/Ai/review-utils.js": [
+    "256c225f48b661555c3126c2a4f89d3752265283d64249bb1cf7d6c549321fe0"
+  ]
+}

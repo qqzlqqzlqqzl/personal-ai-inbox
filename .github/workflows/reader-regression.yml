@@ -59,11 +59,17 @@ jobs:
       - name: Build isolated reader
         run: python tests/build_ci_reader.py
       - name: Install hosted Chromium
-        run: python -m playwright install --with-deps chromium
+        run: |
+          python -m playwright install --with-deps chromium
+          sudo apt-get install -y fonts-noto-cjk
       - name: Desktop and mobile viewport UI regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: python tests/history_browser_acceptance.py
+      - name: Reviewed control workflows in isolated Chromium
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: python tests/review_console_browser.py
       - name: Retain synthetic test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -75,4 +81,5 @@ jobs:
             runtime/history-*.png
             runtime/quota-*.png
             runtime/browser-failure.png
+            runtime/review-console/
           retention-days: 7
