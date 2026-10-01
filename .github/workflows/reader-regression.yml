@@ -58,10 +58,13 @@ jobs:
           node tests/source_history_component_acceptance.mjs
       - name: Build isolated reader
         run: python tests/build_ci_reader.py
-      - name: Install hosted Chromium
-        run: |
-          python -m playwright install --with-deps chromium
-          sudo apt-get install -y fonts-noto-cjk
+      - name: Install Chromium system dependencies
+        run: python -m playwright install-deps chromium
+      - name: Install hosted Chromium headless shell
+        # The browser tests launch headless Chromium without a channel override.
+        run: python -m playwright install --only-shell chromium
+      - name: Install CJK fonts for browser evidence
+        run: sudo apt-get install -y fonts-noto-cjk
       - name: Desktop and mobile viewport UI regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
