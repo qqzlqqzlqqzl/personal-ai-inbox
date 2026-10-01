@@ -39,6 +39,17 @@ def prepare():
             script = ROOT / 'src' / name
             code = script.read_text().replace('/home/ubuntu/ai-news', str(ROOT))
             # Trusted checked-in overlay only; substituted paths stay in this checkout.
+            if name == 'patch_interaction_review.py':
+                # Public pinned source after the owned earlier patches, never runtime/private data.
+                # Retain exact inputs so a fail-closed overlay mismatch can be reviewed, not bypassed.
+                for before in (ROOT / 'frontend-review/before').rglob('*'):
+                    if before.is_file():
+                        relative = before.relative_to(ROOT / 'frontend-review/before')
+                        source = web / relative
+                        if source.is_file():
+                            evidence = ROOT / 'artifacts/review-overlay-input' / relative
+                            evidence.parent.mkdir(parents=True, exist_ok=True)
+                            evidence.write_bytes(source.read_bytes())
             exec(compile(code, str(script), 'exec'), {'__name__': '__main__', '__file__': str(script)})  # noqa: S102
     finally:
         generated_patch.write_bytes(original_patch)

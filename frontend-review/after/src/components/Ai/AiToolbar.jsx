@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react"
 import { useEffect, useRef, useState } from "react"
 
 import AiPanel from "./AiPanel"
+import NavigationPalette from "./NavigationPalette"
 
 import apiClient from "@/apis/ofetch"
 import { aiState } from "@/store/aiState"
@@ -130,6 +131,7 @@ export default function AiToolbar() {
       invalidateArticleList()
     }}>有新内容 / 中文更新 · 点击刷新</button>}
     <button className="ai-settings-button" onClick={() => setOpen(true)}>AI 设置 · 来源</button>
+    <NavigationPalette onConsole={() => setOpen(true)} />
     {open && <AiPanel onClose={() => setOpen(false)} />}
   </div>
 }

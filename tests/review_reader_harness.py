@@ -58,7 +58,7 @@ class Harness:
         elif '/ai/notes/' in path:
             eid=path.rsplit('/',1)[-1]
             if method=='PUT':self.notes[eid]=(request.post_data_json or {}).get('note','');self.note_writes.append((eid,self.notes[eid]))
-            body={'note':self.notes.get(eid,''),'note_count':len(self.notes.get(eid,'')),'note_updated_at':None}
+            body={'note':self.notes.get(eid,''),'note_count':len(self.notes.get(eid,'')),'updated_at':'2026-10-01T12:00:00Z'}
         elif path.endswith('/ai/subscribe'):
             item=request.post_data_json;fid=len(self.feeds)+7
             feed={'id':fid,'user_id':1,'title':item['url'],'feed_url':item['url'],'site_url':'https://example.test','category':next(c for c in self.categories if c['id']==item['category_id'])};self.feeds.append(feed)

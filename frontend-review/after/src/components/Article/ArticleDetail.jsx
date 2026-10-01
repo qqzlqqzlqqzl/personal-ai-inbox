@@ -1,5 +1,7 @@
 import AiBadge from "@/components/Ai/AiBadge"
 import ArticleNote from "@/components/Ai/ArticleNote"
+import ReadingControls from "@/components/Ai/ReadingControls"
+import RecoverableImage from "./ImageRecovery"
 import { Divider, Tag, Typography } from "@arco-design/web-react"
 import { useStore } from "@nanostores/react"
 import ReactHtmlParser, { attributesToProps, domToReact } from "html-react-parser"
@@ -111,7 +113,7 @@ const handleImage = (node, getImageIndex, togglePhotoSlider) => {
 
   const index = getImageIndex(node.attribs.src)
   if (index < 0) {
-    return <img {...getOptimizedImageProps(node)} />
+    return <RecoverableImage {...getOptimizedImageProps(node)} />
   }
 
   return <ImageOverlayButton index={index} node={node} togglePhotoSlider={togglePhotoSlider} />
@@ -379,6 +381,7 @@ const ArticleDetail = forwardRef((_, ref) => {
   const renderableContentHtml = isArticleBodyPending ? "" : deferredContentHtml
   const {
     articleWidth,
+    articleLineHeight,
     contentBrowsingDirection,
     edgeToEdgeImages,
     fontFamily,
@@ -647,6 +650,7 @@ const ArticleDetail = forwardRef((_, ref) => {
             <Typography.Text className="article-date">
               {generateReadingTime(activeContent.reading_time)}
             </Typography.Text>
+            <ReadingControls key={activeContent.id} />
             <AiBadge entry={activeContent} detailed />
             <Divider />
           </div>
@@ -656,6 +660,7 @@ const ArticleDetail = forwardRef((_, ref) => {
             className="article-body"
             style={{
               fontSize: `${fontSize}rem`,
+              lineHeight: articleLineHeight ?? 1.8,
               maxWidth: responsiveMaxWidth,
               fontFamily: fontFamily,
               "--article-width": articleWidth,
@@ -679,7 +684,7 @@ const ArticleDetail = forwardRef((_, ref) => {
                   onImagePreview={togglePhotoSlider}
                   onOpenChange={handleEnclosuresOpenChange}
                 />
-                <ArticleNote entry={activeContent} />
+                <ArticleNote entry={activeContent} key={activeContent.id} />
                 {sourceUrl && (
                   <footer className="article-source-footer">
                     <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
