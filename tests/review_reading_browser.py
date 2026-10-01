@@ -26,9 +26,10 @@ def image_route(route):
 h.ctx.route('https://images.example.test/**',image_route)
 h.ctx.grant_permissions(['clipboard-read','clipboard-write'])
 p.on('dialog',lambda d:d.accept())
-def open_entry(eid):
+def open_entry(eid,recovering=False):
     h.goto(f'/inbox/all/entry/{eid}')
-    expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_enabled()
+    if recovering:expect(p.get_by_role('button',name='恢复本地草稿',exact=True)).to_be_visible()
+    else:expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_enabled()
 def draft_key(eid):
     return p.evaluate('(id)=>"reader.note.draft:v1:"+encodeURIComponent(JSON.stringify([location.origin+"/mf","1",String(id)]))',eid)
 def note_writes():return [w for w in h.writes if '/ai/notes/' in w[1]]
@@ -53,9 +54,9 @@ try:
     p.get_by_role('button',name='恢复本地草稿',exact=True).click();note=p.get_by_role('textbox',name='我的笔记',exact=True);expect(note).to_have_value('待人工确认的恢复草稿')
     note.focus();note.press('Tab');p.wait_for_timeout(850);h.check('R05_recovery_blur_never_overwrites',len(note_writes())==before)
     close_article();p.wait_for_timeout(150);h.check('R05_recovery_unmount_never_overwrites',len(note_writes())==before)
-    open_entry(101);p.get_by_role('button',name='恢复本地草稿',exact=True).click();p.get_by_role('button',name='立即保存笔记',exact=True).click();expect(p.locator('.article-note-head small')).to_contain_text('已保存');h.check('R05_recovery_explicit_save',h.notes['101']=='待人工确认的恢复草稿')
+    open_entry(101,recovering=True);p.get_by_role('button',name='恢复本地草稿',exact=True).click();p.get_by_role('button',name='立即保存笔记',exact=True).click();expect(p.locator('.article-note-head small')).to_contain_text('已保存');h.check('R05_recovery_explicit_save',h.notes['101']=='待人工确认的恢复草稿')
     modes['hold_save']=True;note=p.get_by_role('textbox',name='我的笔记',exact=True);note.fill('A 的延迟保存');note.press('Control+s');expect(p.locator('.article-note-head small')).to_contain_text('正在保存')
-    close_article();open_entry(102);note_b=p.get_by_role('textbox',name='我的笔记',exact=True);expect(note_b).to_have_value('服务器原始笔记 B')
+    close_article();p.locator('[data-entry-id="102"]').first.click();note_b=p.get_by_role('textbox',name='我的笔记',exact=True);expect(note_b).to_have_value('服务器原始笔记 B')
     modes['hold_save']=False
     for route in pending:
         eid=route.request.url.rsplit('/',1)[-1];h.notes[eid]=route.request.post_data_json['note'];route.fulfill(json={'note':h.notes[eid],'updated_at':'2026-10-01T12:00:00Z'})
