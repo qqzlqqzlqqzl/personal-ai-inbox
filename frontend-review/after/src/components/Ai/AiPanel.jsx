@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import apiClient from "@/apis/ofetch"
 import useAppData from "@/hooks/useAppData"
 import SourceHistory from "./SourceHistory"
+import { kaggleLaneStatus, kaggleQuotaText, kaggleStatus } from "./kaggle-status"
 import {filterCatalog,normalizeDraft,settingsDelta,subscriptionQueue,uniqueSources,validateSettings} from "./review-utils"
 import "./ReviewWorkflows.css"
 import { aiState } from "@/store/aiState"
@@ -120,20 +121,10 @@ export default function AiPanel({ onClose }) {
   const queued = (analysisCounts.pending || 0) + (analysisCounts.waiting_model || 0) + (analysisCounts.budget_paused || 0)
   const attention = coverage.needs_attention || 0
   const laneEntries = Object.entries(status?.kaggle?.lanes || {})
-  const lanes = laneEntries.map(([,lane]) => lane)
-  const activeLanes = lanes.filter(l => ["processing","submitted","running"].includes(l?.state) || ["active","activating"].includes(l?.service?.ActiveState)).length
+  const kaggle = kaggleStatus(status?.kaggle)
   const laneNumbers = { primary: 1, secondary: 2, third: 3, fourth: 4, fifth: 5 }
   const hours = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}h` : "—"
   const refreshDate = (value) => value ? String(value).slice(5,10).replace("-","/") : "—"
-  const retryDate = (value) => Number(value) > Date.now()/1000 ? new Date(Number(value)*1000).toLocaleString([], { month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit" }) : null
-  const laneState = (lane) => {
-    const retry = retryDate(lane?.recovery?.retry_at)
-    if (retry) return { text: `冷却 · ${lane.recovery?.code || lane.outstanding?.error || "重试"}`, detail: `下次重试 ${retry}`, tone: "bad" }
-    if (["active","activating"].includes(lane?.service?.ActiveState)) return { text: "运行中", detail: lane?.outstanding?.state || lane?.state || "处理中", tone: "ok" }
-    if (lane?.outstanding?.state) return { text: "待恢复", detail: lane.outstanding.state, tone: "warn" }
-    if (lane?.state === "cooldown") return { text: "冷却", detail: lane?.recovery?.code || "等待重试", tone: "warn" }
-    return { text: "空闲", detail: lane?.state || "无待处理 batch", tone: "" }
-  }
   const resources = status?.resources || {}
   const percentage = (value,total) => total ? Math.round((value || 0) * 100 / total) : 0
   const formatBytes = (value) => {
@@ -185,25 +176,25 @@ export default function AiPanel({ onClose }) {
       <div className="ai-health-row">
         {[["网页网关",status.services?.gateway],["阅读器",status.services?.reader],["RSSHub",status.services?.rsshub]].map(([label,ok])=>
           <span className={ok ? "ok" : "bad"} key={label}>{label} · {ok ? "正常" : "异常"}</span>)}
-        <span className={status.kaggle?.enabled ? "ok" : ""}>Kaggle · {status.kaggle?.enabled ? ("已启用 · " + activeLanes + " 条运行中") : "未启用"}</span>
+        <span className={loadErrors.status ? "warn" : kaggle.tone}>{loadErrors.status ? "Kaggle 状态暂不可读 · 显示上次快照" : kaggle.text}</span>
       </div>
       <h3 className="ai-dashboard-section-title">Kaggle 计算资源</h3>
       <p className="ai-dashboard-caption">5 个独立 lane · GPU 周额度每 5 分钟缓存刷新{status.kaggle?.quota_checked_at ? ` · 最近查询 ${new Date(status.kaggle.quota_checked_at*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}` : ""}</p>
       <div className="ai-kaggle-grid">
         {laneEntries.map(([key,lane]) => {
-          const current=laneState(lane)
+          const current=kaggleLaneStatus(lane, Date.now()/1000, status.kaggle?.scheduler?.lanes?.[key])
           const gpu=lane?.quota?.gpu
           const tpu=lane?.quota?.tpu
           const remaining=Number(gpu?.remaining_hours)
           const total=Number(gpu?.total_hours)
           const used=Number(gpu?.used_hours)
-          const low=Number.isFinite(remaining) && remaining <= 1
+          const low=gpu?.remaining_hours != null && Number.isFinite(remaining) && remaining <= 1
           const quotaUnavailable=!gpu || gpu.remaining_hours == null || !Number.isFinite(remaining)
-          return <div className={`ai-kaggle-card ${low ? "needs-attention" : ""}`} key={key}>
+          return <div className={`ai-kaggle-card ${low ? "needs-attention" : ""}`} key={key} data-kaggle-state={current.kind}>
             <div className="ai-kaggle-head"><strong>Kaggle {laneNumbers[key] || key}</strong><span className={current.tone}>{current.text}</span></div>
             <small>{current.detail}</small>
             <div className="ai-kaggle-quota"><b>{quotaUnavailable ? "额度未知" : `${hours(remaining)} 剩余`}</b><span>{quotaUnavailable ? (lane?.quota?.state === "stale" ? "额度缓存过期" : "Kaggle quota 暂不可读") : `GPU / ${hours(total)}`}</span></div>
-            <small data-quota-state={lane?.quota_gate?.state || "quota_unknown"}>{lane?.quota_gate?.allowed === true ? "可提交新批次 · 提交前重新查额度" : lane?.quota_gate?.state === "quota_reserved" ? "额度保护 / ≤1h 停用新批次 · 已提交任务继续恢复" : "额度未知或过期 · 停用新批次，保留已有任务恢复"}</small>
+            <small data-quota-state={lane?.quota_gate?.state || "quota_unknown"}>{kaggleQuotaText(lane, status.kaggle?.enabled, current)}</small>
             {!quotaUnavailable && <progress max={total || 30} value={Number.isFinite(used) ? used : 0} />}
             {!quotaUnavailable && <small>已用 {hours(used)} · {refreshDate(gpu.refresh_at)} 刷新</small>}
             {tpu && <small>TPU 剩余 {hours(tpu.remaining_hours)}</small>}

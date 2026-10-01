@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react"
 import { useEffect, useRef, useState } from "react"
 
 import AiPanel from "./AiPanel"
+import { kaggleStatus } from "./kaggle-status"
 import NavigationPalette from "./NavigationPalette"
 
 import apiClient from "@/apis/ofetch"
@@ -13,6 +14,7 @@ export default function AiToolbar() {
   const state = useStore(aiState)
   const [open, setOpen] = useState(false)
   const [progress,setProgress] = useState(null)
+  const [statusUnavailable, setStatusUnavailable] = useState(false)
   const completedCards = useRef(null)
   const minimumDirty = useRef(false)
   const saveChain = useRef(Promise.resolve())
@@ -35,6 +37,7 @@ export default function AiToolbar() {
           apiClient.get("/v1/ai/status",{retry:0,timeout:15000}),
         ])
         const c=outcomes[0].status==='fulfilled'?outcomes[0].value:null,s=outcomes[1].status==='fulfilled'?outcomes[1].value:null
+        if (active) setStatusUnavailable(!s)
         if (active && c && !minimumDirty.current) {
           const current = aiState.get()
           const minimum = Number(c.minimum_score)
@@ -124,7 +127,7 @@ export default function AiToolbar() {
     {saveStatus && <span role="status">{saveStatus}</span>}
     {progress && <span className="ai-progress">
       已分析 {progress.counts?.done || 0} / {Object.values(progress.counts||{}).reduce((a,b)=>a+b,0)}
-      {" · "}{progress.kaggle?.enabled ? "Kaggle 持续增量处理" : "处理已暂停"}
+      {" · "}{statusUnavailable ? "Kaggle 状态暂不可读 · 显示上次快照" : kaggleStatus(progress.kaggle).text}
     </span>}
     {updatesAvailable && <button className="ai-updates" onClick={() => {
       setUpdatesAvailable(false)
