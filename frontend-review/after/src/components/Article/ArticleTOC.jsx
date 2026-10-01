@@ -6,7 +6,6 @@ import { memo, useState } from "react"
 import AdaptiveScrollArea from "@/components/ui/AdaptiveScrollArea"
 import CustomTooltip from "@/components/ui/CustomTooltip"
 import { polyglotState } from "@/hooks/useLanguage"
-import useScreenWidth from "@/hooks/useScreenWidth"
 import { articleHeadingsState } from "@/store/contentState"
 import { scrollToHeading } from "@/utils/dom"
 import includesIgnoreCase from "@/utils/filter"
@@ -15,10 +14,10 @@ import "./ArticleTOC.css"
 const ArticleTOCPanel = ({ onBack, onClose }) => {
   const headings = useStore(articleHeadingsState)
   const { polyglot } = useStore(polyglotState)
-  const { isBelowMedium } = useScreenWidth()
+
   const filterLabel = polyglot.t("article_toc.filter_headings") || "Filter headings"
   const [filterValue, setFilterValue] = useState("")
-  const isFilterVisible = Boolean(onBack) || isBelowMedium
+  const isFilterVisible = true
 
   const filteredHeadings = isFilterVisible
     ? headings.filter((heading) => includesIgnoreCase(heading.text, filterValue))
@@ -45,7 +44,7 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
           )}
           <Input
             allowClear
-            aria-label={filterLabel}
+            aria-label="搜索文章目录"
             autoFocus={Boolean(onBack)}
             placeholder={filterLabel}
             style={{ width: "100%", marginBottom: "8px" }}
@@ -54,6 +53,7 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
           />
         </div>
       )}
+      {filteredHeadings.length===0&&<p role="status" className="review-toc-empty">没有匹配的章节。<button type="button" onClick={()=>setFilterValue("")}>清除目录搜索</button></p>}
       <AdaptiveScrollArea className="toc-menu-container">
         <Menu>
           {filteredHeadings.map((heading) => (

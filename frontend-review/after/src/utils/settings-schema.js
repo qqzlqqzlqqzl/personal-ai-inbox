@@ -105,6 +105,7 @@ const sanitizeLanguage = (value, fallback) => {
 
 const SETTINGS_SCHEMA = {
   articleListLayout: enumSetting("card", ARTICLE_LIST_LAYOUTS),
+  articleLineHeight: numberSetting(1.8, 1.3, 2.5, { precision: 1 }),
   articleWidth: numberSetting(75, MIN_ARTICLE_WIDTH, MAX_ARTICLE_WIDTH, { precision: 2 }),
   checkForUpdates: booleanSetting(false),
   compactSidebarGroups: booleanSetting(true),

@@ -7,9 +7,31 @@
   ],
   "src/components/Ai/AiToolbar.jsx": [
     "a1ffae4d97766e4394641aadfda91773aa8584dc4b7d47237d3aa3a87a4d784f",
-    "aaede7b9bdae0ec48e9fbcdd2b4c3d5f85c312b92cfd509898d3fe174bc0c14a"
+    "aaede7b9bdae0ec48e9fbcdd2b4c3d5f85c312b92cfd509898d3fe174bc0c14a",
+    "018ffe79bdc217e7b0c1bcaff8302ae114801e9cccfdbff63dc334ca69f99ccb"
   ],
   "src/components/Ai/review-utils.js": [
     "256c225f48b661555c3126c2a4f89d3752265283d64249bb1cf7d6c549321fe0"
+  ],
+  "src/store/settingsState.js": [
+    "5672fc94f3003ee721d2660142b47c95332a3a011f4d0012b59fc42f5b05c750"
+  ],
+  "src/utils/settings-schema.js": [
+    "b6c12123fdaf51a38ac3c8713888e0f5a6aeb9fc2ec96ebf08f201098e672473"
+  ],
+  "src/components/Article/ImageOverlayButton.jsx": [
+    "496f8f12dceb91deabaebfdf6e10bb09e9737789eb0e7c14abd439be84669933"
+  ],
+  "src/components/Article/ArticleTOC.jsx": [
+    "548c78801a522beb6d11440cd77353f40a020cd51f7398181283ea143a796dae"
+  ],
+  "src/components/Article/ArticleDetail.jsx": [
+    "5734e7eb31b90b137ee8170de73b54aa6edc2712eb9a80251974376a17916a48"
+  ],
+  "src/components/Ai/ArticleNote.jsx": [
+    "cf323795d9cad2a7c88532759a3c913959ce7dfc036f6dedbe3c3519a8d75a01"
+  ],
+  "src/components/Ai/ReviewWorkflows.css": [
+    "d72a9a7cf86346c84a9ddf931470b9078102357d6a011a41a7dfaf7b71ca377c"
   ]
 }

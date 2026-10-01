@@ -67,6 +67,7 @@ export const articleListLayoutState = selectStore(
 export const articleDetailSettingsState = selectShallowSettings(
   ({
     articleWidth,
+    articleLineHeight,
     contentBrowsingDirection,
     edgeToEdgeImages,
     fontFamily,
@@ -75,6 +76,7 @@ export const articleDetailSettingsState = selectShallowSettings(
     titleAlignment,
   }) => ({
     articleWidth,
+    articleLineHeight,
     contentBrowsingDirection,
     edgeToEdgeImages,
     fontFamily,

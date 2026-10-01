@@ -70,6 +70,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: python tests/review_console_browser.py
+      - name: Reading recovery and navigation in isolated Chromium
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: python tests/review_reading_browser.py
       - name: Retain synthetic test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -82,4 +86,5 @@ jobs:
             runtime/quota-*.png
             runtime/browser-failure.png
             runtime/review-console/
+            runtime/review-reading/
           retention-days: 7
