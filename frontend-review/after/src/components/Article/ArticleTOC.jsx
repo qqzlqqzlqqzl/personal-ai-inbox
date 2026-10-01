@@ -1,7 +1,7 @@
 import { Button, Dropdown, Input, Menu, Typography } from "@arco-design/web-react"
 import { IconArrowLeft, IconUnorderedList } from "@arco-design/web-react/icon"
 import { useStore } from "@nanostores/react"
-import { memo, useState } from "react"
+import { memo, useRef, useState } from "react"
 
 import AdaptiveScrollArea from "@/components/ui/AdaptiveScrollArea"
 import CustomTooltip from "@/components/ui/CustomTooltip"
@@ -29,7 +29,11 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
   }
 
   return (
-    <div className="toc-droplist-container">
+    <div className="toc-droplist-container" onKeyDownCapture={event => {
+      if (event.key !== "Escape" || event.nativeEvent?.isComposing) return
+      // Escape belongs to this popup; it must not reach the article-close shortcut.
+      event.preventDefault(); event.stopPropagation(); onClose()
+    }}>
       {isFilterVisible && (
         <div className={`toc-filter-container${onBack ? " toc-filter-container-with-back" : ""}`}>
           {onBack && (
@@ -79,6 +83,8 @@ const ArticleTOC = () => {
   const { polyglot } = useStore(polyglotState)
   const label = polyglot.t("article_toc.tooltip") || "Table of Contents"
   const [dropdownVisible, setDropdownVisible] = useState(false)
+  const trigger = useRef(null)
+  const close = () => { setDropdownVisible(false); trigger.current?.focus({ preventScroll: true }) }
 
   if (headings.length === 0) {
     return null
@@ -86,7 +92,7 @@ const ArticleTOC = () => {
 
   return (
     <Dropdown
-      droplist={<ArticleTOCPanel onClose={() => setDropdownVisible(false)} />}
+      droplist={<ArticleTOCPanel onClose={close} />}
       popupVisible={dropdownVisible}
       position="br"
       trigger="click"
@@ -97,7 +103,7 @@ const ArticleTOC = () => {
       onVisibleChange={setDropdownVisible}
     >
       <CustomTooltip mini content={label}>
-        <Button aria-label={label} icon={<IconUnorderedList aria-hidden="true" />} shape="circle" />
+        <Button ref={trigger} aria-label={label} icon={<IconUnorderedList aria-hidden="true" />} shape="circle" />
       </CustomTooltip>
     </Dropdown>
   )

@@ -83,6 +83,7 @@ try:
         p.get_by_role('button',name='重新读取'+label,exact=True).click()
         expect(state).to_have_attribute('data-state','error');expect(state).to_contain_text('正在显示旧快照');expect(state).to_contain_text('身份验证或访问权限未通过')
         h.check('R01_403_preserves_'+name+'_timestamp',state.get_attribute('data-sampled-at')==stamp)
+    p.locator('.review-resource-freshness').screenshot(path=str(h.out/'resource-failure-console.png'))
     p.get_by_role('button',name='模型与偏好',exact=True).click();expect(p.locator('.review-draft-state')).to_contain_text('当前服务器设置未确认');expect(p.locator('.review-draft-state')).not_to_contain_text('已与服务器同步')
     model=p.get_by_label('模型 ID',exact=True);model.fill('resource-failure-draft')
     for name,label in resources.items():

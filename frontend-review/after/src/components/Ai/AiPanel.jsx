@@ -151,7 +151,7 @@ export default function AiPanel({ onClose }) {
     </section>
     {message && <p className="ai-message" role="status">{message}</p>}
     {tab==="settings"&&!config&&loading.settings&&<p role="status">正在读取服务器配置……</p>}
-    {tab === "settings" && config && <section className="ai-form"><p role="status" className="review-draft-state">{dirty.current?"有未保存的修改":loadErrors.settings?"当前服务器设置未确认；保留上次成功读取的设置":loading.settings?"正在核对服务器设置":"与上次成功读取的设置一致"}</p>
+    {tab === "settings" && config && <section className="ai-form"><p role="status" className="review-draft-state">{dirty.current?"有未保存的修改":loadErrors.settings?"当前服务器设置未确认；保留上次成功读取的设置":loading.settings?"正在核对服务器设置":"当前没有未保存的修改"}</p>
       <p className="ai-notice">当前主链路为 Kaggle；下方 API 设置仅用于停用中的备用服务，不代表 Kaggle 的 Token 预算。</p>
       <p className="ai-notice">模型密钥{config.api_key_configured ? "已配置，调用结果以处理状态为准" : "尚未配置"}。密钥仅从服务器环境读取，网页不接收或回显密钥。修改接口会改变原文与模型认证的发送目标，只填写可信服务。</p>
       <label><input type="checkbox" disabled={savingSettings||status?.kaggle?.enabled} checked={config.enabled} onChange={e=>change("enabled",e.target.checked)} /> 开启后台分析</label>
