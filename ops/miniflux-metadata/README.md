@@ -49,7 +49,10 @@ lookup errors return 500. The patch preserves these established behaviors.
 - `tests/`: three Go test overlays; no new Go module dependency or production hook
 - `pins.json`: official commit/blob, toolchain checksum, PostgreSQL digest, patch and
   test digests; manually review any change to these trust/compatibility inputs
-- `scripts/verify.py`: fresh-source fetch, fail-closed pristine/apply/patched checks
+- `scripts/verify.py`: fresh-source fetch, fail-closed pristine/apply/patched checks;
+  reject masked index entries (including assume-unchanged/skip-worktree), hash every
+  tracked working file against the pinned tree or exact patch allowlist, and check
+  file types, executable modes and symlink target bytes independently of Git diff
 - `scripts/bootstrap-go.sh`: official Linux-amd64 Go 1.26.8, SHA256 checked before use
 - `scripts/test.sh`: format/vet/upstream race tests, required PostgreSQL integration,
   dedicated fault/contract tests, module verification, reproducible candidate binary

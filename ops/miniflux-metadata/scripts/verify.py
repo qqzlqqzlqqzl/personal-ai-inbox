@@ -39,6 +39,36 @@ def verify_package():
         require(digest(ROOT / "tests" / name) == sha, f"test digest drift: {name}")
 
 
+def verify_tracked_bytes(source, patched=False):
+    """Verify actual bytes, independently of Git's cached index/stat decisions."""
+    index = run("git", "ls-files", "-v", "-z", cwd=source)
+    require(all(item.startswith("H ") for item in index.split("\0") if item),
+            "masked or abnormal index entries are not admitted")
+    tree = run("git", "ls-tree", "-r", "-z", "HEAD", cwd=source)
+    for entry in filter(None, tree.split("\0")):
+        header, name = entry.split("\t", 1)
+        mode, kind, expected = header.split()
+        path = source / name
+        require(kind == "blob" and mode in {"100644", "100755", "120000"},
+                f"unsupported tracked object: {name}")
+        require(not any(parent.is_symlink() for parent in path.parents if parent != source),
+                f"symlinked tracked parent: {name}")
+        if mode == "120000":
+            require(path.is_symlink(), f"tracked symlink type drift: {name}")
+            content = os.fsencode(os.readlink(path))
+        else:
+            require(path.is_file() and not path.is_symlink(), f"tracked file type drift: {name}")
+            require(bool(path.stat().st_mode & 0o111) == (mode == "100755"),
+                    f"tracked executable mode drift: {name}")
+            content = path.read_bytes()
+        if patched and name in PINS["patched_sha256"]:
+            require(hashlib.sha256(content).hexdigest() == PINS["patched_sha256"][name],
+                    f"patched tracked bytes drift: {name}")
+        else:
+            actual = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
+            require(actual == expected, f"tracked working bytes drift: {name}")
+
+
 def verify_source(source, patched=False):
     require(source.is_dir() and not source.is_symlink(), "source directory missing or symlinked")
     require(run("git", "rev-parse", "HEAD", cwd=source) == PINS["upstream_commit"], "unsupported upstream commit; review/rebase required")
@@ -46,6 +76,7 @@ def verify_source(source, patched=False):
     for name, sha in PINS["upstream_blobs"].items():
         require(run("git", "rev-parse", "HEAD:" + name, cwd=source) == sha, f"upstream blob drift: {name}")
     require("\ngo 1.26.0\n" in (source / "go.mod").read_text(), "upstream Go requirement drift")
+    verify_tracked_bytes(source, patched=patched)
     if not patched:
         require(not run("git", "status", "--porcelain", "--untracked-files=all", cwd=source), "source tree must be pristine before application")
         require(not run("git", "ls-files", "--others", cwd=source), "source tree contains additional files, including ignored build inputs")
