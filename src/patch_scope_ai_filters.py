@@ -154,6 +154,18 @@ patch(
 # deployments already have the selector. Normalize the former explicitly so a
 # pristine pinned build does not depend on an untracked intermediate patch.
 search_path = "src/components/Article/SearchAndSortBar.jsx"
+# Enter can confirm an IME candidate without submitting the article search.
+# React carries isComposing on nativeEvent; keyCode 229 covers legacy IMEs.
+patch(
+    search_path,
+    '''  const handleKeyDown = (event) => {
+    if (event.key === "Enter") {''',
+    '''  const handleKeyDown = (event) => {
+    if (event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229) {
+      return
+    }
+    if (event.key === "Enter") {''',
+)
 if '  const scoreOrder =' in (WEB / search_path).read_text():
     patch(search_path,
           '  const { orderDirection } = useStore(settingsState, { keys: ["orderDirection"] })',
@@ -209,10 +221,22 @@ patch(
     'import { aiState } from "@/store/aiState"',
     'import { aiFilterEnabled, aiState } from "@/store/aiState"',
 )
-patch(
-    "src/components/Article/SearchAndSortBar.jsx",
-    'const SearchModal = memo(({ value, visible, onCancel, onConfirm, onChange }) => {\n  const { polyglot } = useStore(polyglotState)\n  const tooltipLines = polyglot.t("search.article_tooltip").split("\\n")',
+normalize(
+    search_path,
+    [
+    '''const SearchModal = memo(({ value, visible, onCancel, onConfirm, onChange }) => {
+  const { polyglot } = useStore(polyglotState)
+  const tooltipLines = polyglot.t("search.article_tooltip").split("\\n")''',
     '''const SearchModal = memo(({ aiSearch, notesSearch, value, visible, onCancel, onConfirm, onChange }) => {
+  const { polyglot } = useStore(polyglotState)
+  const aiSearchLabel = notesSearch
+    ? "搜索标题、AI分析和个人笔记"
+    : "搜索标题、AI摘要、理由和标签"
+  const tooltipLines = aiSearch ? [aiSearchLabel] : polyglot.t("search.article_tooltip").split("\\n")
+  const inputLabel = aiSearch ? aiSearchLabel : polyglot.t("search.article_input_label")
+  const placeholder = aiSearch ? `${aiSearchLabel}...` : polyglot.t("search.article_placeholder")''',
+    ],
+    '''const SearchModal = memo(({ aiSearch, notesSearch, value, visible, onCancel, onConfirm, onChange, returnFocusRef }) => {
   const { polyglot } = useStore(polyglotState)
   const aiSearchLabel = notesSearch
     ? "搜索标题、AI分析和个人笔记"
@@ -328,14 +352,68 @@ patch(
     '              {title}\n',
     '              {displayTitle}\n',
 )
-patch(
-    "src/components/Article/SearchAndSortBar.jsx",
+normalize(
+    search_path,
+    [
     '''      <SearchModal
         value={modalInputValue}''',
     '''      <SearchModal
         aiSearch={aiList}
         notesSearch={notesList}
         value={modalInputValue}''',
+    ],
+    '''      <SearchModal
+        aiSearch={aiList}
+        notesSearch={notesList}
+        returnFocusRef={searchOpenerRef}
+        value={modalInputValue}''',
+)
+
+# Capture the search opener before a retained modal's child focus lock runs.
+# AccessibleModal's optional returnFocusRef is installed by the reviewed overlay.
+patch(
+    search_path,
+    '''      closeLabel={polyglot.t("actions.close_dialog", { name: modalTitle })}
+      title={modalTitle}''',
+    '''      closeLabel={polyglot.t("actions.close_dialog", { name: modalTitle })}
+      fallbackFocusSelector=".reader-search-trigger"
+      returnFocusRef={returnFocusRef}
+      title={modalTitle}''',
+)
+patch(
+    search_path,
+    '''      aria-label={tooltip}
+      icon={icon}''',
+    '''      aria-label={tooltip}
+      className="reader-search-trigger"
+      icon={icon}''',
+)
+# The search hint duplicates the button's accessible name. A native title keeps
+# that hover label without a body portal mixing scaled/unscaled zoom coordinates.
+# Only ActiveButton's search tooltip matches these anchors; other tooltips stay.
+patch(
+    search_path,
+    'const ActiveButton = ({ active, expanded, icon, tooltip, onClick }) => (\n  <CustomTooltip mini content={tooltip}>',
+    'const ActiveButton = ({ active, expanded, icon, tooltip, onClick }) => (\n  <>',
+)
+patch(search_path, '    />\n  </CustomTooltip>\n)', '    />\n  </>\n)')
+patch(
+    search_path,
+    '''      size="small"
+      style={{''',
+    '''      size="small"
+      title={tooltip}
+      style={{''',
+)
+patch(
+    search_path,
+    '  const [modalInputValue, setModalInputValue] = useState("")',
+    '  const [modalInputValue, setModalInputValue] = useState("")\n  const searchOpenerRef = useRef(null)',
+)
+patch(
+    search_path,
+    '  const openSearchModal = () => {\n    setModalInputValue(filterString)',
+    '  const openSearchModal = () => {\n    searchOpenerRef.current = document.activeElement\n    setModalInputValue(filterString)',
 )
 
 # Bulk mark-read must use exactly the visible result set.
@@ -518,5 +596,3 @@ for original in BACK.rglob("*"):
             ))
 (ROOT / "patches/reactflux.patch").write_text("".join(diffs))
 print("Scope × AI filter overlay applied")
-
-

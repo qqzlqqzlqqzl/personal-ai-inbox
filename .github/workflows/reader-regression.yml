@@ -92,6 +92,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: python tests/review_reading_browser.py
+      - name: Search IME and cancel regression in isolated Chromium
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: python tests/search_ime_browser_audit.py
       - name: Save verified CJK font archive after full regression
         if: steps.cjk-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -113,5 +117,6 @@ jobs:
             runtime/cjk-font/
             runtime/review-console/
             runtime/review-reading/
+            runtime/search-ime-*/
             runtime/browser-build/
           retention-days: 7

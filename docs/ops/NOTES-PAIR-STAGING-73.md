@@ -4,12 +4,19 @@ Refs #73. The original Reader notes tests mock upstream HTTP and the Go integrat
 tests directly exercise Miniflux handlers with real PostgreSQL. Both are necessary,
 but neither alone proves a real Reader process can consume the candidate binary.
 
-`tests/notes_pair_acceptance.py` fills only that gap. It runs the unchanged runtime
-`src/` from reviewed merge `46fa51a36a57b2856fe2e7aa54e7d12c823212a6`, verifies the
+`tests/notes_pair_acceptance.py` fills only that gap. It runs the exact runtime
+`src/` from reviewed integration `311ba3145e09b7103125defab07eddb915ac4e40`, verifies the
 candidate binary SHA256, and starts actual Uvicorn and Miniflux processes against
 the existing digest-pinned disposable PostgreSQL workflow service. Synthetic
 SQLite notes deliberately have no analyses rows. No test replaces Reader functions
 or mocks successful metadata responses.
+
+This published baseline incorporates the separately reviewed search-interaction
+overlay while retaining the paired notes implementation. The guard checks every
+`src/` byte, including frontend build scripts, so the prior `46fa51a` pin would
+correctly reject that reviewed overlay change. Only this test pin and explanation
+are updated outside `src/`; no source, index, import or file-type check is relaxed.
+Future source changes require a newly reviewed baseline and fresh paired evidence.
 
 The loopback observing proxy relays successful traffic to actual Miniflux. It logs
 only synthetic IDs, request paths and statuses. Explicit failure scenarios strip
