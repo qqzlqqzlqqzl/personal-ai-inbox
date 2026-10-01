@@ -81,6 +81,7 @@ jobs:
           name: reader-regression-${{ github.run_id }}
           path: |
             artifacts/ci-python.xml
+            artifacts/review-overlay-input/
             runtime/browser-acceptance.json
             runtime/history-*.png
             runtime/quota-*.png
