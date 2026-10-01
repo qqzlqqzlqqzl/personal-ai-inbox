@@ -11,14 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 5c1cfbedff8cfb0ed8f26aee9f6f9a54c338feea
+          ref: 4a5397ac182440e5492414fc659de4dae5cfe7d1
           fetch-depth: 0
           persist-credentials: false
       - name: Bundle only verified release changes since production
         run: |
           set -eu
           base=24877e12ce182c4b612a2659c7d8c3712845dd60
-          target=5c1cfbedff8cfb0ed8f26aee9f6f9a54c338feea
+          target=4a5397ac182440e5492414fc659de4dae5cfe7d1
           test "$(git rev-parse HEAD)" = "$target"
           git merge-base --is-ancestor "$base" "$target"
           mkdir -p transfer
@@ -30,6 +30,6 @@ jobs:
           sha256sum transfer/reader-ui-release.bundle >> transfer/manifest.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: reader-verified-release-5c1cfbed
+          name: reader-verified-release-4a5397ac
           path: transfer/
           retention-days: 7
