@@ -52,6 +52,15 @@ def finite_number(value):
     return type(value) in (int,float) and math.isfinite(value)
 
 
+def reference_snapshot_eligible(snap, cutoff):
+    """Shared URL-only eligibility; preserve NULLs and retry boundary semantics."""
+    return (snap['state'] in ELIGIBLE and type(snap['attempts']) is int and 0<=snap['attempts']<3
+            and finite_number(snap['next_try']) and snap['next_try']<=cutoff
+            and finite_number(snap['updated_at']) and snap['updated_at']<=cutoff
+            and all(snap[k] is None for k in ('content_hash','content_source','source_chars','extracted_at','analyzed_at'))
+            and snap['truncated']==0)
+
+
 def identity(packet,results,batch_limit=3):
     if type(batch_limit) is not int or not 1<=batch_limit<=12:raise ValueError('invalid_batch_limit')
     if packet.get('schema')!='dot-url-manifest-v1' or packet.get('manifest_hash')!=digest({k:v for k,v in packet.items() if k!='manifest_hash'}):
@@ -78,10 +87,7 @@ def identity(packet,results,batch_limit=3):
         if not isinstance(snap,dict) or set(snap)!=set(ANALYSIS_FIELDS) or digest(snap)!=a.get('analysis_snapshot_hash'):
             raise ValueError('analysis_snapshot_integrity_failed')
         if any(snap[k]!=a[k] for k in (*IDENTITY_FIELDS,'published_at')):raise ValueError('manifest_identity_conflict')
-        if (snap['state'] not in ELIGIBLE or type(snap['attempts']) is not int or not 0<=snap['attempts']<3
-                or not finite_number(snap['next_try']) or snap['next_try']>cutoff
-                or not finite_number(snap['updated_at']) or snap['updated_at']>cutoff
-                or any(snap[k] is not None for k in ('content_hash','content_source','source_chars','extracted_at','analyzed_at')) or snap['truncated']!=0):
+        if not reference_snapshot_eligible(snap,cutoff):
             raise ValueError('reference_snapshot_not_eligible')
         if card is not None:
             if not isinstance(card,dict) or set(card)!=set(CARD_FIELDS) or digest(card)!=a.get('card_snapshot_hash'):
