@@ -29,6 +29,7 @@ from preview_worker import run_preview_worker, run_discovery_worker
 from content_input import first_image_src
 from card_translation import enqueue as enqueue_cards, run_translation_worker
 from reader_work import reader_work
+import notes_metadata
 
 
 @asynccontextmanager
@@ -334,7 +335,7 @@ async def list_upstream_headers(request, uid):
     return supplied
 
 
-async def require_readable_entry(request, uid, entry_id, *, upstream_headers=None):
+async def require_readable_entry(request, uid, entry_id, *, upstream_headers=None, strict_auth=False):
     """Resolve a real Miniflux entry using the authenticated user's reader identity."""
     headers = upstream_headers or await list_upstream_headers(request, uid)
     try:
@@ -343,6 +344,10 @@ async def require_readable_entry(request, uid, entry_id, *, upstream_headers=Non
         )
     except httpx.HTTPError:
         raise HTTPException(503, "阅读后端不可用")
+    if strict_auth and response.status_code in {401, 403}:
+        # Preserve the public no-disclosure boundary without treating revoked auth
+        # as evidence that the selected article (or every note) was deleted.
+        raise HTTPException(503, "阅读后端认证暂时不可用")
     if response.status_code in {401, 403, 404}:
         raise HTTPException(404, "Article not found")
     if response.status_code != 200:
@@ -405,7 +410,133 @@ def enrich_reader_response(content):
     return json.dumps(data, ensure_ascii=False).encode()
 
 
+async def readable_entry_ids(request, upstream_headers):
+    p = request.query_params
+    params = {}
+    status = p.get("status")
+    if status in ["read", "unread"]:
+        params["status"] = status
+    if p.get("starred") in ["true", "false"]:
+        params["starred"] = p["starred"]
+    allowed_ids = set()
+    for st in [status] if status in ["read", "unread"] else ["read", "unread"]:
+        start = 0
+        seen = set()
+        while True:
+            response = await app.state.client.get(
+                MF + "/v1/entries/ids",
+                headers=upstream_headers,
+                params={**params, "status": st, "limit": 10000, "offset": start},
+            )
+            response.raise_for_status()
+            try:
+                data = response.json()
+                if not isinstance(data, dict):
+                    raise ValueError("invalid entry-ID envelope")
+            except ValueError:
+                raise HTTPException(503, "阅读后端返回了无效可读范围")
+            ids = data.get("entry_ids", [])
+            if p.get("ai_view") == "notes" and os.environ.get("READER_NOTES_METADATA") == "1":
+                if ("entry_ids" not in data or not isinstance(ids, list)
+                        or any(type(eid) is not int or not 0 < eid < 2**63 for eid in ids)
+                        or type(data.get("total")) is not int or data["total"] < 0
+                        or len(ids) > 10000 or len(set(ids)) != len(ids)
+                        or seen.intersection(ids) or (not ids and start < data["total"])
+                        or (ids and start + len(ids) > data["total"])):
+                    raise HTTPException(503, "笔记可读范围数据无效")
+                seen.update(ids)
+            allowed_ids.update(ids)
+            start += len(ids)
+            if not ids or start >= data.get("total", 0):
+                break
+    return allowed_ids
+
+
 async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=None, category_id=None):
+    # Explicit paired-release switch. Never auto-detect and silently fall back.
+    mode = os.environ.get("READER_NOTES_METADATA", "0")
+    if mode == "0":
+        return await legacy_note_entries(request, uid, allowed_ids, upstream_headers,
+                                         feed_id=feed_id, category_id=category_id)
+    if mode != "1":
+        raise HTTPException(503, "Invalid READER_NOTES_METADATA configuration")
+    params = dict(request.query_params)
+    try:
+        # Validate before checking for empty notes, exactly as the legacy path does.
+        await reader_work.run(notes_metadata.select_page, [], [], {}, params,
+                              feed_id=feed_id, category_id=category_id)
+    except (ValueError, OverflowError):
+        raise HTTPException(400, "Invalid notes filter")
+    notes = await reader_work.run(
+        reader_rows,
+        """SELECT entry_id,note,updated_at FROM entry_notes
+           WHERE user_id=? AND length(trim(note))>0""", (uid,)
+    )
+    semaphore = asyncio.Semaphore(8)
+
+    async def hydrate(metadata):
+        async with semaphore:
+            return await require_readable_entry(request, uid, metadata["id"],
+                                                upstream_headers=upstream_headers, strict_auth=True)
+
+    for attempt in range(2):
+        try:
+            if attempt:
+                allowed_ids = await readable_entry_ids(request, upstream_headers)
+            ids, body = await reader_work.run(notes_metadata.request_body, notes, allowed_ids)
+        except ValueError as exc:
+            raise HTTPException(503, str(exc))
+        except httpx.HTTPError:
+            raise HTTPException(503, "笔记可读范围暂时不可用")
+        if not ids:
+            return {"total": 0, "entries": []}
+        try:
+            feeds_response = await app.state.client.get(MF + "/v1/feeds", headers=upstream_headers, timeout=8)
+            feeds_response.raise_for_status()
+            feeds = await reader_work.run(notes_metadata.decode_feeds, feeds_response.content, uid)
+            response = await app.state.client.post(
+                MF + "/v1/entries/metadata", headers={**upstream_headers, "Content-Type": "application/json"},
+                content=body, timeout=8,
+            )
+            response.raise_for_status()
+            if response.headers.get("X-Reader-Entry-Metadata") != "1":
+                raise ValueError("unsupported notes metadata capability")
+            entries = await reader_work.run(notes_metadata.decode_metadata, response.content, uid, ids)
+        except (httpx.HTTPError, ValueError, TypeError):
+            raise HTTPException(503, "笔记元数据服务不可用或不兼容")
+        # Parent movement between the feed and metadata snapshots requires the same
+        # bounded refresh as a selected-body contradiction; never invent visibility.
+        if any(entry["feed_id"] not in feeds for entry in entries):
+            if attempt == 0:
+                continue
+            break
+        total, selected = await reader_work.run(
+            notes_metadata.select_page, notes, entries, feeds, params,
+            feed_id=feed_id, category_id=category_id,
+        )
+        results = await asyncio.gather(*(hydrate(entry) for entry in selected), return_exceptions=True)
+        changed = False
+        for metadata, result in zip(selected, results):
+            if isinstance(result, HTTPException) and result.status_code == 404:
+                changed = True
+            elif isinstance(result, BaseException):
+                raise result
+            else:
+                try:
+                    if not await reader_work.run(notes_metadata.body_matches, result, metadata, feeds, params):
+                        changed = True
+                except (ValueError, TypeError, AttributeError):
+                    raise HTTPException(503, "阅读后端返回了无效文章数据")
+        if changed:
+            if attempt == 0:
+                continue
+            break
+        enriched = await reader_work.run(enrich_reader_entries, results, uid)
+        return {"total": total, "entries": enriched}
+    raise HTTPException(503, "笔记列表在读取期间发生变化，请重试", headers={"Retry-After": "1"})
+
+
+async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=None, category_id=None):
     """List user notes without requiring an AI-analysis row for the article."""
     p = request.query_params
     try:
@@ -515,28 +646,7 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
     if has_note not in (None, "true", "false"):
         raise HTTPException(400, "Invalid note filter")
     upstream_headers = await list_upstream_headers(request, uid)
-    params = {}
-    status = p.get("status")
-    if status in ["read", "unread"]:
-        params["status"] = status
-    if p.get("starred") in ["true", "false"]:
-        params["starred"] = p["starred"]
-    allowed_ids = set()
-    for st in [status] if status in ["read", "unread"] else ["read", "unread"]:
-        start = 0
-        while True:
-            response = await app.state.client.get(
-                MF + "/v1/entries/ids",
-                headers=upstream_headers,
-                params={**params, "status": st, "limit": 10000, "offset": start},
-            )
-            response.raise_for_status()
-            data = response.json()
-            ids = data.get("entry_ids", [])
-            allowed_ids.update(ids)
-            start += len(ids)
-            if not ids or start >= data.get("total", 0):
-                break
+    allowed_ids = await readable_entry_ids(request, upstream_headers)
     if p.get("ai_view") == "notes":
         if has_note == "false":
             return {"total": 0, "entries": []}
@@ -1085,6 +1195,7 @@ async def proxy(path: str, request: Request):
             r.status_code == 200
             and content_type.startswith("application/json")
             and path.startswith("v1/")
+            and path != "v1/entries/metadata"
         ):
             content = await reader_work.run(enrich_reader_response, r.content)
         if "json" in content_type or "text/html" in content_type:
@@ -1161,7 +1272,7 @@ async def frontend(path: str, request: Request):
 
 @app.exception_handler(HTTPException)
 async def http_error(request, exc):
-    return JSONResponse({"error_message": str(exc.detail)}, status_code=exc.status_code)
+    return JSONResponse({"error_message": str(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
 
 
 @app.exception_handler(json.JSONDecodeError)
