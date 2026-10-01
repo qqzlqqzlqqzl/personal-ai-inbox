@@ -1,5 +1,7 @@
-// Real generated sorter, stores, request hook and URL construction. Only API
-// transport and unrelated SidebarTrigger are fixtures; jsdom has no layout.
+// Real generated sorter, stores, request hook and URL construction. API transport,
+// translations, SidebarTrigger and surrounding navigation-provider values are
+// fixtures. A simple output observes list state; jsdom has no layout. The hosted
+// Chromium test separately checks the actual rendered article rows.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
