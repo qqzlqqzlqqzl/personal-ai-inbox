@@ -11,27 +11,39 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 34d1adb83ca32f0d51abb955eef9609899cdad96
+          ref: 767bdfbac754625244cf59e406793e1d63f56739
           fetch-depth: 0
           persist-credentials: false
-      - name: Bundle only verified release changes since production
+      - name: Bundle only verified Reader cache-locking release changes
         run: |
-          set -eu
-          base=5ea9d9d522f346bdf43b082d68d4307784e19750
-          target=34d1adb83ca32f0d51abb955eef9609899cdad96
+          set -euo pipefail
+          base=34d1adb83ca32f0d51abb955eef9609899cdad96
+          target=767bdfbac754625244cf59e406793e1d63f56739
+          tree=ff877c4f279ad943bc1de7ce9163b63b8c081a1d
           test "$(git rev-parse HEAD)" = "$target"
+          test "$(git rev-parse HEAD^{tree})" = "$tree"
           git merge-base --is-ancestor "$base" "$target"
-          test "$(git diff --name-only "$base" "$target" | LC_ALL=C sort)" = "$(printf '%s\n' src/dot_url_article_import.py tests/test_dot_url_article_import.py | LC_ALL=C sort)"
-          test "$(git diff --name-status "$base" "$target" | cut -f1 | sort -u)" = A
+          test "$(git rev-list --count "$base..$target")" = 5
           mkdir -p transfer
-          git bundle create transfer/dot-url-release.bundle HEAD "^$base"
-          git bundle verify transfer/dot-url-release.bundle
-          git bundle list-heads transfer/dot-url-release.bundle > transfer/bundle-heads.txt
-          git diff --stat "$base" "$target" > transfer/changed-files.txt
-          printf 'base=%s\ntarget=%s\ntree=%s\n' "$base" "$target" "$(git rev-parse HEAD^{tree})" > transfer/manifest.txt
-          sha256sum transfer/dot-url-release.bundle >> transfer/manifest.txt
+          printf '%s\t%s\n' \
+            M .github/workflows/reader-regression.yml \
+            A docs/ops/READER-CACHE-LOCKING-73.md \
+            M src/api.py \
+            M src/card_translation.py \
+            A src/reader_work.py \
+            A tests/test_card_cache_reads.py \
+            A tests/test_reader_work.py \
+            | LC_ALL=C sort > transfer/expected-changes.txt
+          git diff --name-status --no-renames "$base" "$target" | LC_ALL=C sort > transfer/changed-files.txt
+          cmp transfer/expected-changes.txt transfer/changed-files.txt
+          git bundle create transfer/reader-cache-locking-73-767bdfba.bundle HEAD "^$base"
+          git bundle verify transfer/reader-cache-locking-73-767bdfba.bundle 2>&1 | tee transfer/bundle-verification.txt
+          git bundle list-heads transfer/reader-cache-locking-73-767bdfba.bundle > transfer/bundle-heads.txt
+          test "$(cat transfer/bundle-heads.txt)" = "$target HEAD"
+          printf 'base=%s\ntarget=%s\ntree=%s\nahead=5\nbehind=0\n' "$base" "$target" "$tree" > transfer/manifest.txt
+          sha256sum transfer/reader-cache-locking-73-767bdfba.bundle >> transfer/manifest.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: dot-url-verified-release-34d1adb8
+          name: reader-cache-locking-73-release-767bdfba
           path: transfer/
           retention-days: 7
