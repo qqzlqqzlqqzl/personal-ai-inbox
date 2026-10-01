@@ -85,7 +85,7 @@ try:
                 elif path.endswith("/ai/status"):
                     def lane(remaining, state, allowed, active=False):
                         return {"service":{"ActiveState":"active" if active else "inactive"},
-                                "outstanding":{"state":"running"} if active else None,
+                                "outstanding":{"state":"running","remote_status":"RUNNING"} if active else None,
                                 "quota":{"state":"ok" if state!='quota_unknown' else 'stale',
                                          "gpu":{"remaining_hours":remaining,"total_hours":30,"used_hours":0}},
                                 "quota_gate":{"state":state,"allowed":allowed}}
