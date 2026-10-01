@@ -78,24 +78,25 @@ try:
     # Existing reader state remains unchanged by typography controls.
     before=[w for w in h.writes if '/v1/entries' in w[1]]
     telemetry_before=[w[2] for w in h.writes if w[1].endswith('/ai/reading-session')];session_before=telemetry_before[-1]['session_id'];open_count=sum(w['action']=='open' for w in telemetry_before)
-    p.locator('.review-reading-controls summary').click()
+    reading_summary=p.locator('.review-reading-controls summary');reading_summary.focus();reading_summary.press('Enter');expect(p.locator('.review-reading-controls')).to_have_attribute('open','');expect(reading_summary).to_be_focused();h.check('R06_keyboard_opens_reading_controls')
     p.get_by_label('正文字号',exact=True).fill('1.35');p.get_by_label('正文行距',exact=True).fill('2.2');p.get_by_label('正文栏宽',exact=True).fill('80')
     h.check('R06_line_height_applied',p.locator('.article-body').evaluate('e=>Math.abs(parseFloat(getComputedStyle(e).lineHeight)/parseFloat(getComputedStyle(e).fontSize)-2.2)<0.01'))
     p.get_by_role('button',name='专注正文',exact=True).click();expect(p.locator('.article-meta')).to_be_hidden();expect(p.get_by_role('button',name='退出专注正文',exact=True)).to_be_visible();p.get_by_role('button',name='退出专注正文',exact=True).click()
     p.get_by_role('button',name='恢复默认排版',exact=True).click();expect(p.get_by_label('正文行距',exact=True)).to_have_value('1.8')
     h.check('R06_typography_focus_no_read_mutation',before==[w for w in h.writes if '/v1/entries' in w[1]])
     telemetry_after=[w[2] for w in h.writes if w[1].endswith('/ai/reading-session')];h.check('R06_controls_keep_reading_session',telemetry_after[-1]['session_id']==session_before and sum(w['action']=='open' for w in telemetry_after)==open_count)
-    p.locator('.review-reading-controls summary').click()
+    reading_summary.focus();reading_summary.press('Enter');expect(p.locator('.review-reading-controls')).not_to_have_attribute('open','');expect(reading_summary).to_be_focused();h.check('R06_keyboard_closes_reading_controls_with_focus')
     notice=p.get_by_role('group',name='图片加载恢复');notice.scroll_into_view_if_needed();expect(notice).to_contain_text('电路板示意图');expect(notice.get_by_role('link',name='打开原图')).to_have_attribute('href','https://images.example.test/board.svg')
     expect(p.locator('.image-overlay-button:enabled')).to_have_count(0);expect(p.get_by_role('dialog',name='Lightbox',exact=True)).to_have_count(0);h.check('R07_failed_image_cannot_open_empty_lightbox')
     before_images=len(image_calls);p.wait_for_timeout(250);h.check('R07_failure_no_automatic_retry',len(image_calls)==before_images)
     modes['image_ok']=True;notice.get_by_role('button',name='重试这张图片',exact=True).focus();notice.get_by_role('button',name='重试这张图片',exact=True).press('Enter');expect(p.locator('img[alt="电路板示意图"]')).to_be_visible();expect(p.locator('.image-overlay-button').first).to_be_enabled();h.check('R07_manual_retry_success_enables_preview')
     preview=p.locator('.image-overlay-button').first;preview.scroll_into_view_if_needed();preview.focus()
     scroll_before=preview.evaluate("e=>{let n=e.parentElement;while(n&&!(n.scrollHeight>n.clientHeight&&/(auto|scroll)/.test(getComputedStyle(n).overflowY)))n=n.parentElement;window.fixtureImageScroll=n;return n?.scrollTop??0}")
+    h.check('R07_preview_has_real_scrolled_ancestor',p.evaluate('!!window.fixtureImageScroll') and scroll_before>0)
     preview.press('Space');expect(p.get_by_role('dialog',name='Lightbox',exact=True)).to_be_visible();p.keyboard.press('Control+k');expect(p.locator('.review-navigation-dialog')).to_have_count(0);h.check('R08_does_not_nest_in_lightbox');p.keyboard.press('Escape');expect(p.get_by_role('dialog',name='Lightbox',exact=True)).to_have_count(0);expect(p.locator('img[alt="电路板示意图"]').first).to_be_visible();expect(preview).to_be_focused();h.check('R07_lightbox_focus_and_scroll_return',abs(p.evaluate('window.fixtureImageScroll?.scrollTop??0')-scroll_before)<=2);h.check('R07_lightbox_return')
     # Bound repeated manual requests and exercise TOC search on the actual reader.
-    p.get_by_role('button',name=re.compile('目录|Table of Contents')).click()
-    toc=p.get_by_label('搜索文章目录',exact=True);toc.fill('不存在章节');expect(p.get_by_role('button',name='清除目录搜索',exact=True)).to_be_visible();p.get_by_role('button',name='清除目录搜索',exact=True).click();expect(toc).to_have_value('');p.keyboard.press('Escape');h.check('R06_TOC_search_empty_reset')
+    toc_opener=p.get_by_role('button',name=re.compile('目录|Table of Contents'));toc_opener.focus();toc_scroll=p.evaluate('window.fixtureImageScroll.scrollTop');toc_opener.press('Enter')
+    toc=p.get_by_label('搜索文章目录',exact=True);toc.fill('不存在章节');expect(p.get_by_role('button',name='清除目录搜索',exact=True)).to_be_visible();p.get_by_role('button',name='清除目录搜索',exact=True).click();expect(toc).to_have_value('');p.keyboard.press('Escape');expect(toc_opener).to_be_focused();h.check('R06_TOC_keyboard_close_focus_and_position',abs(p.evaluate('window.fixtureImageScroll.scrollTop')-toc_scroll)<=2);h.check('R06_TOC_search_empty_reset')
     modes['image_ok']=False;p.reload();expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_enabled();p.locator('.article-note').scroll_into_view_if_needed();notice=p.get_by_role('group',name='图片加载恢复');expect(notice).to_be_visible();before_images=len(image_calls)
     for attempt in range(1,4):
         notice.get_by_role('button',name='重试这张图片',exact=True).click();expect(notice).to_contain_text(f'已手动重试 {attempt} / 3 次')
@@ -116,8 +117,8 @@ try:
     h.check('R06_mobile_TOC_search_jumps',p.locator('.article-body h2').last.evaluate('e=>{const r=e.getBoundingClientRect();return r.top>=0&&r.top<innerHeight}'))
     close_article();open_entry(101);notice=p.get_by_role('group',name='图片加载恢复');notice.scroll_into_view_if_needed();expect(notice).to_contain_text('已手动重试 0 / 3 次');h.check('R07_article_change_resets_attempts')
     modes['image_ok']=True;notice.get_by_role('button',name='重试这张图片',exact=True).press('Enter');expect(p.locator('.image-overlay-button').first).to_be_enabled();h.check('R07_mobile_keyboard_recovery')
-    close_article();h.entries[1]['content']='<p>无标题的隔离正文，不能生成不存在的文章目录。</p>';open_entry(102)
-    expect(p.get_by_role('button',name=re.compile('目录|Table of Contents'))).to_have_count(0);h.check('R06_headingless_article_has_no_TOC');close_article()
+    close_article();h.entries[1]['content']='<p>无标题的隔离正文，不能生成不存在的文章目录。</p>';p.set_viewport_size({'width':1440,'height':960});open_entry(102)
+    expect(p.get_by_role('button',name=re.compile('目录|Table of Contents'))).to_have_count(0);h.check('R06_headingless_article_has_no_TOC');close_article();p.set_viewport_size({'width':390,'height':844})
 
     p.get_by_role('button',name='快速跳转',exact=False).click();expect(p.get_by_role('dialog',name='快速跳转')).to_be_visible();h.check('R08_mobile_palette_no_overflow',p.locator('.review-navigation-dialog').evaluate('e=>e.scrollWidth<=e.clientWidth'));p.screenshot(path=str(h.out/'mobile-navigation.png'),full_page=True);p.keyboard.press('Escape')
 except Exception as exc:

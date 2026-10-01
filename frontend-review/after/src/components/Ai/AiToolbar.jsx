@@ -16,6 +16,7 @@ export default function AiToolbar() {
   const [progress,setProgress] = useState(null)
   const [statusUnavailable, setStatusUnavailable] = useState(false)
   const [statusLoading, setStatusLoading] = useState(true)
+  const [statusSampled, setStatusSampled] = useState(null)
   const retryStatus = useRef(() => {})
   const completedCards = useRef(null)
   const minimumDirty = useRef(false)
@@ -55,7 +56,7 @@ export default function AiToolbar() {
             setUpdatesAvailable(true)
           }
           completedCards.current = count
-          setProgress(s)
+          setProgress(s);setStatusSampled(Date.now())
         }
       } catch { /* Native reader remains usable if the add-on is unavailable. */ }
       finally {if(current()){pending=null;setStatusLoading(false)}}
@@ -132,9 +133,10 @@ export default function AiToolbar() {
     {saveStatus && <span role="status">{saveStatus}</span>}
     {!progress && <span role="status" className="ai-progress">{statusLoading?"正在读取资源状态…":"尚未取得资源状态"}{statusUnavailable&&" · 读取失败，当前状态未确认"}</span>}
     {statusUnavailable && <button disabled={statusLoading} onClick={()=>retryStatus.current()}>重试资源状态</button>}
-    {progress && <span className="ai-progress">
+    {progress && <span className="ai-progress" data-sampled-at={statusSampled||''}>
       已分析 {progress.counts?.done || 0} / {Object.values(progress.counts||{}).reduce((a,b)=>a+b,0)}
       {" · "}{statusUnavailable ? "Kaggle 状态暂不可读 · 显示上次快照" : kaggleStatus(progress.kaggle).text}
+      {statusSampled&&` · 上次成功读取 ${new Date(statusSampled).toLocaleTimeString()}`}{statusLoading&&" · 正在读取，显示上次快照"}
     </span>}
     {updatesAvailable && <button className="ai-updates" onClick={() => {
       setUpdatesAvailable(false)
