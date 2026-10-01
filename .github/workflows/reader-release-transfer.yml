@@ -21,8 +21,8 @@ jobs:
           target=5ea9d9d522f346bdf43b082d68d4307784e19750
           test "$(git rev-parse HEAD)" = "$target"
           git merge-base --is-ancestor "$base" "$target"
-          test "$(git diff --name-only \"$base\" \"$target\" | LC_ALL=C sort)" = "$(printf '%s\n' src/dot_article_import.py src/export_dot_articles_readonly.py tests/test_dot_article_export.py tests/test_dot_article_import.py | LC_ALL=C sort)"
-          test "$(git diff --name-status \"$base\" \"$target\" | cut -f1 | sort -u)" = A
+          test "$(git diff --name-only "$base" "$target" | LC_ALL=C sort)" = "$(printf '%s\n' src/dot_article_import.py src/export_dot_articles_readonly.py tests/test_dot_article_export.py tests/test_dot_article_import.py | LC_ALL=C sort)"
+          test "$(git diff --name-status "$base" "$target" | cut -f1 | sort -u)" = A
           mkdir -p transfer
           git bundle create transfer/dot-article-release.bundle HEAD "^$base"
           git bundle verify transfer/dot-article-release.bundle
