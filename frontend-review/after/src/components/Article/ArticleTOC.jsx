@@ -17,6 +17,7 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
 
   const filterLabel = polyglot.t("article_toc.filter_headings") || "Filter headings"
   const [filterValue, setFilterValue] = useState("")
+  const filterInput = useRef(null)
   const isFilterVisible = true
 
   const filteredHeadings = isFilterVisible
@@ -49,7 +50,8 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
           <Input
             allowClear
             aria-label="搜索文章目录"
-            autoFocus={Boolean(onBack)}
+            ref={filterInput}
+            autoFocus
             placeholder={filterLabel}
             style={{ width: "100%", marginBottom: "8px" }}
             value={filterValue}
@@ -57,7 +59,7 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
           />
         </div>
       )}
-      {filteredHeadings.length===0&&<p role="status" className="review-toc-empty">没有匹配的章节。<button type="button" onClick={()=>setFilterValue("")}>清除目录搜索</button></p>}
+      {filteredHeadings.length===0&&<p role="status" className="review-toc-empty">没有匹配的章节。<button type="button" onClick={()=>{setFilterValue("");filterInput.current?.focus()}}>清除目录搜索</button></p>}
       <AdaptiveScrollArea className="toc-menu-container">
         <Menu>
           {filteredHeadings.map((heading) => (
