@@ -1,8 +1,12 @@
 from review_reader_harness import Harness
 from playwright.sync_api import expect
 h=Harness('review-console');p=h.page
+resource_errors={}
 modes={'status_error':True,'save_error':False,'subscribe_error':True,'pause_subscribe':False,'pause_save':False};pending=[];pending_saves=[]
 def intercept(route,path,method):
+    name='roster' if path.endswith('/ai/x/roster') else path.rsplit('/',1)[-1]
+    if method=='GET' and name in resource_errors:
+        route.fulfill(status=resource_errors[name],json={'detail':'isolated resource read failure'});return True
     if path.endswith('/ai/status') and modes['status_error']:
         route.fulfill(status=503,json={'detail':'isolated status failure'});return True
     if path.endswith('/ai/settings') and method=='PUT' and modes['save_error']:
@@ -26,7 +30,7 @@ try:
     p.get_by_role('button',name='重置目录筛选',exact=True).click();p.get_by_label('目录订阅状态').select_option('subscribed');expect(p.get_by_role('link',name='打开此订阅 →')).to_have_attribute('href','/inbox/feed/7');h.check('R02_direct_subscription_navigation')
     p.get_by_role('button',name='模型与偏好',exact=True).click();prompt=p.get_by_label('个人筛选提示词',exact=True);prompt.fill('新的草稿不应被看板刷新覆盖')
     p.get_by_role('button',name='资源看板',exact=True).click();modes['status_error']=False;p.get_by_role('button',name='重试看板',exact=True).click();expect(p.get_by_text('已收录文章',exact=True)).to_be_visible()
-    p.get_by_role('button',name='刷新看板',exact=True).click();expect(p.locator('.review-sampled')).to_contain_text('上次成功读取')
+    p.get_by_role('button',name='刷新看板',exact=True).click();expect(p.locator('[data-resource="status"]')).to_contain_text('上次成功读取')
     p.get_by_role('button',name='模型与偏好',exact=True).click();expect(prompt).to_have_value('新的草稿不应被看板刷新覆盖');h.check('R01_refresh_does_not_overwrite_dirty_settings')
     p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click();expect(p.get_by_label('确认关闭控制台')).to_be_visible();p.get_by_role('button',name='继续编辑',exact=True).click();expect(prompt).to_have_value('新的草稿不应被看板刷新覆盖');h.check('R04_cancel_close_keeps_draft')
     before=len([w for w in h.writes if w[1].endswith('/ai/settings')]);p.get_by_label('每日最多模型请求',exact=True).fill('');p.get_by_role('button',name='保存到服务器',exact=True).click();expect(p.get_by_text('有未填写或超出范围的设置，请核对。',exact=True)).to_be_visible();h.check('R04_invalid_settings_zero_puts',before==len([w for w in h.writes if w[1].endswith('/ai/settings')]))
@@ -70,8 +74,34 @@ try:
     modes['pause_subscribe']=False
     for route in pending:route.fulfill(json={'id':999})
     pending.clear();expect(p.get_by_text('本轮结束：成功 1，已存在 0，失败 0，未发送 9。',exact=True)).to_be_visible();h.check('R03_stop_remaining_does_not_submit_more')
+    # Real ofetch 403 retains each successful snapshot with its original timestamp.
+    resources={'settings':'设置','status':'看板','catalog':'目录','roster':'名单'}
+    before_writes=len(h.writes)
+    for name,label in resources.items():
+        state=p.locator(f'[data-resource="{name}"]');stamp=state.get_attribute('data-sampled-at');assert stamp
+        resource_errors[name]=403
+        p.get_by_role('button',name='重新读取'+label,exact=True).click()
+        expect(state).to_have_attribute('data-state','error');expect(state).to_contain_text('正在显示旧快照');expect(state).to_contain_text('身份验证或访问权限未通过')
+        h.check('R01_403_preserves_'+name+'_timestamp',state.get_attribute('data-sampled-at')==stamp)
+    p.locator('.review-resource-freshness').screenshot(path=str(h.out/'resource-failure-console.png'))
+    p.get_by_role('button',name='模型与偏好',exact=True).click();expect(p.locator('.review-draft-state')).to_contain_text('当前服务器设置未确认');expect(p.locator('.review-draft-state')).not_to_contain_text('已与服务器同步')
+    model=p.get_by_label('模型 ID',exact=True);model.fill('resource-failure-draft')
+    for name,label in resources.items():
+        del resource_errors[name];p.get_by_role('button',name='重试'+label,exact=True).click();expect(p.locator(f'[data-resource="{name}"]')).to_have_attribute('data-state','success')
+    expect(model).to_have_value('resource-failure-draft');h.check('R01_independent_retries_keep_draft_zero_writes',len(h.writes)==before_writes)
+    p.get_by_role('button',name='还原服务器设置',exact=True).click()
     p.set_viewport_size({'width':390,'height':844});h.check('R01_R04_mobile_no_overflow',p.locator('.ai-dialog').evaluate('e=>e.scrollWidth<=e.clientWidth'))
     p.screenshot(path=str(h.out/'mobile-console.png'),full_page=True)
     p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click();expect(p.locator('.ai-dialog')).to_have_count(0);h.check('R01_focus_restored',p.get_by_role('button',name='AI 设置 · 来源',exact=True).evaluate('(e)=>e===document.activeElement'))
+    resource_errors.update({name:403 for name in resources});h.panel()
+    for name in resources:
+        state=p.locator(f'[data-resource="{name}"]');expect(state).to_have_attribute('data-state','error');expect(state).to_contain_text('尚无可显示的成功快照');expect(state).to_have_attribute('data-sampled-at','')
+    h.check('R01_first_load_403_stops_loading_without_false_snapshot')
+    resource_errors.clear();p.get_by_role('button',name='重试看板',exact=True).click();expect(p.locator('[data-resource="status"]')).to_have_attribute('data-state','success');h.check('R01_first_error_retry_recovers')
+    # Unlike 403, the actual shared API client invalidates authentication on 401.
+    p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click();resource_errors['settings']=401
+    before_writes=len(h.writes);p.get_by_role('button',name='AI 设置 · 来源',exact=True).click();p.wait_for_url('**/inbox/login')
+    expect(p.locator('.ai-dialog')).to_have_count(0);expect(p.locator('[data-resource]')).to_have_count(0)
+    h.check('R01_real_401_logs_out_and_removes_cached_console',len(h.writes)==before_writes)
 except Exception as exc:h.errors.append(str(exc));raise
 finally:h.close()

@@ -41,8 +41,10 @@ export default function AiPanel({ onClose }) {
   const [xProbe, setXProbe] = useState(null)
   const [xRoster, setXRoster] = useState(null)
   const { refreshFeedData } = useAppData()
-  const load = async (names=["settings","status","catalog","roster"]) => {
+  const load = async (names=["settings","status","catalog","roster"],{replace=false}={}) => {
     await Promise.allSettled(names.filter(name=>name!=='settings'||!settingsSaving.current).map(async name=>{
+      // A synchronous request lock also covers two clicks before React renders.
+      if(requests.current[name]&&!requests.current[name].signal.aborted&&!replace)return
       requests.current[name]?.abort()
       const controller=new AbortController();requests.current[name]=controller
       setLoading(prev=>({...prev,[name]:true}));setLoadErrors(prev=>({...prev,[name]:null}))
@@ -54,8 +56,8 @@ export default function AiPanel({ onClose }) {
         if(name==='catalog')setSources(Array.isArray(result)?result:[])
         if(name==='roster')setXRoster(result)
         setSampled(prev=>({...prev,[name]:Date.now()}))
-      }catch(e){if(alive.current&&requests.current[name]===controller&&!controller.signal.aborted)setLoadErrors(prev=>({...prev,[name]:'暂时无法读取；其他功能仍可使用。'}))}
-      finally{if(alive.current&&requests.current[name]===controller)setLoading(prev=>({...prev,[name]:false}))}
+      }catch(e){if(alive.current&&requests.current[name]===controller&&!controller.signal.aborted)setLoadErrors(prev=>({...prev,[name]:([401,403].includes(e?.response?.status||e?.statusCode||e?.status)?'身份验证或访问权限未通过，当前服务器状态未确认。':'暂时无法读取，当前服务器状态未确认。')}))}
+      finally{if(alive.current&&requests.current[name]===controller){delete requests.current[name];setLoading(prev=>({...prev,[name]:false}))}}
     }))
   }
   useEffect(()=>{
@@ -106,7 +108,7 @@ export default function AiPanel({ onClose }) {
     })
     if(!alive.current)return
     setBatchResults(results);setPendingBatch(null);setBatchProgress(`本轮结束：成功 ${results.filter(r=>r.state==='success').length}，已存在 ${results.filter(r=>r.state==='existing').length}，失败 ${results.filter(r=>r.state==='failed').length}，未发送 ${items.length-results.length}。`)
-    await refreshFeedData();invalidateArticleList();await load(['catalog'])
+    await refreshFeedData();invalidateArticleList();await load(['catalog'],{replace:true})
   })
   const change=(key,value)=>{if(settingsSaving.current)return;setConfig(previous=>{const next={...previous,[key]:value};dirty.current=Object.keys(validateSettings(next)).length>0||Object.keys(settingsDelta(baseline.current,normalizeDraft(next))).length>0;return next})}
   const filtered=filterCatalog(sources,search,sourceCategory,sourceState)
@@ -141,10 +143,15 @@ export default function AiPanel({ onClose }) {
     <header><h2>个人 AI 资讯控制台</h2><button aria-label="关闭" onClick={requestClose}>×</button></header>
     <nav>{[["settings","模型与偏好"],["status","资源看板"],["sources","来源目录"]].map(([id,label]) => <button key={id} aria-pressed={tab===id} onClick={() => setTab(id)}>{label}</button>)}</nav>
     {closeRequested && <section className="review-confirm" role="alert" aria-label="确认关闭控制台"><p>{dirty.current?'有尚未保存的设置。关闭将丢弃此处修改。 ':''}{busyRef.current?'有操作尚未结束。关闭不能撤销已发送的请求，尚未提交的批量订阅会停止。':''}</p><button onClick={()=>setCloseRequested(false)}>继续编辑</button><button onClick={finishClose}>放弃修改并关闭</button></section>}
-    {Object.entries(loadErrors).filter(([,error])=>error).map(([name,error])=><p role="status" className="review-error" key={name}>{({settings:'设置',status:'资源看板',catalog:'来源目录',roster:'X 名单'})[name]}：{error}<button disabled={loading[name]||(name==='settings'&&savingSettings)} onClick={()=>load([name])}>重试{({settings:'设置',status:'看板',catalog:'目录',roster:'名单'})[name]}</button></p>)}
+    <section className="review-resource-freshness" aria-label="各资源读取状态">
+      {[["settings","设置","设置"],["status","资源看板","看板"],["catalog","来源目录","目录"],["roster","X 名单","名单"]].map(([name,label,action])=><div key={name} data-resource={name} data-state={loading[name]?'loading':loadErrors[name]?'error':sampled[name]?'success':'empty'} data-sampled-at={sampled[name]||''}>
+        <p role="status" className={loadErrors[name]?"review-error":"review-sampled"}><strong>{label}：</strong>{loading[name]?'正在读取；本次结果尚未确认。':loadErrors[name]||(!sampled[name]?'尚未取得成功数据。':'读取成功。')}{sampled[name]?<> 上次成功读取：<time dateTime={new Date(sampled[name]).toISOString()}>{new Date(sampled[name]).toLocaleString()}</time>{loading[name]||loadErrors[name]?' · 正在显示旧快照':''}</>:' 尚无可显示的成功快照。'}</p>
+        <button disabled={loading[name]||(name==='settings'&&savingSettings)} onClick={()=>load([name])}>{loadErrors[name]?'重试':'重新读取'}{action}</button>
+      </div>)}
+    </section>
     {message && <p className="ai-message" role="status">{message}</p>}
     {tab==="settings"&&!config&&loading.settings&&<p role="status">正在读取服务器配置……</p>}
-    {tab === "settings" && config && <section className="ai-form"><p role="status" className="review-draft-state">{dirty.current?"有未保存的修改":"设置已与服务器同步"}</p>
+    {tab === "settings" && config && <section className="ai-form"><p role="status" className="review-draft-state">{dirty.current?"有未保存的修改":loadErrors.settings?"当前服务器设置未确认；保留上次成功读取的设置":loading.settings?"正在核对服务器设置":"当前没有未保存的修改"}</p>
       <p className="ai-notice">当前主链路为 Kaggle；下方 API 设置仅用于停用中的备用服务，不代表 Kaggle 的 Token 预算。</p>
       <p className="ai-notice">模型密钥{config.api_key_configured ? "已配置，调用结果以处理状态为准" : "尚未配置"}。密钥仅从服务器环境读取，网页不接收或回显密钥。修改接口会改变原文与模型认证的发送目标，只填写可信服务。</p>
       <label><input type="checkbox" disabled={savingSettings||status?.kaggle?.enabled} checked={config.enabled} onChange={e=>change("enabled",e.target.checked)} /> 开启后台分析</label>
@@ -159,7 +166,7 @@ export default function AiPanel({ onClose }) {
     </section>}
     {tab==="status"&&!status&&loading.status&&<p role="status">正在读取资源看板…</p>}
     {tab === "status" && status && <section className="ai-dashboard">
-      <p className="review-sampled" role="status">{sampled.status?`上次成功读取：${new Date(sampled.status).toLocaleTimeString()}${loadErrors.status?" · 正在显示旧快照":""}`:"尚未取得快照"}</p><p className="ai-dashboard-intro">先看阅读结果和覆盖率；底层队列、日志和用量放在“详细诊断”里，需要排障时再展开。</p>
+      <p className="ai-dashboard-intro">先看阅读结果和覆盖率；底层队列、日志和用量放在“详细诊断”里，需要排障时再展开。</p>
       <div className="ai-dashboard-grid">
         <div><strong>{articleTotal}</strong><span>已收录文章</span><small>当前信息箱规模</small></div>
         <div><strong>{coverage.source_count || 0}</strong><span>订阅来源</span><small>当前启用目录</small></div>
@@ -204,7 +211,7 @@ export default function AiPanel({ onClose }) {
       </div>
       <div className="ai-dashboard-actions">
         <button disabled={loading.status} onClick={()=>load(["status"])}>{loading.status?"正在刷新…":"刷新看板"}</button>
-        <button disabled={busy || !attention} onClick={()=>run(async()=>{const r=await apiClient.post("/v1/ai/retry",{});setMessage("已重排 " + r.queued + " 个失败任务");await load(["status"])})}>重试可重试任务</button>
+        <button disabled={busy || !attention} onClick={()=>run(async()=>{const r=await apiClient.post("/v1/ai/retry",{});setMessage("已重排 " + r.queued + " 个失败任务");await load(["status"],{replace:true})})}>重试可重试任务</button>
       </div>
       <details className="ai-diagnostics">
         <summary>详细诊断</summary>
@@ -236,8 +243,7 @@ export default function AiPanel({ onClose }) {
           if (!category) category=await apiClient.post("/v1/categories",{title:"X 作者"})
           await apiClient.post("/v1/ai/subscribe",{x_handle:xHandle,category_id:category.id})
           await refreshFeedData();invalidateArticleList();setMessage("已订阅 X guest 来源")
-          const latest = await apiClient.get("/v1/ai/catalog")
-          if (alive.current) setSources(latest)
+          await load(["catalog"],{replace:true})
         })}>订阅 X 来源</button>
       </form>
       {xProbe && <p className="ai-notice">适配器：{xProbe.adapter_configured ? "已配置" : "未配置"} · 直连 X：{xProbe.network_reachable ? "有 HTTP 响应" : "不可达"} · 本次帖子：{xProbe.post_count}。{xProbe.message}</p>}

@@ -15,6 +15,9 @@ export default function AiToolbar() {
   const [open, setOpen] = useState(false)
   const [progress,setProgress] = useState(null)
   const [statusUnavailable, setStatusUnavailable] = useState(false)
+  const [statusLoading, setStatusLoading] = useState(true)
+  const [statusSampled, setStatusSampled] = useState(null)
+  const retryStatus = useRef(() => {})
   const completedCards = useRef(null)
   const minimumDirty = useRef(false)
   const saveChain = useRef(Promise.resolve())
@@ -26,41 +29,44 @@ export default function AiToolbar() {
   useEffect(() => {
     mounted.current=true
     let active = true
-    let pending=false
+    let pending=null
     const load = async () => {
       if(document.hidden||pending)return
-      pending=true
+      const controller=new AbortController();pending=controller
+      setStatusLoading(true)
+      const current=()=>active&&pending===controller&&!controller.signal.aborted
       try {
         const needsSettings = !aiState.get().hydrated
         const outcomes = await Promise.allSettled([
-          needsSettings ? apiClient.get("/v1/ai/settings",{retry:0,timeout:15000}) : Promise.resolve(null),
-          apiClient.get("/v1/ai/status",{retry:0,timeout:15000}),
+          needsSettings ? apiClient.get("/v1/ai/settings",{retry:0,timeout:15000,signal:controller.signal}) : Promise.resolve(null),
+          apiClient.get("/v1/ai/status",{retry:0,timeout:15000,signal:controller.signal}),
         ])
         const c=outcomes[0].status==='fulfilled'?outcomes[0].value:null,s=outcomes[1].status==='fulfilled'?outcomes[1].value:null
-        if (active) setStatusUnavailable(!s)
-        if (active && c && !minimumDirty.current) {
+        if (current()) setStatusUnavailable(!s)
+        if (current() && c && !minimumDirty.current) {
           const current = aiState.get()
           const minimum = Number(c.minimum_score)
           const changed = current.minimum !== minimum
           aiState.set({ ...current, minimum, hydrated: true })
           if (changed) invalidateArticleList()
         }
-        if (active && s) {
+        if (current() && s) {
           const count = `${s.translations?.counts?.done || 0}:${s.counts?.done || 0}`
           if (completedCards.current !== null && completedCards.current !== count) {
             setUpdatesAvailable(true)
           }
           completedCards.current = count
-          setProgress(s)
+          setProgress(s);setStatusSampled(Date.now())
         }
       } catch { /* Native reader remains usable if the add-on is unavailable. */ }
-      finally {pending=false}
+      finally {if(current()){pending=null;setStatusLoading(false)}}
     }
+    retryStatus.current=load
     load()
     const timer = setInterval(load,30_000)
-    const visible=()=>{if(!document.hidden)load()}
+    const visible=()=>{if(document.hidden){pending?.abort();pending=null;setStatusLoading(false)}else load()}
     document.addEventListener('visibilitychange',visible)
-    return () => { active=false;mounted.current=false; clearInterval(timer);document.removeEventListener('visibilitychange',visible) }
+    return () => { active=false;mounted.current=false;pending?.abort();pending=null;retryStatus.current=()=>{}; clearInterval(timer);document.removeEventListener('visibilitychange',visible) }
   }, [])
 
   const change = (value) => {
@@ -125,9 +131,12 @@ export default function AiToolbar() {
       </select></label>
     </>}
     {saveStatus && <span role="status">{saveStatus}</span>}
-    {progress && <span className="ai-progress">
+    {!progress && <span role="status" className="ai-progress">{statusLoading?"正在读取资源状态…":"尚未取得资源状态"}{statusUnavailable&&" · 读取失败，当前状态未确认"}</span>}
+    {statusUnavailable && <button disabled={statusLoading} onClick={()=>retryStatus.current()}>重试资源状态</button>}
+    {progress && <span className="ai-progress" data-sampled-at={statusSampled||''}>
       已分析 {progress.counts?.done || 0} / {Object.values(progress.counts||{}).reduce((a,b)=>a+b,0)}
       {" · "}{statusUnavailable ? "Kaggle 状态暂不可读 · 显示上次快照" : kaggleStatus(progress.kaggle).text}
+      {statusSampled&&` · 上次成功读取 ${new Date(statusSampled).toLocaleTimeString()}`}{statusLoading&&" · 正在读取，显示上次快照"}
     </span>}
     {updatesAvailable && <button className="ai-updates" onClick={() => {
       setUpdatesAvailable(false)

@@ -1,7 +1,7 @@
 import { Button, Dropdown, Input, Menu, Typography } from "@arco-design/web-react"
 import { IconArrowLeft, IconUnorderedList } from "@arco-design/web-react/icon"
 import { useStore } from "@nanostores/react"
-import { memo, useState } from "react"
+import { memo, useRef, useState } from "react"
 
 import AdaptiveScrollArea from "@/components/ui/AdaptiveScrollArea"
 import CustomTooltip from "@/components/ui/CustomTooltip"
@@ -17,6 +17,7 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
 
   const filterLabel = polyglot.t("article_toc.filter_headings") || "Filter headings"
   const [filterValue, setFilterValue] = useState("")
+  const filterInput = useRef(null)
   const isFilterVisible = true
 
   const filteredHeadings = isFilterVisible
@@ -29,7 +30,11 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
   }
 
   return (
-    <div className="toc-droplist-container">
+    <div className="toc-droplist-container" onKeyDownCapture={event => {
+      if (event.key !== "Escape" || event.nativeEvent?.isComposing) return
+      // Escape belongs to this popup; it must not reach the article-close shortcut.
+      event.preventDefault(); event.stopPropagation(); onClose()
+    }}>
       {isFilterVisible && (
         <div className={`toc-filter-container${onBack ? " toc-filter-container-with-back" : ""}`}>
           {onBack && (
@@ -45,7 +50,8 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
           <Input
             allowClear
             aria-label="搜索文章目录"
-            autoFocus={Boolean(onBack)}
+            ref={filterInput}
+            autoFocus
             placeholder={filterLabel}
             style={{ width: "100%", marginBottom: "8px" }}
             value={filterValue}
@@ -53,7 +59,7 @@ const ArticleTOCPanel = ({ onBack, onClose }) => {
           />
         </div>
       )}
-      {filteredHeadings.length===0&&<p role="status" className="review-toc-empty">没有匹配的章节。<button type="button" onClick={()=>setFilterValue("")}>清除目录搜索</button></p>}
+      {filteredHeadings.length===0&&<p role="status" className="review-toc-empty">没有匹配的章节。<button type="button" onClick={()=>{setFilterValue("");filterInput.current?.focus()}}>清除目录搜索</button></p>}
       <AdaptiveScrollArea className="toc-menu-container">
         <Menu>
           {filteredHeadings.map((heading) => (
@@ -79,6 +85,8 @@ const ArticleTOC = () => {
   const { polyglot } = useStore(polyglotState)
   const label = polyglot.t("article_toc.tooltip") || "Table of Contents"
   const [dropdownVisible, setDropdownVisible] = useState(false)
+  const trigger = useRef(null)
+  const close = () => { setDropdownVisible(false); trigger.current?.focus({ preventScroll: true }) }
 
   if (headings.length === 0) {
     return null
@@ -86,7 +94,7 @@ const ArticleTOC = () => {
 
   return (
     <Dropdown
-      droplist={<ArticleTOCPanel onClose={() => setDropdownVisible(false)} />}
+      droplist={<ArticleTOCPanel onClose={close} />}
       popupVisible={dropdownVisible}
       position="br"
       trigger="click"
@@ -97,7 +105,7 @@ const ArticleTOC = () => {
       onVisibleChange={setDropdownVisible}
     >
       <CustomTooltip mini content={label}>
-        <Button aria-label={label} icon={<IconUnorderedList aria-hidden="true" />} shape="circle" />
+        <Button ref={trigger} aria-label={label} icon={<IconUnorderedList aria-hidden="true" />} shape="circle" />
       </CustomTooltip>
     </Dropdown>
   )
