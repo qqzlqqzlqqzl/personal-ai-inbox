@@ -48,6 +48,10 @@ check('Explicit running batch counts independently of local service and quota',(
  }
  const value=lane({outstanding:{state:'running',remote_status:'COMPLETE'}})
  assert.equal(kaggleLaneStatus(value,now).kind,'recovery')
+ const unconfirmed=lane({outstanding:{state:'running'}})
+ assert.equal(kaggleLaneStatus(unconfirmed,now).kind,'unknown');assert.equal(kaggleStatus(snapshot({primary:unconfirmed}),now).running,0)
+ const failed=lane({outstanding:{state:'terminal',remote_status:'ERROR'}})
+ assert.match(kaggleLaneStatus(failed,now).text,/已结束 · 待核对/);assert.doesNotMatch(kaggleLaneStatus(failed,now).text,/等待导入/)
 })
 check('Unknown submission and cooldown override local active and stale running claims',()=>{
  const value=lane({state:'processing',service:{ActiveState:'active'},outstanding:{state:'submit_unknown'},recovery:{code:'inaccessible',retry_at:now+600}})
@@ -68,7 +72,7 @@ check('Submitted, prepared and local recovery do not count as running',()=>{
  }
 })
 check('Disabled dispatch and already-running work are distinct',()=>{
- const value=kaggleStatus({enabled:false,lanes:{primary:lane({outstanding:{state:'running'}})}},now)
+ const value=kaggleStatus({enabled:false,lanes:{primary:lane({outstanding:{state:'running',remote_status:'RUNNING'}})}},now)
  assert.match(value.text,/调度已暂停 · 1 批运行/)
  assert.match(kaggleQuotaText(lane(),false),/调度已暂停/)
 })

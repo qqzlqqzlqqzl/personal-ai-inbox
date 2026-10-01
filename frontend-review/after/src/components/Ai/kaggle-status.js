@@ -24,14 +24,16 @@ export function kaggleLaneStatus(lane, now = Date.now() / 1000, schedulerLane = 
       cooling ? `冷却 · ${reason} · ${retryDetail}` : '先核对已有提交结果，尚未确认运行')
   }
   if (cooling) return result('cooldown', '冷却', `${reason} · ${retryDetail}`)
-  if (state === 'running' && (!remote || remote === 'RUNNING')) {
+  if (state === 'running' && remote === 'RUNNING') {
     return result('running', '运行中', '已有批次正在运行，完成后再导入结果', 'ok')
   }
+  if (state === 'running' && !remote) return result('unknown', '状态未确认', '已有批次标记为运行，但缺少远端状态确认')
   if (state === 'submitted') return result('waiting', '已提交 · 等待运行', '已有批次尚未确认开始运行')
   if (state === 'prepared') return result('waiting', '等待调度', '批次已准备，尚未提交')
-  if (['terminal', 'downloaded'].includes(state) || ['COMPLETE', 'COMPLETED'].includes(remote)) {
+  if (state === 'downloaded' || ['COMPLETE', 'COMPLETED'].includes(remote)) {
     return result('recovery', '等待导入', '远端批次已结束，结果尚未完成导入')
   }
+  if (state === 'terminal') return result('recovery', '批次已结束 · 待核对', '检查结果或失败原因，尚未完成恢复')
   if (state) return result('recovery', '待恢复', '已有批次需要核对或恢复，尚未确认运行')
   if (recoveryStates.has(lane?.state)) return result('recovery', '待恢复', '等待核对或导入已有批次')
   if (waitingStates.has(lane?.state)) return result('waiting', '等待调度', '尚未确认有批次运行')
