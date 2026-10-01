@@ -51,7 +51,7 @@ export default function NavigationPalette({ onConsole }) {
     {open && <dialog className="review-navigation-dialog" ref={dialog} aria-label="快速跳转" onCancel={e => { e.preventDefault(); close() }}>
       <header><h2>快速跳转</h2><button type="button" onClick={close} aria-label="关闭快速跳转">×</button></header>
       <input ref={input} role="combobox" aria-label="搜索视图、分类或订阅" aria-expanded="true" aria-controls="review-command-list" aria-activedescendant={shown[index] ? 'review-command-' + index : undefined} placeholder="输入订阅名称、分类或今天、收藏…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => {
-        if (e.isComposing || e.keyCode === 229) return
+        if (e.isComposing || e.nativeEvent?.isComposing || e.keyCode === 229) return
         if (e.key === 'ArrowDown') { e.preventDefault(); setIndex(i => Math.min(i + 1, Math.max(0, shown.length - 1))) }
         if (e.key === 'ArrowUp') { e.preventDefault(); setIndex(i => Math.max(0, i - 1)) }
         if (e.key === 'Enter') { e.preventDefault(); select(shown[index]) }
