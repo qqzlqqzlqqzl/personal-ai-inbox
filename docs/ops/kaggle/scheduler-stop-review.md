@@ -77,7 +77,10 @@ Positive legacy test fixtures now explicitly declare schedule_enabled true;
 their behavioral assertions are retained. Full Kaggle and month/watchdog targeted
 suite: **415 passed plus 59 subtests**, 24.26 seconds, with no skip.
 Evidence is `/tmp/scheduler-stop-admission-evidence/targeted-final-2.{log,xml}`.
-Hosted exact-head CI results are recorded in the PR.
+A subsequent import-seam follow-up adds checks after validation/upstream/import
+and before defer/resolve/report writes: **207 targeted passed**, including three
+new stop-race cases, on the updated source. Hosted exact-head CI results are
+recorded in the PR.
 AST and git diff --check are required. Local lefthook is unavailable and is not
 bypassed. Hosted Reader CI supplies full Python/JavaScript/build/browser checks.
 The source commit/tree must be independently reviewed before paired CODE pin

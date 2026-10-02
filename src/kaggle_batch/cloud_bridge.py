@@ -501,15 +501,20 @@ def main():
         business_ids={item['id'] for item in business['items']}
         report=validate(business,[row for row in evidence['results'] if row['id'] in business_ids],config['source'])
         folder=root/args.batch
+        guard()
         atomic_json(folder/'business-validation.json',report)
+        guard()
         unchanged=asyncio.run(verify_upstream(config['source'],manifest))
+        guard()
         backup_before_import(config['database'],folder)
         guard()
         outcome=import_validated(config['database'],business,report,unchanged)
         if any(item['kind']=='exception' for item in manifest['items']):
             from exception_audit import Audit
             from qwen_exceptions import apply as apply_exceptions
+            guard()
             outcome['items']+=apply_exceptions(config['database'],manifest,evidence['results'],Audit(config['exception_audit_root']))
+        guard()
         atomic_json(folder/'import-report.json',outcome)
         unresolved=[item for item in outcome['items'] if item['state'] not in
                     ('imported','already_imported','existing_result_preserved')]
@@ -521,7 +526,9 @@ def main():
             # Keep valid generated output and retry only local validation/import.
             # Never spend another GPU run merely because the source API timed out.
             other={**business,'items':[item for item in business['items'] if item['id'] not in waiting]}
+            guard()
             defer_unresolved(config['database'],other,outcome,delay=int(config.get('retry_delay_seconds',660)),infrastructure_ids=infrastructure_ids)
+            guard()
             atomic_json(folder/'import-wait.json',{'waiting_ids':sorted(waiting),'at':time.time()})
             print(json.dumps(control.defer_local(args.batch,'upstream_validation')))
             return
@@ -531,7 +538,9 @@ def main():
             retry_delay=int(config.get('retry_delay_seconds',21600))
             if retry_delay<660:
                 raise ValueError('Retry interval must be at least 660 seconds')
+            guard()
             deferred=defer_unresolved(config['database'],business,outcome,delay=retry_delay,infrastructure_ids=infrastructure_ids)
+            guard()
             atomic_json(folder/'retry-resolution.json',{'batch_id':args.batch,'actions':deferred,
                                                        'disposition':'valid_imports_kept_failed_inputs_deferred'})
             control._set(args.batch,'resolved')

@@ -359,3 +359,36 @@ def test_manual_identity_fingerprint_distinguishes_bool_and_integer(tmp_path):
     guard=ConfigGuard(path,cfg,manual_recovery=True)
     change(path,schedule_enabled=0)
     with pytest.raises(DispatchStopped,match='configuration_changed'):guard()
+
+
+@pytest.mark.parametrize('phase',['validation','upstream','import'])
+def test_advance_stop_at_import_seams_does_not_defer_resolve_or_release(tmp_path,monkeypatch,phase):
+    c=Controller(tmp_path/'own','fixture',initialize=True)
+    value=manifest(1);value['items'][0]['kind']='analysis'
+    key=c.prepare(value,'MANIFEST = None\n');c._set(key,'downloaded',remote='COMPLETE')
+    path,cfg=config_file(tmp_path,c.root);item=value['items'][0]['id']
+    monkeypatch.setitem(sys.modules,'initialize_secrets',SimpleNamespace(read_env=lambda *a:{}))
+    monkeypatch.setattr(Controller,'status',lambda self,*a,**kw:self.row(key))
+    monkeypatch.setattr(Controller,'download',lambda *a,**kw:{'missing_ids':[],'results':[{'id':item,'status':'ok'}]})
+    def validate(*args):
+        if phase=='validation':change(path,schedule_enabled=False)
+        return {'valid':[],'invalid':[item]}
+    async def upstream(*args):
+        if phase=='upstream':change(path,schedule_enabled=False)
+        return set()
+    imports=[]
+    def apply(*args):
+        imports.append(1)
+        if phase=='import':change(path,schedule_enabled=False)
+        return {'items':[{'id':item,'state':'invalid'}]}
+    monkeypatch.setattr(cloud_bridge,'validate',validate)
+    monkeypatch.setattr(cloud_bridge,'verify_upstream',upstream)
+    monkeypatch.setattr(cloud_bridge,'backup_before_import',lambda *a:None)
+    monkeypatch.setattr(cloud_bridge,'import_validated',apply)
+    deferred=Mock(side_effect=AssertionError('no stopped article retries or resolution'))
+    monkeypatch.setattr(cloud_bridge,'defer_unresolved',deferred)
+    with pytest.raises(DispatchStopped):run_bridge(monkeypatch,path,'advance','--batch',key)
+    assert imports==([1] if phase=='import' else [])
+    deferred.assert_not_called()
+    assert not (c.root/key/'import-report.json').exists()
+    assert c.row(key)['state']=='downloaded' and claimed_entries([c.root])=={1}
