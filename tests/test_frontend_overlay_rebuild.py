@@ -118,20 +118,42 @@ def _source_bytes(web):
     return {str(path.relative_to(web)): path.read_bytes() for path in web.rglob("*") if path.is_file()}
 
 
-def test_public_production_baseline_upgrade_and_unknown_drift(tmp_path, monkeypatch):
+def _recorded_search_baseline(isolated, web, temporary):
+    # The checked-in da5 aggregate patch records the historical selector spelling.
+    # Apply only this public component hunk to pinned source, then run the old
+    # formal stages. The result independently matches the captured baseline SHA.
+    source = temporary / SORTER
+    source.parent.mkdir(parents=True)
+    source.write_bytes((web / SORTER).read_bytes())
+    subprocess.run([
+        "git", "apply", "--no-index", f"--include={SORTER}", "-",
+    ], cwd=temporary, input=(isolated / "patches/reactflux.patch").read_bytes(),
+        check=True, capture_output=True)
+    original = isolated / "runtime/reactflux-original" / SORTER
+    original.parent.mkdir(parents=True, exist_ok=True)
+    original.write_bytes((web / SORTER).read_bytes())
+    (web / SORTER).write_bytes(source.read_bytes())
+
+
+@pytest.mark.parametrize("baseline_kind", ["script", "recorded-patch"])
+def test_public_production_baseline_upgrade_and_unknown_drift(tmp_path, monkeypatch, baseline_kind):
     """Keep the old generated tree/backups; only replace tracked authoring files.
 
-    A pristine public reconstruction cannot stand in for an independently captured
-    production input. This scenario covers the reproducible public da5 baseline.
+    The historical public patch plus old stages reproduces the exact captured
+    production component bytes without committing a server-captured fixture.
     """
     isolated = tmp_path / "upgrade"
     web = _pinned_checkout(isolated)
     _historical_authoring(isolated)
     monkeypatch.setenv("AI_NEWS_ROOT", str(isolated))
+    if baseline_kind == "recorded-patch":
+        _recorded_search_baseline(isolated, web, tmp_path / "recorded-source")
     _apply_authoring(isolated)
-    assert hashlib.sha256((web / SORTER).read_bytes()).hexdigest() == (
-        "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
-    )
+    baseline_hashes = {
+        "script": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734",
+        "recorded-patch": "65a3e7ce6a2c75b31994a5442054267beea9d8e7a602d371cd9787d7a9e18977",
+    }
+    assert hashlib.sha256((web / SORTER).read_bytes()).hexdigest() == baseline_hashes[baseline_kind]
     backups = _source_bytes(isolated / "runtime/reactflux-original")
     for name in ("src", "patches", "frontend-review"):
         shutil.rmtree(isolated / name)
