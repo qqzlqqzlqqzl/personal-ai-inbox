@@ -1,9 +1,0 @@
-[Unit]
-Description=Check vendor refresh queue (each source six-hour interval)
-[Timer]
-OnBootSec=3min
-OnUnitActiveSec=15min
-AccuracySec=30s
-Unit=ai-news-vendor-refresh.service
-[Install]
-WantedBy=timers.target

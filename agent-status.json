@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "feed_id": "dot-agent-status-20261002",
+  "writer_id": "scheduled-publisher-v1",
+  "revision": 2,
+  "generated_at": "2026-10-02T04:34:58Z",
+  "observed_at": "2026-10-02T04:34:08Z",
+  "expected_interval_seconds": 600,
+  "collector_state": "ok",
+  "scope": {
+    "kind": "current_main_task_tree",
+    "root_excluded": true,
+    "capacity": 6
+  },
+  "running_count": 2,
+  "workers": [
+    {
+      "id": "pcb-placement",
+      "name": "功率板布局与备份",
+      "state": "waiting",
+      "scheduler_state": "running",
+      "progress": "布局检查已完成，等待备份授权依据核验",
+      "model": "gpt-6-astra",
+      "reasoning": "xhigh",
+      "observed_at": "2026-10-02T04:34:08Z"
+    },
+    {
+      "id": "mobile-review",
+      "name": "手机界面修订审查",
+      "state": "waiting",
+      "scheduler_state": "running",
+      "progress": "旧版本审查已完成，等待修订版本",
+      "model": "gpt-6-astra",
+      "reasoning": "xhigh",
+      "observed_at": "2026-10-02T04:34:08Z"
+    }
+  ],
+  "samples": [
+    {
+      "at": "2026-10-02T04:10:31Z",
+      "running_count": 2,
+      "capacity": 6,
+      "quality": "observed"
+    },
+    {
+      "at": "2026-10-02T04:34:08Z",
+      "running_count": 2,
+      "waiting_count": 2,
+      "capacity": 6,
+      "quality": "observed"
+    }
+  ],
+  "limitations": [
+    "运行数包括等待，不能视为持续推理或CPU/token利用率",
+    "等待分类来自最新任务回报；未测量实际推理活动",
+    "首次定时执行已验证原主会话任务范围；服务器拉取仍未接通",
+    "只保留真实采样；采样间未观察时段未知"
+  ],
+  "last_error": null,
+  "source_scope_confirmed": true,
+  "running_count_definition": "scheduler-running workers, including waits",
+  "waiting_count": 2,
+  "active_inference_count": null,
+  "available_slots": 4,
+  "recent_completed": [
+    {
+      "name": "单元布局独立检查",
+      "state": "completed"
+    },
+    {
+      "name": "任务账本源码审查",
+      "state": "completed"
+    },
+    {
+      "name": "任务账本测试与CI检查",
+      "state": "completed"
+    },
+    {
+      "name": "项目状态核对",
+      "state": "completed"
+    }
+  ],
+  "pending_followups": [
+    {
+      "name": "备份硬件检查点后继续布线准备",
+      "readiness": "待授权依据核验"
+    },
+    {
+      "name": "手机修订版本复核",
+      "readiness": "待实现任务交回"
+    },
+    {
+      "name": "账本错误处理修复复核",
+      "readiness": "待实现任务交回"
+    }
+  ]
+}

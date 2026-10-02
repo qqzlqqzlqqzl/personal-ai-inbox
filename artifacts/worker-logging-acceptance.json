@@ -1,9 +1,0 @@
-{
-  "at": 1790084584.813828,
-  "entry_id": 2744,
-  "kind": "real_duplicate_reuse_not_new_model_call",
-  "state": "done",
-  "duplicate_of": 2745,
-  "model_requests_delta": 0,
-  "row_restored": true
-}

@@ -1,8 +1,0 @@
-[Unit]
-Description=Daily private backup of Personal AI Inbox
-[Timer]
-OnCalendar=*-*-* 04:15:00
-Persistent=true
-RandomizedDelaySec=600
-[Install]
-WantedBy=timers.target

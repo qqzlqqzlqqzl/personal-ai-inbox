@@ -1,8 +1,0 @@
-{
-  "node_version": "v24.21.0",
-  "node_sha256": "7fde7b8afa198da66257f42ee2001d874c7355631e6d1579a5fb5ef1f246df4c",
-  "origin": "Copy of already-installed official Node distribution; no old application files copied",
-  "rsshub": "a84b41faa31581bacac4cea374fcf909f784bab9",
-  "reactflux": "534eeb97723ac11025de4ec1ac56335072e3be52",
-  "miniflux": "2.3.3"
-}

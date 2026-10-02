@@ -1,9 +1,0 @@
-[Unit]
-Description=Personal Inbox single Kaggle scheduler every 11 minutes
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=11min
-AccuracySec=10s
-Unit=ai-news-kaggle-recovery.service
-[Install]
-WantedBy=timers.target
