@@ -52,6 +52,17 @@ def last_visible(p,selector,container):
     node.scroll_into_view_if_needed()
     return node.evaluate("""(e,s)=>{const r=e.getBoundingClientRect(),c=document.querySelector(s).getBoundingClientRect();return r.bottom<=c.bottom+1&&r.top>=c.top-1}""",container)
 
+def selected_sort_readable(p):
+    return p.locator('.mobile-sort-control').evaluate('''e=>{
+      const select=e.querySelector('select'),label=e.querySelector('.mobile-sort-current'),direction=e.querySelector('.mobile-sort-direction');
+      const selected=select.selectedOptions[0]?.textContent;
+      const inside=(a,b)=>a.left>=b.left-.5&&a.right<=b.right+.5&&a.top>=b.top-.5&&a.bottom<=b.bottom+.5;
+      const frame=e.getBoundingClientRect(),view={left:0,right:innerWidth,top:0,bottom:innerHeight};
+      const text=[...label.querySelectorAll('span')].map(n=>n.textContent).join('');
+      const fragments=[...label.querySelectorAll('span')].flatMap(n=>{const r=document.createRange();r.selectNodeContents(n);return [...r.getClientRects()]});
+      return getComputedStyle(label).display!=='none'&&text===selected&&['高到低','低到高','新到旧','旧到新'].includes(direction.textContent)&&fragments.length>0&&fragments.every(r=>inside(r,frame)&&inside(r,view));
+    }''')
+
 for width,height in ([(390,844)] if args.focus else dimensions):
   for theme in (['dark'] if args.focus else ['light','dark']):
     name=('mobile-baseline' if args.baseline else 'mobile-reading')+f'-{width}x{height}-{theme}'
@@ -80,6 +91,7 @@ for width,height in ([(390,844)] if args.focus else dimensions):
         return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
       }''')
       h.check('minimum_score_text_contrast_at_least_4_5',contrast>=4.5)
+      h.check('selected_sort_field_and_direction_fully_readable',selected_sort_readable(p))
       h.check('last_card_footer_not_covered',last_visible(p,'.entry-list [data-entry-id="112"] .ai-tags','.entry-list') if p.locator('[data-entry-id="112"] .ai-tags').count() else last_visible(p,'.entry-list [data-entry-id="112"] .ai-verdict','.entry-list'))
       # Modal is outside flex flow. Repeated touch opens cannot add height or reset list.
       scroll=p.locator('.entry-list').first
@@ -201,6 +213,15 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       trigger.tap();expect(p.get_by_role('dialog',name='运行状态与更多',exact=True)).to_be_visible()
       p.get_by_role('button',name='关闭运行状态',exact=True).click()
       h.check('200_percent_text_has_no_overflow',not metrics(p)['overflow'])
+      p.get_by_role('button',name='有笔记',exact=True).tap()
+      sort=p.get_by_role('combobox',name='排序方式',exact=True)
+      for text_width in [320,390,430]:
+        p.set_viewport_size({'width':text_width,'height':844})
+        for value in sort.locator('option').evaluate_all('(nodes)=>nodes.map(e=>e.value)'):
+          sort.select_option(value);expect(sort).to_have_value(value)
+          h.check(f'200_percent_sort_{text_width}_{value}_fully_readable',selected_sort_readable(p) and not metrics(p)['overflow'])
+      p.set_viewport_size({'width':390,'height':844})
+      p.get_by_role('button',name='有笔记',exact=True).tap();sort.select_option('technical_asc')
       p.screenshot(path=str(h.out/'text-200.png'))
       p.evaluate("document.documentElement.style.fontSize=''")
       # Portrait/landscape transition and browser Back/Forward preserve filter storage.

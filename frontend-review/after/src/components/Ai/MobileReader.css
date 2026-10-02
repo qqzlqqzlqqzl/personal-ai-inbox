@@ -1,5 +1,7 @@
 /* Mobile controls share the existing flex layout; the list remains the scroll owner. */
 .ai-short-label { display: none; }
+.mobile-sort-control { display: contents; }
+.mobile-sort-current { display: none; }
 .ai-toolbar label { color: var(--color-text-1, #223); }
 .ai-navigation-hidden { display: none !important; }
 .ai-status-dialog {
@@ -53,9 +55,32 @@
   .entry-col .search-and-sort-bar .page-info { margin-left: 4px; min-width: 0; }
   .entry-col .search-and-sort-bar .page-info .title-container .arco-typography { font-size: 1rem; }
   .entry-col .search-and-sort-bar .page-info .count-label { display: inline-block; font-size: .875rem; margin-left: 3px; }
+  .entry-col .search-and-sort-bar .button-group { align-items: center; }
+  .entry-col .search-and-sort-bar .mobile-sort-control {
+    display: inline-grid; position: relative; box-sizing: border-box;
+    width: 9.5em; max-width: 42vw; min-width: 44px; min-height: 44px;
+    border: 1px solid var(--color-border-3); border-radius: 2px;
+    background: var(--color-bg-2); color: var(--color-text-1); font-size: .875rem;
+  }
+  .entry-col .search-and-sort-bar .mobile-sort-current {
+    display: flex; flex-wrap: wrap; align-items: center; align-content: center;
+    min-width: 0; min-height: 42px; padding: 0 18px 0 2px;
+    font-size: inherit; line-height: 1.5; pointer-events: none;
+  }
+  .mobile-sort-current > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+  .mobile-sort-current .mobile-sort-direction { white-space: nowrap; }
+  .entry-col .search-and-sort-bar .mobile-sort-control::after {
+    content: "⌄"; position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+    pointer-events: none; font-size: 14px;
+  }
+  .entry-col .search-and-sort-bar .mobile-sort-control:focus-within {
+    outline: 2px solid rgb(var(--primary-6)); outline-offset: 1px;
+  }
+  /* Native select retains touch/keyboard/AT behavior; its selected text is rendered above without clipping. */
   .entry-col .search-and-sort-bar .ai-sort-select {
-    box-sizing: border-box; min-height: 44px; width: 9.5em; max-width: 42vw;
-    padding: 0 2px; font-size: .875rem; touch-action: manipulation;
+    position: absolute; inset: 0; box-sizing: border-box; opacity: 0;
+    width: 100%; height: 100%; min-width: 44px; min-height: 44px;
+    cursor: pointer; font-size: .875rem; touch-action: manipulation;
   }
   .entry-panel {
     padding: 4px; flex-shrink: 0; align-items: center; --mobile-edge-control-size: 44px; --mobile-edge-spacing: 4px;

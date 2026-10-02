@@ -1,11 +1,7 @@
 {
   "identical": true,
-  "files": {
-    "runtime/browser-build": 118,
-    "upstream/reactflux/src": 219
-  },
-  "changed": {
-    "runtime/browser-build": [],
-    "upstream/reactflux/src": []
-  }
+  "files": 339,
+  "sourceFiles": 221,
+  "releaseFiles": 118,
+  "changed": []
 }
