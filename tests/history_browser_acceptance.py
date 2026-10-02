@@ -137,6 +137,7 @@ try:
             page.get_by_role("button", name="AI 精选", exact=True).click()
             expect(page.get_by_role("button", name="标记今天筛选出的文章为已读", exact=True)).to_be_visible()
             assert page.url.endswith("/today"), "Changing lenses must preserve Today"
+            if width <= 768:page.locator(".ai-status-trigger").click()
             page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
             page.get_by_role("button", name="来源目录", exact=True).click()
             expect(page.get_by_text("Manual source", exact=True)).to_be_visible()
@@ -187,6 +188,7 @@ try:
                 except PlaywrightError:
                     pass  # The component may already have aborted this mock request.
             mode["value"] = "success"
+            if width <= 768:page.locator(".ai-status-trigger").click()
             page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
             page.get_by_role("button", name="来源目录", exact=True).click()
             expect(page.get_by_text("RSS/Atom 本次暴露 4 条", exact=True)).to_have_count(0)
@@ -194,6 +196,7 @@ try:
             expect(page.get_by_text("RSS/Atom 本次暴露 4 条", exact=True)).to_be_visible()
             page.keyboard.press("Escape")
             expect(page.locator(".ai-dialog")).to_have_count(0)
+            if width <= 768:page.locator(".ai-status-trigger").click()
             page.get_by_role("button", name="AI 设置 · 来源", exact=True).click()
             dialog=page.locator('.ai-dialog')
             dialog.get_by_role('button',name='资源看板',exact=True).click()

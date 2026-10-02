@@ -8,7 +8,7 @@ import "./ReviewWorkflows.css"
 import { aiState } from "@/store/aiState"
 import { invalidateArticleList } from "@/store/contentState"
 
-export default function AiPanel({ onClose }) {
+export default function AiPanel({ onClose, returnFocusRef }) {
   const dialog = useRef(null)
   const alive = useRef(true)
   const requests = useRef({})
@@ -64,7 +64,7 @@ export default function AiPanel({ onClose }) {
     alive.current=true;const opener=document.activeElement;dialog.current?.showModal();load()
     const leave=e=>{if(dirty.current){e.preventDefault();e.returnValue=''}}
     window.addEventListener('beforeunload',leave)
-    return ()=>{alive.current=false;stopBatch.current=true;Object.values(requests.current).forEach(c=>c.abort());window.removeEventListener('beforeunload',leave);if(opener?.isConnected)opener.focus()}
+    return ()=>{alive.current=false;stopBatch.current=true;Object.values(requests.current).forEach(c=>c.abort());window.removeEventListener('beforeunload',leave);const target=opener?.isConnected?opener:returnFocusRef?.current;target?.focus({preventScroll:true})}
   },[])
   useEffect(()=>setSourceLimit(24),[search,sourceCategory,sourceState])
   const savingCloseNotice=()=>{setCloseRequested(false);setMessage('正在保存，请等待结果；关闭不能撤销已发送的请求。')}

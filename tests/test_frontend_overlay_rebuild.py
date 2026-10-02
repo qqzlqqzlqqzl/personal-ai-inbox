@@ -13,7 +13,7 @@ STAGES = (
     "patch_frontend.py", "polish_frontend.py", "specialize_login.py",
     "patch_reading_session.py", "patch_ui_review.py", "patch_article_notes.py",
     "patch_reading_telemetry.py", "patch_scope_ai_filters.py",
-    "patch_reader_detail_quality.py", "patch_reader_entry_defaults.py",
+    "patch_reader_detail_quality.py", "patch_reader_entry_defaults.py", "patch_interaction_review.py",
 )
 
 
@@ -35,6 +35,7 @@ def test_pristine_pinned_overlay_and_repeat_are_equivalent(tmp_path, monkeypatch
     # polish_frontend uses this same pristine reference, not a live deployment.
     (isolated / "runtime/reactflux.tar.gz").write_bytes(archive)
     shutil.copytree(ROOT / "patches", isolated / "patches")
+    shutil.copytree(ROOT / "frontend-review", isolated / "frontend-review")
     monkeypatch.setenv("AI_NEWS_ROOT", str(isolated))
 
     def apply():
