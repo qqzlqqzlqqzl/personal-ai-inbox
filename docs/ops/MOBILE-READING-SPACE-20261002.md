@@ -55,4 +55,3 @@ AI 轮询、保存队列、查询/排序语义、后台分析、模型、预算�
 这是 Linux Chromium 窄屏、触摸、文本缩放与受控 viewport/inset/IME 模拟。没有真实 Android/iOS、Safari、手机地址栏伸缩、物理输入法或真实软键盘证据。主线程最终审查、合并部署和用户手机生产复验仍待完成；本任务保持 draft，不 merge/deploy/close。
 
 CI 保留全部原步骤和权限，新增手机专项及证据归档；最终 GitHub exact-head 完整结果以 PR run 为准。
-

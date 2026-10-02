@@ -210,4 +210,3 @@ for width,height in ([(390,844)] if args.focus else dimensions):
 out=Path(__file__).resolve().parents[1]/'runtime'/('mobile-baseline-metrics.json' if args.baseline else 'mobile-reading-metrics.json')
 out.write_text(json.dumps({'physicalDevice':False,'keyboard':'viewport-height and synthetic IME emulation','safeArea':'CSS inset simulation','measurements':reports},ensure_ascii=False,indent=2))
 print(out,flush=True)
-
