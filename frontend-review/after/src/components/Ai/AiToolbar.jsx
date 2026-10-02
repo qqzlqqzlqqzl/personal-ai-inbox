@@ -14,7 +14,7 @@ import "./MobileReader.css"
 export default function AiToolbar({ source }) {
   const state = useStore(aiState)
   const [open, setOpen] = useState(false)
-  const [compact, setCompact] = useState(() => window.matchMedia?.("(max-width: 768px)")?.matches ?? false)
+  const [compact, setCompact] = useState(() => window.matchMedia?.("(max-width: 768px), (pointer: coarse) and (max-height: 500px)")?.matches ?? false)
   const [statusOpen, setStatusOpen] = useState(false)
   const statusDialog = useRef(null), statusButton = useRef(null), navigation = useRef(null)
   const closeStatus = (restoreFocus = true) => {
@@ -24,9 +24,13 @@ export default function AiToolbar({ source }) {
     if (wasOpen && restoreFocus && statusButton.current?.getClientRects().length) statusButton.current.focus({ preventScroll: true })
   }
   useEffect(() => {
-    const media = window.matchMedia?.("(max-width: 768px)")
+    const media = window.matchMedia?.("(max-width: 768px), (pointer: coarse) and (max-height: 500px)")
     if (!media) return
-    const resize = () => { closeStatus(); setCompact(media.matches) }
+    const resize = () => {
+      const restoreFocus = statusDialog.current?.open
+      closeStatus(false); setCompact(media.matches)
+      if (restoreFocus) requestAnimationFrame(() => document.querySelector(".ai-toolbar > .ai-status-trigger, .ai-toolbar > .ai-settings-button")?.focus({ preventScroll: true }))
+    }
     media.addEventListener("change", resize)
     return () => media.removeEventListener("change", resize)
   }, [])

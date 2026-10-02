@@ -23,7 +23,7 @@ export default function NavigationPalette({ onConsole, launchRef, beforeLaunch, 
   }
   const close = () => {
     setOpen(false); dialog.current?.close()
-    const target = opener.current?.isConnected && opener.current.getClientRects().length ? opener.current : returnFocusRef?.current
+    const target = opener.current?.isConnected && opener.current.getClientRects().length ? opener.current : returnFocusRef?.current || document.querySelector(".ai-toolbar > .review-navigation-trigger")
     target?.focus({ preventScroll: true })
   }
   if (launchRef) launchRef.current = launch

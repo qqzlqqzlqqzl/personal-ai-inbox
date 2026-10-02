@@ -26,7 +26,7 @@
 .ai-status-dialog .ai-settings-button { margin-left: 0; }
 .ai-toolbar button:focus-visible, .ai-toolbar select:focus-visible { outline: 2px solid rgb(var(--primary-6)); outline-offset: 1px; }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
   .ai-toolbar {
     border-bottom: 0; gap: 2px; padding: env(safe-area-inset-top, 0px) 4px 0;
     font-size: .875rem; align-items: center;
@@ -47,6 +47,8 @@
     position: static; flex-shrink: 0; padding: 2px 0;
     /* AiToolbar owns the top inset; do not count it again here. */
   }
+  .entry-col .search-and-sort-bar .arco-btn-shape-circle { min-width: 44px; min-height: 44px; }
+  .entry-col .search-and-sort-bar .brand { margin-left: 4px; }
   .entry-col .search-and-sort-bar .button-group { gap: 2px; margin: 0 4px; }
   .entry-col .search-and-sort-bar .page-info { margin-left: 4px; min-width: 0; }
   .entry-col .search-and-sort-bar .page-info .title-container .arco-typography { font-size: 1rem; }
@@ -56,8 +58,15 @@
     padding: 0 2px; font-size: .875rem; touch-action: manipulation;
   }
   .entry-panel {
-    flex-shrink: 0; --mobile-edge-control-size: 44px; --mobile-edge-spacing: 4px;
+    padding: 4px; flex-shrink: 0; align-items: center; --mobile-edge-control-size: 44px; --mobile-edge-spacing: 4px;
     padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
   }
+  .entry-col .entry-panel .arco-btn-shape-circle,
+  .entry-col .entry-panel .arco-radio-button,
+  .entry-col .entry-panel .arco-radio-button-inner { min-width: 44px; min-height: 44px; }
+  .entry-col .entry-panel .arco-radio-button { margin: 0; }
+  .entry-col .entry-panel .arco-radio-group-type-button { display: flex; align-items: center; padding: 0; }
+  .entry-col .entry-panel .arco-radio-button-inner { display: flex; align-items: center; justify-content: center; }
+  .action-buttons:not(.mobile) .arco-btn { min-width: 44px; min-height: 44px; }
   .action-buttons.mobile { --mobile-edge-control-size: 44px; }
 }

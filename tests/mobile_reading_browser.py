@@ -14,7 +14,7 @@ parser.add_argument('--baseline',action='store_true')
 parser.add_argument('--focus',action='store_true')
 args=parser.parse_args()
 reports=[]
-dimensions=[(320,640),(360,640),(390,844),(412,915),(430,932),(390,576),(390,400),(640,360)]
+dimensions=[(320,640),(360,640),(390,844),(412,915),(430,932),(390,576),(390,400),(640,360),(844,390)]
 
 def setup(name,width,height,theme):
     h=Harness(name,has_touch=True,is_mobile=True,viewport={'width':width,'height':height})
@@ -109,6 +109,26 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click()
       expect(trigger).to_be_focused()
       h.check('settings_handoff_focus_and_no_writes',not h.writes)
+      # Crossing compact/desktop breakpoints must restore a currently visible opener.
+      trigger.tap();p.set_viewport_size({'width':900,'height':900})
+      expect(p.get_by_role('dialog',name='运行状态与更多',exact=True)).to_have_count(0)
+      desktop_settings=p.locator('.ai-toolbar > .ai-settings-button')
+      expect(desktop_settings).to_be_focused()
+      h.check('status_breakpoint_restores_visible_focus',True)
+      p.set_viewport_size({'width':390,'height':844})
+      h.panel();p.set_viewport_size({'width':900,'height':900})
+      p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click()
+      expect(desktop_settings).to_be_focused()
+      h.check('settings_mobile_to_desktop_restores_visible_focus',True)
+      h.panel();p.set_viewport_size({'width':390,'height':844})
+      p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click()
+      expect(trigger).to_be_focused()
+      h.check('settings_desktop_to_mobile_restores_visible_focus',True)
+      trigger.tap();p.locator('.ai-status-actions').get_by_role('button',name='快速跳转',exact=True).tap()
+      p.set_viewport_size({'width':900,'height':900});p.keyboard.press('Escape')
+      expect(p.locator('.ai-toolbar > .review-navigation-trigger')).to_be_focused()
+      h.check('navigation_mobile_to_desktop_restores_visible_focus',True)
+      p.set_viewport_size({'width':390,'height':844})
       # Search and IME under a simulated keyboard-reduced viewport.
       search=p.locator('.reader-search-trigger')
       search.tap();field=p.locator('.search-modal input');expect(field).to_be_visible()
@@ -185,6 +205,8 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       p.evaluate("document.documentElement.style.fontSize=''")
       # Portrait/landscape transition and browser Back/Forward preserve filter storage.
       p.set_viewport_size({'width':640,'height':360});h.check('landscape_no_overflow',not metrics(p)['overflow'])
+      p.set_viewport_size({'width':844,'height':390})
+      h.check('phone_landscape_keeps_compact_touch_layout',p.locator('.ai-status-trigger').is_visible() and metrics(p)['toolbar']['height']+metrics(p)['navigation']['height']<=92)
       p.set_viewport_size({'width':390,'height':844})
       state=p.evaluate("JSON.parse(localStorage.getItem('ai-view-state'))")
       p.goto(h.base+'/inbox/feed/7');p.go_back();p.go_forward()
@@ -201,6 +223,11 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       note=p.get_by_role('textbox',name='我的笔记',exact=True);note.scroll_into_view_if_needed()
       h.check('full_text_note_reachable',note.is_visible())
       h.check('full_text_actions_touch_targets',p.locator('.action-buttons.mobile button').evaluate_all('(nodes)=>nodes.filter(e=>e.getClientRects().length).every(e=>{const r=e.getBoundingClientRect();return r.width>=43.9&&r.height>=43.9})'))
+      p.set_viewport_size({'width':844,'height':390})
+      h.check('phone_landscape_full_text_last_paragraph',last_visible(p,'#mobile-final-paragraph','.article-content'))
+      h.check('phone_landscape_full_text_touch_targets',p.locator('.action-buttons button').evaluate_all('(nodes)=>nodes.filter(e=>e.getClientRects().length).every(e=>{const r=e.getBoundingClientRect();return r.width>=43.9&&r.height>=43.9})'))
+      p.set_viewport_size({'width':390,'height':844})
+      note.scroll_into_view_if_needed()
       p.screenshot(path=str(h.out/'full-text.png'))
       p.get_by_role('button',name='关闭文章',exact=True).click()
       h.check('no_other_backend_writes',all(w[1].endswith('/ai/reading-session') or (w[1].endswith('/ai/settings') and set(w[2])=={'minimum_score'}) for w in h.writes))
