@@ -8,11 +8,13 @@ Its SHA256 is `8bddca8048eb4af74f6cdda56bc11b13011b6f6b0308e4933ace6fadf2536f39`
 No production unit/config/provider changes were authorized. An accidental
 `lane_scheduler.py --help` invocation did execute tick because the script does
 not parse arguments: it rewrote scheduler.json to schedule_disabled, gpu_started
-false and started []. The existing empty scheduler.lock timestamp did not change;
+false and started []. The observed empty scheduler.lock mtime predates the incident; no pre-mtime
+comparison was captured;
 no recovery.json was present. It was not reverted without the prior contents.
 Evidence: /tmp/scheduler-stop-admission-evidence/accidental-scheduler-entrypoint.json.
-This boundary violation requires root review; no service/provider call occurred
-in that disabled tick. Subsequent entrypoint checks run only imported code with
+This boundary violation requires root review; the disabled early return precedes service/provider callbacks. This is a
+static control-flow inference corroborated by stdout, not independent production
+telemetry. The retained remote process record confirms exit0/runtime0.15s. Subsequent entrypoint checks run only imported code with
 explicit temporary ROOT/config fixtures.
 Searches for schedule_enabled, stop scheduler and watchdog found no duplicate;
 #52 is the completed scheduler migration, not this admission defect.
@@ -174,3 +176,36 @@ and redirect admission passed; controlled panel transition passed; original
 mobile --focus on the exact failed CI build passed with all focus/layout/fulltext
 assertions retained. These browser tests use synthetic localhost/mock API only.
 New exact-head hosted CI and independent source approval remain required.
+
+
+## CLI and popup follow-up
+
+Independent AST review found __main__ ignored --help/unknown arguments. The
+scheduler now parses its no-argument CLI before application imports: --help
+exits0, unknown flags/positional arguments exit2, before tick or application
+filesystem access. Tests execute copied source in an isolated namespace with
+application imports, file open/mkdir, SQLite and subprocess boundaries blocked.
+No actual production entrypoint is executed for this verification.
+
+Playwright page.route omits the initial popup request. The existing one-hop
+admission handler is now registered through page.context.route before navigation.
+The real isolated Chromium regression first loads an article/script, then stops
+and invokes its popup script. It must observe one routed popup initial request,
+zero popup server requests, and typed schedule_disabled; the event wait is
+bounded to3 seconds. Direct extraction and both existing redirect cases remain.
+Source approval and exact new-head CI remain required; CODE pins unchanged.
+
+
+CLI/context follow-up verification: **468 passed +59 subtests, no skips**,
+30.91 seconds; cli-context-final.{log,xml}. Three CLI cases pass with only
+argparse imported by the copied application and all application side effects
+blocked. Real Chromium records one blocked popup initial request, zero popup
+server requests and zero redirect landing requests; browser-context-admission-final.json.
+Sanitized incident report: Library libfile_9f00cec0d1908191b48df2e8eb4511e5 v0,
+4720 bytes, SHA256 f4746238e14fd1f0c246d70efca273197ae49800e4989be90b5e4f1317029203.
+Complete JSON evidence bundle (contains the independently hashable ZIP as base64):
+Library libfile_735ff96b1a8c8191ac8299d833799e55 v0, 14572 bytes, SHA256
+015791df2592a9c6d8e2995af0fbe48d0891b7c1cab062d5471d6becaa001267.
+ZIP inside: 7071 bytes, SHA256 87e29bba6589a54adf7943db7e50c4a771ead977f7fefe1d05fd7caa70b50ce8.
+No production command/read was issued after root assigned its sole operator the
+impact assessment. No rollback or production entrypoint rerun was attempted.

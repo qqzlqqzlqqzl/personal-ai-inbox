@@ -3,6 +3,12 @@
 It never submits a Kaggle job itself. It only starts the existing bounded lane
 services. Lane services keep immutable manifests and perform remote reconciliation.
 """
+# Reject help/unknown arguments before importing application code or touching
+# scheduler state. This command accepts no operational arguments.
+if __name__ == '__main__':
+    import argparse
+    argparse.ArgumentParser(description='Run one bounded scheduler tick.').parse_args()
+
 import json
 from pathlib import Path
 import sqlite3

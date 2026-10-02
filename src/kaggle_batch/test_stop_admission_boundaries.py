@@ -382,7 +382,7 @@ def test_browser_route_blocks_next_request_and_closes_on_stop(tmp_path,monkeypat
         await handler(SimpleNamespace(fetch=proceed,fulfill=AsyncMock(),abort=abort))
         await handler(SimpleNamespace(fetch=proceed,fulfill=AsyncMock(),abort=abort))
         raise RuntimeError('aborted navigation')
-    page=SimpleNamespace(route=route,goto=goto,content=AsyncMock(side_effect=AssertionError('no extraction after stop')))
+    page=SimpleNamespace(context=SimpleNamespace(route=route),goto=goto,content=AsyncMock(side_effect=AssertionError('no extraction after stop')))
     browser=SimpleNamespace(new_page=AsyncMock(return_value=page),close=AsyncMock())
     playwright=SimpleNamespace(chromium=SimpleNamespace(launch=AsyncMock(return_value=browser)))
     @contextlib.asynccontextmanager
@@ -533,3 +533,34 @@ def test_live_scope_stop_at_sqlite_open_prevents_temp_write(tmp_path,monkeypatch
         live_scope.resolve_entry_ids(cfg,admission=ConfigGuard(path,cfg))
     assert db.execute('SELECT count(*) FROM sqlite_temp_master').fetchone()[0]==0
     db.close()
+
+
+@pytest.mark.parametrize('args,code',[(['--help'],0),(['--unknown'],2),(['prepare'],2)])
+def test_scheduler_cli_arguments_exit_before_application_import_or_side_effect(tmp_path,monkeypatch,capsys,args,code):
+    import argparse,builtins,subprocess
+    import lane_scheduler as scheduler
+    # Read only the isolated test source before installing strict side-effect
+    # mocks. Execute that source as __main__ without touching real configs.
+    source=Path(scheduler.__file__).read_text()
+    namespace={'__name__':'__main__','__file__':str(tmp_path/'lane_scheduler.py')}
+    imports=[];original_import=builtins.__import__
+    def only_parser(name,globals=None,*a,**kw):
+        if globals and globals.get('__name__')=='__main__':
+            imports.append(name)
+            if name!='argparse':raise AssertionError('application imported before CLI exit: '+name)
+        if name.split('.')[0] not in sys.stdlib_module_names:
+            raise AssertionError('non-stdlib import before CLI exit: '+name)
+        return original_import(name,globals,*a,**kw)
+    forbidden=Mock(side_effect=AssertionError('CLI exit must have zero side effects'))
+    monkeypatch.setattr(sys,'argv',['lane_scheduler.py',*args])
+    # Avoid stdlib locale-catalog lookup; this gate tests application I/O.
+    with patch.object(argparse,'_',lambda text:text),patch.object(builtins,'__import__',only_parser),patch.object(builtins,'open',forbidden), \
+         patch.object(Path,'open',forbidden),patch.object(Path,'mkdir',forbidden), \
+         patch.object(sqlite3,'connect',forbidden),patch.object(subprocess,'run',forbidden):
+        with pytest.raises(SystemExit) as error:
+            exec(compile(source,'<isolated-scheduler-cli>','exec'),namespace)
+    assert error.value.code==code and imports==['argparse']
+    forbidden.assert_not_called()
+    captured=capsys.readouterr()
+    if code==0:assert 'usage:' in captured.out and captured.err==''
+    else:assert 'unrecognized arguments:' in captured.err and captured.out==''

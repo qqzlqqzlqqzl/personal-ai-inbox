@@ -66,7 +66,7 @@ jobs:
       - name: Install hosted Chromium headless shell
         # The browser tests launch headless Chromium without a channel override.
         run: python -m playwright install --only-shell chromium
-      - name: Browser fulltext admission uses one redirect hop only
+      - name: Browser fulltext request, redirect and popup admission
         env:
           PYTHONPATH: src:src/kaggle_batch
         run: python tests/fulltext_browser_admission.py

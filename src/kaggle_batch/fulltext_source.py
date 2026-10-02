@@ -375,7 +375,8 @@ async def _fetch_browser_locked(url,selector,remove,repeated, *,admission=None):
                         except PlaywrightError:
                             stopped.append(FulltextUnavailable('browser_request_failed'))
                             await route.abort()
-                    await page.route('**/*',admit_request)
+                    # Context routing also covers the first request of a popup.
+                    await page.context.route('**/*',admit_request)
                 check(admission)
                 try:
                     response=await page.goto(url,wait_until='domcontentloaded',timeout=45000)

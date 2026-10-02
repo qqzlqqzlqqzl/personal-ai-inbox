@@ -161,3 +161,9 @@ this by removing admission. HTTPX transports retain checked redirect support.
 Scheduler, bridge live-scope loading and their error handlers reload admission
 before a new request/transaction/recovery mutation. A stop outranks an earlier
 ledger failure and does not replace existing recovery with local-state backoff.
+
+
+Scheduler CLI accepts no operational arguments. --help exits0 and unknown flags
+or positional arguments exit2 before application imports/state access. Do not
+use unknown options as dispatch controls. Browser admission uses context routing
+before navigation so the first request of a script-opened popup is also checked.
