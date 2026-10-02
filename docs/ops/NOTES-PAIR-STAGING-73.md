@@ -5,18 +5,19 @@ tests directly exercise Miniflux handlers with real PostgreSQL. Both are necessa
 but neither alone proves a real Reader process can consume the candidate binary.
 
 `tests/notes_pair_acceptance.py` fills only that gap. It runs the exact runtime
-`src/` from reviewed integration `311ba3145e09b7103125defab07eddb915ac4e40`, verifies the
+`src/` from reviewed integration `cd66cfe40431893092f2dd4453959a1d1cdb0e77`, verifies the
 candidate binary SHA256, and starts actual Uvicorn and Miniflux processes against
 the existing digest-pinned disposable PostgreSQL workflow service. Synthetic
 SQLite notes deliberately have no analyses rows. No test replaces Reader functions
 or mocks successful metadata responses.
 
-This published baseline incorporates the separately reviewed search-interaction
-overlay while retaining the paired notes implementation. The guard checks every
-`src/` byte, including frontend build scripts, so the prior `46fa51a` pin would
-correctly reject that reviewed overlay change. Only this test pin and explanation
-are updated outside `src/`; no source, index, import or file-type check is relaxed.
-Future source changes require a newly reviewed baseline and fresh paired evidence.
+This published baseline retains the reviewed search-interaction overlay and paired
+notes implementation, and adds the independently reviewed sort-invalidation import
+from #83 / PR #84. The guard checks every `src/` byte, including frontend build
+scripts, so the prior `311ba31` pin would correctly reject that reviewed overlay
+change. This baseline refresh does not modify runtime source or relax any source,
+index, import or file-type check. Future source changes require a newly reviewed
+baseline and fresh paired evidence.
 
 The loopback observing proxy relays successful traffic to actual Miniflux. It logs
 only synthetic IDs, request paths and statuses. Explicit failure scenarios strip
