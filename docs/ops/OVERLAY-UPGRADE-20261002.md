@@ -25,14 +25,14 @@ Refs #86。独立工作区 `/home/ubuntu/ui-review-20261002-upgrade`，分支 `f
 
 新回归参数化两条基线：旧脚本 pristine 与历史记录 patch。各自保留整个生成树及 `runtime/reactflux-original`，仅更新应用 authoring，然后按正式十一阶段升级；验证 before、全部原始备份保留、最终整个源树与目标 pristine 逐字节一致及重复升级幂等。历史 patch 用例在修复前明确失败，修复后通过。
 
-各基线在最终 overlay 前注入未知额外漂移，验证 installer 拒绝且整个前端源树零写入，再恢复已审 before 验证成功。CI pinned checkout 获取完整历史对象，保持 persist-credentials:false；缺少不可变基线时测试失败。早期 draft 的独立 git fetch 因未保留认证失败，已经改为由既有认证 checkout 获取历史，不添加凭据或权限。
+各基线在最终 overlay 前注入未知额外漂移，验证 installer 拒绝且整个前端源树零写入，再恢复已审 before 验证成功。另验旧 class／新标签混用、旧标签／新 class 混用、额外属性与重复 tag：严格 normalize 拒绝，未知组件不被改写；调用最终 installer 也零写入拒绝。已知 tag 周围的未知源码允许 tag 自身规范化，但保留未知内容，整个文件仍被最终准入拒绝。早期所属阶段可以刷新其负责的组件，零写入保证针对最终 installer，不声称整个管线失败前零写入。CI pinned checkout 获取完整历史对象，保持 persist-credentials:false；缺少不可变基线时测试失败。早期 draft 的独立 git fetch 因未保留认证失败，已经改为由既有认证 checkout 获取历史，不添加凭据或权限。
 
 ## 验证与边界
 
-专项：5 passed。修复前历史负向证明：1 failed、1 passed，失败发生在预期 before 等价断言；捕获字节与仓库重建路径均得到同一最终 installer 拒绝。修复后两条真实历史复现都通过，最终 SHA 与已审 after 相同，重复整个源树相同。按正式 prepare 后完整 Python：795 passed、161 subtests passed；最终 exact-head 全套 Reader CI 结果见 PR。
+专项：10 passed，包括 mixed-label、mixed-class、extra-attribute、duplicate-tag 与 adjacent-source 五种未知邻近变体。修复前历史负向证明：1 failed、1 passed，失败发生在预期 before 等价断言；捕获字节与仓库重建路径均得到同一最终 installer 拒绝。修复后两条真实历史复现都通过，最终 SHA 与已审 after 相同，重复整个源树相同。按正式 prepare 后完整 Python：800 passed、161 subtests passed；最终 exact-head 全套 Reader CI 结果见 PR。
 
 仅修改前端生成脚本，不修改已审 UI、AI 后台或模型预算。手机 UI 仍以 PR88 的 261 项窄屏/触摸模拟验收为已有证据，本次全套 CI 会重跑；不声称实机验证或生产重试成功。
 
-这次 src tree 因生成脚本而改变；未擅自更新 notes_pair_acceptance.py 的 paired CODE pin，需主线程审查候选 source commit/tree 后决定推广。默认配对源码门检应继续拒绝旧 pin，不能把 CI 的 synthetic guard 单测当成实际新源码配对准入。
+主线程独立审查并明确批准 source commit `a545a4088414a192bacd8745a7021298ee73a69a`，src tree `c4b08ffd148d64e0bee060f172b398a1c360263d`。据此将 notes_pair_acceptance.py 的 paired CODE 推广到此不可变候选；运行时 src 字节没有后续变化。实际默认源码准入在本工作区通过，负向 source/container guard 单测通过；严格配对集成仍需最终 HEAD 的 Miniflux metadata compatibility CI，不把 guard 单测当成实际配对验收。
 
 没有执行生产命令、发布、合并或关闭 Issue，也没有操作时区工作区。保持 draft，由主线程独立审查并处理后续源码 pin 与部署。

@@ -186,3 +186,44 @@ def test_public_production_baseline_upgrade_and_unknown_drift(tmp_path, monkeypa
     monkeypatch.setenv("AI_NEWS_ROOT", str(pristine))
     _apply_authoring(pristine)
     assert _source_bytes(pristine_web) == upgraded
+
+
+CANONICAL_SELECTOR = '<select className="ai-sort-select" aria-label="排序方式" value={sortValue} onChange={changeSort}>'
+HISTORICAL_SELECTOR = '<select className="article-sort-select" aria-label="文章排序" value={sortValue} onChange={changeSort}>'
+
+
+@pytest.mark.parametrize(("variant", "normalization_rejects"), [
+    (HISTORICAL_SELECTOR.replace('aria-label="文章排序"', 'aria-label="排序方式"'), True),
+    (HISTORICAL_SELECTOR.replace('className="article-sort-select"', 'className="ai-sort-select"'), True),
+    (HISTORICAL_SELECTOR.replace(' onChange=', ' data-owner="unknown" onChange='), True),
+    (HISTORICAL_SELECTOR + "\n" + HISTORICAL_SELECTOR, True),
+    (HISTORICAL_SELECTOR + "{/* unreviewed adjacent source */}", False),
+], ids=["mixed-label", "mixed-class", "extra-attribute", "duplicate-tag", "adjacent-source"])
+def test_historical_selector_nearby_unknown_variants_fail_closed(tmp_path, monkeypatch, variant, normalization_rejects):
+    isolated = tmp_path / "unknown-variant"
+    web = _pinned_checkout(isolated)
+    for name in ("src", "patches", "frontend-review"):
+        shutil.copytree(ROOT / name, isolated / name)
+    monkeypatch.setenv("AI_NEWS_ROOT", str(isolated))
+    _apply_authoring(isolated, STAGES[:-1])
+    source = web / SORTER
+    text = source.read_text()
+    assert text.count(CANONICAL_SELECTOR) == 1
+    source.write_text(text.replace(CANONICAL_SELECTOR, variant, 1))
+    drifted = _source_bytes(web)
+    if normalization_rejects:
+        with pytest.raises(RuntimeError, match="scope/AI normalize anchor mismatch: .*SearchAndSortBar"):
+            _apply_authoring(isolated, ("patch_scope_ai_filters.py",))
+        # Earlier owned stages can refresh their components before detecting
+        # drift. This unknown component remains intact; the final installer
+        # must make no writes across the whole tree in either rejection path.
+        assert source.read_bytes() == drifted[str(SORTER)]
+        drifted = _source_bytes(web)
+    else:
+        # A known tag may be normalized, but surrounding unknown source remains.
+        _apply_authoring(isolated, ("patch_scope_ai_filters.py",))
+        assert "unreviewed adjacent source" in source.read_text()
+        drifted = _source_bytes(web)
+    with pytest.raises(RuntimeError, match="Unreviewed source drift, refusing overwrite: .*SearchAndSortBar"):
+        install(isolated)
+    assert _source_bytes(web) == drifted

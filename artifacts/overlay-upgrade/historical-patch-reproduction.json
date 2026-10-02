@@ -17,5 +17,5 @@
     "repeat_equal": true
   },
   "negative_test_before_fix": "recorded-patch regression failed; script baseline passed",
-  "targeted_tests_after_fix": "5 passed; includes unknown drift rejection and zero final-installer writes"
+  "targeted_tests_after_fix": "10 passed; includes five unknown nearby selector variants, whole-file drift rejection and zero final-installer writes"
 }
