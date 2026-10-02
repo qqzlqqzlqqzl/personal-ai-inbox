@@ -120,7 +120,7 @@ try:
     close_article();h.entries[1]['content']='<p>无标题的隔离正文，不能生成不存在的文章目录。</p>';p.set_viewport_size({'width':1440,'height':960});open_entry(102)
     expect(p.get_by_role('button',name=re.compile('目录|Table of Contents'))).to_have_count(0);h.check('R06_headingless_article_has_no_TOC');close_article();p.set_viewport_size({'width':390,'height':844})
 
-    p.get_by_role('button',name='快速跳转',exact=False).click();expect(p.get_by_role('dialog',name='快速跳转')).to_be_visible();h.check('R08_mobile_palette_no_overflow',p.locator('.review-navigation-dialog').evaluate('e=>e.scrollWidth<=e.clientWidth'));p.screenshot(path=str(h.out/'mobile-navigation.png'),full_page=True);p.keyboard.press('Escape')
+    p.locator('.ai-status-trigger').click();p.get_by_role('button',name='快速跳转',exact=False).click();expect(p.get_by_role('dialog',name='快速跳转')).to_be_visible();h.check('R08_mobile_palette_no_overflow',p.locator('.review-navigation-dialog').evaluate('e=>e.scrollWidth<=e.clientWidth'));p.screenshot(path=str(h.out/'mobile-navigation.png'),full_page=True);p.keyboard.press('Escape')
 except Exception as exc:
     h.errors.append(str(exc));p.screenshot(path=str(h.out/'failure.png'),full_page=True);raise
 finally:h.close()

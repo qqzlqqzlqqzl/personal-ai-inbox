@@ -1,0 +1,26 @@
+{
+  "base": "c2b60447ae3038a1566d44a2ea36fb08f653e517",
+  "timezoneBase": "64f661e3b7fa7bbc361979e365469254f44adb03",
+  "ancestor": true,
+  "byteIdentical": [
+    "docs/reader-account-calendar.md",
+    "patches/calendar-overlay.py",
+    "patches/reading-calendar.js",
+    "patches/readingCalendarState.js",
+    "src/patch_scope_ai_filters.py",
+    "tests/calendar_browser_acceptance.py",
+    "tests/calendar_identity_browser.py",
+    "tests/notes_pair_acceptance.py",
+    "tests/sort_browser_acceptance.py",
+    "tests/test_ai_pagination.mjs",
+    "tests/test_calendar_lifecycle.mjs",
+    "tests/test_calendar_retry_and_starred.mjs",
+    "tests/test_reading_calendar.mjs",
+    "tests/test_sort_component.mjs"
+  ],
+  "sharedAdditions": [
+    ".github/workflows/reader-regression.yml",
+    "tests/review_reader_harness.py"
+  ],
+  "sortOverlayBeforeSha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36"
+}

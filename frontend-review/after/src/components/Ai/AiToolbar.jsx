@@ -9,10 +9,36 @@ import apiClient from "@/apis/ofetch"
 import { aiState } from "@/store/aiState"
 import { invalidateArticleList } from "@/store/contentState"
 import "./AiNews.css"
+import "./MobileReader.css"
 
-export default function AiToolbar() {
+export default function AiToolbar({ source }) {
   const state = useStore(aiState)
   const [open, setOpen] = useState(false)
+  const [compact, setCompact] = useState(() => window.matchMedia?.("(max-width: 768px), (pointer: coarse) and (max-height: 500px)")?.matches ?? false)
+  const [statusOpen, setStatusOpen] = useState(false)
+  const statusDialog = useRef(null), statusButton = useRef(null), navigation = useRef(null)
+  const closeStatus = (restoreFocus = true) => {
+    const wasOpen = statusDialog.current?.open
+    statusDialog.current?.close()
+    setStatusOpen(false)
+    if (wasOpen && restoreFocus && statusButton.current?.getClientRects().length) statusButton.current.focus({ preventScroll: true })
+  }
+  useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 768px), (pointer: coarse) and (max-height: 500px)")
+    if (!media) return
+    const resize = () => {
+      const restoreFocus = statusDialog.current?.open
+      closeStatus(false); setCompact(media.matches)
+      if (restoreFocus) requestAnimationFrame(() => document.querySelector(".ai-toolbar > .ai-status-trigger, .ai-toolbar > .ai-settings-button")?.focus({ preventScroll: true }))
+    }
+    media.addEventListener("change", resize)
+    return () => media.removeEventListener("change", resize)
+  }, [])
+  useEffect(() => { closeStatus(false) }, [source])
+  useEffect(() => {
+    if (statusOpen) statusDialog.current?.showModal()
+  }, [statusOpen])
+  const openConsole = () => { closeStatus(); setOpen(true) }
   const [progress,setProgress] = useState(null)
   const [statusUnavailable, setStatusUnavailable] = useState(false)
   const [statusLoading, setStatusLoading] = useState(true)
@@ -106,30 +132,17 @@ export default function AiToolbar() {
     })
   }
 
-  return <div className="ai-toolbar">
-    <div className="ai-modes" aria-label="阅读方式">
-      {[["all", "全部原始"], ["recommended", "AI 精选"]].map(([mode, label]) =>
-        <button
-          key={mode}
-          aria-pressed={state.auxiliary !== "pending" && state.mode === mode}
-          onClick={() => changePrimary(mode)}
-        >{label}</button>)}
-    </div>
-    <div className="ai-aux-modes" aria-label="辅助筛选">
-      <button
-        aria-pressed={state.auxiliary === "notes"}
-        onClick={() => toggleAuxiliary("notes")}
-      >有笔记</button>
-      <button
-        aria-pressed={state.auxiliary === "pending"}
-        onClick={() => toggleAuxiliary("pending")}
-      >待处理 / 异常</button>
-    </div>
-    {state.mode === "recommended" && state.auxiliary !== "pending" && <>
-      <label>最低分 <select value={state.minimum} onChange={e => change({ minimum: Number(e.target.value) })}>
-        {[0,3,5,6,7,8,9].map(n => <option key={n}>{n}</option>)}
-      </select></label>
-    </>}
+  const facts = progress ? kaggleStatus(progress.kaggle) : null
+  const statusLabel = saveStatus.includes("未确认") ? "保存待查"
+    : saveStatus === "正在保存…" ? "保存中"
+    : updatesAvailable ? "有更新"
+    : statusUnavailable ? "读取失败"
+    : statusLoading && !progress ? "读取中"
+    : !progress || facts?.submissionUnknown || facts?.unknown || !Object.keys(progress.kaggle?.lanes || {}).length ? "未确认"
+    : facts.cooldown ? "冷却"
+    : facts.running ? "运行中"
+    : progress.kaggle.enabled === false ? "已暂停" : "等待"
+  const diagnostics = <>
     {saveStatus && <span role="status">{saveStatus}</span>}
     {!progress && <span role="status" className="ai-progress">{statusLoading?"正在读取资源状态…":"尚未取得资源状态"}{statusUnavailable&&" · 读取失败，当前状态未确认"}</span>}
     {statusUnavailable && <button disabled={statusLoading} onClick={()=>retryStatus.current()}>重试资源状态</button>}
@@ -142,8 +155,60 @@ export default function AiToolbar() {
       setUpdatesAvailable(false)
       invalidateArticleList()
     }}>有新内容 / 中文更新 · 点击刷新</button>}
-    <button className="ai-settings-button" onClick={() => setOpen(true)}>AI 设置 · 来源</button>
-    <NavigationPalette onConsole={() => setOpen(true)} />
-    {open && <AiPanel onClose={() => setOpen(false)} />}
+  </>
+
+  return <div className="ai-toolbar">
+    <div className="ai-modes" aria-label="阅读方式">
+      {[["all", "全部原始"], ["recommended", "AI 精选"]].map(([mode, label]) =>
+        <button
+          key={mode}
+          aria-label={label}
+          aria-pressed={state.auxiliary !== "pending" && state.mode === mode}
+          onClick={() => changePrimary(mode)}
+        ><span className="ai-wide-label">{label}</span><span className="ai-short-label" aria-hidden="true">{mode === "all" ? "原始" : "AI精选"}</span></button>)}
+    </div>
+    <div className="ai-aux-modes" aria-label="辅助筛选">
+      <button
+        aria-pressed={state.auxiliary === "notes"}
+        onClick={() => toggleAuxiliary("notes")}
+        aria-label="有笔记"
+      ><span className="ai-wide-label">有笔记</span><span className="ai-short-label" aria-hidden="true">笔记</span></button>
+      <button
+        aria-pressed={state.auxiliary === "pending"}
+        onClick={() => toggleAuxiliary("pending")}
+        aria-label="待处理 / 异常"
+      ><span className="ai-wide-label">待处理 / 异常</span><span className="ai-short-label" aria-hidden="true">待处理</span></button>
+    </div>
+    {state.mode === "recommended" && state.auxiliary !== "pending" && <>
+      <label className="ai-minimum"><span className="ai-wide-label">最低分</span><select aria-label="最低推荐分" value={state.minimum} onChange={e => change({ minimum: Number(e.target.value) })}>
+        {[0,3,5,6,7,8,9].map(n => <option key={n} value={n}>{compact ? "≥" : ""}{n}</option>)}
+      </select></label>
+    </>}
+    {compact ? <>
+      <button type="button" ref={statusButton} className="ai-status-trigger"
+        aria-haspopup="dialog" aria-expanded={statusOpen}
+        aria-label={"运行状态与更多：" + (saveStatus.includes("未确认") ? saveStatus : statusLabel)}
+        title={saveStatus.includes("未确认") ? saveStatus : progress ? kaggleStatus(progress.kaggle).text : "运行状态未确认"}
+        onClick={() => setStatusOpen(true)}>
+        <span role="status">{statusLabel}</span>
+      </button>
+      <dialog ref={statusDialog} className="ai-status-dialog" aria-label="运行状态与更多"
+        onCancel={e => { e.preventDefault(); closeStatus() }}
+        onClose={() => setStatusOpen(false)}
+        onClick={e => {
+          const r = e.currentTarget.getBoundingClientRect()
+          if (e.target === e.currentTarget && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) closeStatus()
+        }}>
+        <header><h2>运行状态与更多</h2><button type="button" aria-label="关闭运行状态" onClick={closeStatus}>×</button></header>
+        <div className="ai-status-content">{diagnostics}</div>
+        <div className="ai-status-actions">
+          <button type="button" className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button>
+          <button type="button" onClick={() => { closeStatus(); navigation.current?.() }}>快速跳转</button>
+        </div>
+      </dialog>
+    </> : <>{diagnostics}<button className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button></>}
+    <NavigationPalette onConsole={openConsole} launchRef={navigation} beforeLaunch={closeStatus} returnFocusRef={statusButton}
+      triggerClassName={compact ? "ai-navigation-hidden" : ""} />
+    {open && <AiPanel onClose={() => setOpen(false)} returnFocusRef={statusButton} />}
   </div>
 }

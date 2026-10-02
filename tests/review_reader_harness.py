@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright,expect
 ROOT=Path(__file__).resolve().parents[1]
 
 class Harness:
-    def __init__(self,name,*,timezone_id=None):
+    def __init__(self,name,*,timezone_id=None,**context_options):
         value=os.environ.get('AI_NEWS_TEST_BUILD')
         if not value:raise RuntimeError('AI_NEWS_TEST_BUILD must name a local isolated build')
         self.build=Path(value).resolve()
@@ -24,7 +24,7 @@ class Harness:
         self.out=ROOT/'runtime'/name;self.out.mkdir(parents=True,exist_ok=True)
         self.pw=sync_playwright().start()
         self.browser=self.pw.chromium.launch(executable_path=os.environ.get('CHROMIUM_EXECUTABLE') or None,headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
-        self.ctx=self.browser.new_context(viewport={'width':1440,'height':960},locale='zh-CN',service_workers='block',timezone_id=timezone_id)
+        self.ctx=self.browser.new_context(**{'viewport':{'width':1440,'height':960},'locale':'zh-CN','service_workers':'block','timezone_id':timezone_id,**context_options})
         self.ctx.add_init_script("localStorage.setItem('auth',JSON.stringify({server:location.origin+'/mf',token:'isolated-test-token',username:'',password:''}))")
         self.errors=[];self.calls=[];self.writes=[];self.checks={};self.custom=None
         self.categories=[{'id':1,'title':'技术博客'},{'id':2,'title':'设计'}]
@@ -72,8 +72,9 @@ class Harness:
         route.fulfill(json=body)
     def goto(self,path='/inbox/today'):
         self.page.goto(self.base+path,wait_until='domcontentloaded')
-        self.page.get_by_role('button',name='AI 设置 · 来源',exact=True).wait_for()
+        self.page.get_by_role('button',name='AI 精选',exact=True).wait_for()
     def panel(self):
+        if self.page.locator('.ai-status-trigger').count():self.page.locator('.ai-status-trigger').click()
         self.page.get_by_role('button',name='AI 设置 · 来源',exact=True).click();expect(self.page.locator('.ai-dialog')).to_be_visible()
     def check(self,name,value=True):
         self.checks[name]=bool(value);print('PASS' if value else 'FAIL',name,flush=True)

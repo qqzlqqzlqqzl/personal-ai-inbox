@@ -9,25 +9,29 @@ import './ReviewWorkflows.css'
 const anotherDialogOpen = own => Array.from(document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]'))
   .some(node => node !== own && node.getClientRects().length > 0)
 
-export default function NavigationPalette({ onConsole }) {
+export default function NavigationPalette({ onConsole, launchRef, beforeLaunch, returnFocusRef, triggerClassName = "" }) {
   const feeds = useStore(visibleFeedsState), categories = useStore(visibleCategoriesState)
   const navigate = useNavigate(), dialog = useRef(null), input = useRef(null), opener = useRef(null)
   const [open, setOpen] = useState(false), [query, setQuery] = useState(''), [index, setIndex] = useState(0)
   const all = useMemo(() => navigationCommands(feeds, categories), [feeds, categories])
   const matched = useMemo(() => matchCommands(all, query), [all, query]), shown = matched.slice(0, 50)
   const launch = () => {
+    beforeLaunch?.()
     if (anotherDialogOpen(dialog.current)) return
     opener.current = document.activeElement
     setQuery(''); setIndex(0); setOpen(true)
   }
   const close = () => {
     setOpen(false); dialog.current?.close()
-    if (opener.current?.isConnected) opener.current.focus()
+    const target = opener.current?.isConnected && opener.current.getClientRects().length ? opener.current : returnFocusRef?.current || document.querySelector(".ai-toolbar > .review-navigation-trigger")
+    target?.focus({ preventScroll: true })
   }
+  if (launchRef) launchRef.current = launch
   useEffect(() => { if (open) { dialog.current?.showModal(); input.current?.focus() } }, [open])
   useEffect(() => {
     const key = e => {
       if (e.isComposing || e.keyCode === 229 || e.repeat || e.altKey || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'k') return
+      beforeLaunch?.()
       if (anotherDialogOpen(dialog.current)) return
       e.preventDefault()
       if (dialog.current?.open) { input.current?.focus(); return }
@@ -47,7 +51,7 @@ export default function NavigationPalette({ onConsole }) {
     navigate(command.path)
   }
   return <>
-    <button type="button" className="review-navigation-trigger" onClick={launch}>快速跳转 <kbd>Ctrl/⌘ K</kbd></button>
+    <button type="button" className={"review-navigation-trigger " + triggerClassName} onClick={launch}>快速跳转 <kbd>Ctrl/⌘ K</kbd></button>
     {open && <dialog className="review-navigation-dialog" ref={dialog} aria-label="快速跳转" onCancel={e => { e.preventDefault(); close() }}>
       <header><h2>快速跳转</h2><button type="button" onClick={close} aria-label="关闭快速跳转">×</button></header>
       <input ref={input} role="combobox" aria-label="搜索视图、分类或订阅" aria-expanded="true" aria-controls="review-command-list" aria-activedescendant={shown[index] ? 'review-command-' + index : undefined} placeholder="输入订阅名称、分类或今天、收藏…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => {

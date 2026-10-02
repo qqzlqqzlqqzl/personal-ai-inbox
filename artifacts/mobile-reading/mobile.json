@@ -1,0 +1,781 @@
+{
+  "physicalDevice": false,
+  "keyboard": "viewport-height and synthetic IME emulation",
+  "safeArea": "CSS inset simulation",
+  "measurements": [
+    {
+      "name": "mobile-reading-320x640-light",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 320
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 320
+      },
+      "footer": {
+        "top": 588,
+        "bottom": 640,
+        "height": 52,
+        "width": 320
+      },
+      "list": {
+        "top": 92,
+        "bottom": 588,
+        "height": 496,
+        "width": 320
+      },
+      "readingRatio": 0.775,
+      "controlsRatio": 0.225,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-320x640-dark",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 320,
+        "height": 640
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 320
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 320
+      },
+      "footer": {
+        "top": 588,
+        "bottom": 640,
+        "height": 52,
+        "width": 320
+      },
+      "list": {
+        "top": 92,
+        "bottom": 588,
+        "height": 496,
+        "width": 320
+      },
+      "readingRatio": 0.775,
+      "controlsRatio": 0.225,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-360x640-light",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 360,
+        "height": 640
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 360
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 360
+      },
+      "footer": {
+        "top": 588,
+        "bottom": 640,
+        "height": 52,
+        "width": 360
+      },
+      "list": {
+        "top": 92,
+        "bottom": 588,
+        "height": 496,
+        "width": 360
+      },
+      "readingRatio": 0.775,
+      "controlsRatio": 0.225,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-360x640-dark",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 360,
+        "height": 640
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 360
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 360
+      },
+      "footer": {
+        "top": 588,
+        "bottom": 640,
+        "height": 52,
+        "width": 360
+      },
+      "list": {
+        "top": 92,
+        "bottom": 588,
+        "height": 496,
+        "width": 360
+      },
+      "readingRatio": 0.775,
+      "controlsRatio": 0.225,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-390x844-light",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 390
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 390
+      },
+      "footer": {
+        "top": 792,
+        "bottom": 844,
+        "height": 52,
+        "width": 390
+      },
+      "list": {
+        "top": 92,
+        "bottom": 792,
+        "height": 700,
+        "width": 390
+      },
+      "readingRatio": 0.8293838862559242,
+      "controlsRatio": 0.17061611374407584,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-390x844-dark",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 390
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 390
+      },
+      "footer": {
+        "top": 792,
+        "bottom": 844,
+        "height": 52,
+        "width": 390
+      },
+      "list": {
+        "top": 92,
+        "bottom": 792,
+        "height": 700,
+        "width": 390
+      },
+      "readingRatio": 0.8293838862559242,
+      "controlsRatio": 0.17061611374407584,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "simulated-safe-area-20-top-24-bottom",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 64,
+        "height": 64,
+        "width": 390
+      },
+      "navigation": {
+        "top": 64,
+        "bottom": 112,
+        "height": 48,
+        "width": 390
+      },
+      "footer": {
+        "top": 768,
+        "bottom": 844,
+        "height": 76,
+        "width": 390
+      },
+      "list": {
+        "top": 112,
+        "bottom": 768,
+        "height": 656,
+        "width": 390
+      },
+      "readingRatio": 0.7772511848341233,
+      "controlsRatio": 0.22274881516587677,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-412x915-light",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 412,
+        "height": 915
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 412
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 412
+      },
+      "footer": {
+        "top": 863,
+        "bottom": 915,
+        "height": 52,
+        "width": 412
+      },
+      "list": {
+        "top": 92,
+        "bottom": 863,
+        "height": 771,
+        "width": 412
+      },
+      "readingRatio": 0.8426229508196721,
+      "controlsRatio": 0.15737704918032788,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-412x915-dark",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 412,
+        "height": 915
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 412
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 412
+      },
+      "footer": {
+        "top": 863,
+        "bottom": 915,
+        "height": 52,
+        "width": 412
+      },
+      "list": {
+        "top": 92,
+        "bottom": 863,
+        "height": 771,
+        "width": 412
+      },
+      "readingRatio": 0.8426229508196721,
+      "controlsRatio": 0.15737704918032788,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-430x932-light",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 430,
+        "height": 932
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 430
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 430
+      },
+      "footer": {
+        "top": 880,
+        "bottom": 932,
+        "height": 52,
+        "width": 430
+      },
+      "list": {
+        "top": 92,
+        "bottom": 880,
+        "height": 788,
+        "width": 430
+      },
+      "readingRatio": 0.8454935622317596,
+      "controlsRatio": 0.15450643776824036,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-430x932-dark",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 430,
+        "height": 932
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 430
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 430
+      },
+      "footer": {
+        "top": 880,
+        "bottom": 932,
+        "height": 52,
+        "width": 430
+      },
+      "list": {
+        "top": 92,
+        "bottom": 880,
+        "height": 788,
+        "width": 430
+      },
+      "readingRatio": 0.8454935622317596,
+      "controlsRatio": 0.15450643776824036,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-390x576-light",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 576
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 390
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 390
+      },
+      "footer": {
+        "top": 524,
+        "bottom": 576,
+        "height": 52,
+        "width": 390
+      },
+      "list": {
+        "top": 92,
+        "bottom": 524,
+        "height": 432,
+        "width": 390
+      },
+      "readingRatio": 0.75,
+      "controlsRatio": 0.25,
+      "visibleCards": [
+        "101"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-390x576-dark",
+      "readableFirstScreen": [
+        "推荐 8.1/10技术 7.8商业启发 7.4",
+        "推荐理由完整可读，保持筛选和排序的真实状态。"
+      ],
+      "viewport": {
+        "width": 390,
+        "height": 576
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 390
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 390
+      },
+      "footer": {
+        "top": 524,
+        "bottom": 576,
+        "height": 52,
+        "width": 390
+      },
+      "list": {
+        "top": 92,
+        "bottom": 524,
+        "height": 432,
+        "width": 390
+      },
+      "readingRatio": 0.75,
+      "controlsRatio": 0.25,
+      "visibleCards": [
+        "101"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-390x400-light",
+      "readableFirstScreen": [],
+      "viewport": {
+        "width": 390,
+        "height": 400
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 390
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 390
+      },
+      "footer": {
+        "top": 348,
+        "bottom": 400,
+        "height": 52,
+        "width": 390
+      },
+      "list": {
+        "top": 92,
+        "bottom": 348,
+        "height": 256,
+        "width": 390
+      },
+      "readingRatio": 0.64,
+      "controlsRatio": 0.36,
+      "visibleCards": [
+        "101"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-390x400-dark",
+      "readableFirstScreen": [],
+      "viewport": {
+        "width": 390,
+        "height": 400
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 390
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 390
+      },
+      "footer": {
+        "top": 348,
+        "bottom": 400,
+        "height": 52,
+        "width": 390
+      },
+      "list": {
+        "top": 92,
+        "bottom": 348,
+        "height": 256,
+        "width": 390
+      },
+      "readingRatio": 0.64,
+      "controlsRatio": 0.36,
+      "visibleCards": [
+        "101"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-640x360-light",
+      "readableFirstScreen": [],
+      "viewport": {
+        "width": 640,
+        "height": 360
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 640
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 640
+      },
+      "footer": {
+        "top": 308,
+        "bottom": 360,
+        "height": 52,
+        "width": 640
+      },
+      "list": {
+        "top": 92,
+        "bottom": 308,
+        "height": 216,
+        "width": 640
+      },
+      "readingRatio": 0.6,
+      "controlsRatio": 0.4,
+      "visibleCards": [
+        "101"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-640x360-dark",
+      "readableFirstScreen": [],
+      "viewport": {
+        "width": 640,
+        "height": 360
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 640
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 640
+      },
+      "footer": {
+        "top": 308,
+        "bottom": 360,
+        "height": 52,
+        "width": 640
+      },
+      "list": {
+        "top": 92,
+        "bottom": 308,
+        "height": 216,
+        "width": 640
+      },
+      "readingRatio": 0.6,
+      "controlsRatio": 0.4,
+      "visibleCards": [
+        "101"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-844x390-light",
+      "readableFirstScreen": [],
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 844
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 844
+      },
+      "footer": {
+        "top": 338,
+        "bottom": 390,
+        "height": 52,
+        "width": 844
+      },
+      "list": {
+        "top": 92,
+        "bottom": 338,
+        "height": 246,
+        "width": 844
+      },
+      "readingRatio": 0.6307692307692307,
+      "controlsRatio": 0.36923076923076925,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    },
+    {
+      "name": "mobile-reading-844x390-dark",
+      "readableFirstScreen": [],
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "toolbar": {
+        "top": 0,
+        "bottom": 44,
+        "height": 44,
+        "width": 844
+      },
+      "navigation": {
+        "top": 44,
+        "bottom": 92,
+        "height": 48,
+        "width": 844
+      },
+      "footer": {
+        "top": 338,
+        "bottom": 390,
+        "height": 52,
+        "width": 844
+      },
+      "list": {
+        "top": 92,
+        "bottom": 338,
+        "height": 246,
+        "width": 844
+      },
+      "readingRatio": 0.6307692307692307,
+      "controlsRatio": 0.36923076923076925,
+      "visibleCards": [
+        "101",
+        "102"
+      ],
+      "overflow": false
+    }
+  ]
+}

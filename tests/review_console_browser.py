@@ -92,7 +92,7 @@ try:
     p.get_by_role('button',name='还原服务器设置',exact=True).click()
     p.set_viewport_size({'width':390,'height':844});h.check('R01_R04_mobile_no_overflow',p.locator('.ai-dialog').evaluate('e=>e.scrollWidth<=e.clientWidth'))
     p.screenshot(path=str(h.out/'mobile-console.png'),full_page=True)
-    p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click();expect(p.locator('.ai-dialog')).to_have_count(0);h.check('R01_focus_restored',p.get_by_role('button',name='AI 设置 · 来源',exact=True).evaluate('(e)=>e===document.activeElement'))
+    p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click();expect(p.locator('.ai-dialog')).to_have_count(0);h.check('R01_focus_restored',p.locator('.ai-status-trigger').evaluate('(e)=>e===document.activeElement'))
     resource_errors.update({name:403 for name in resources});h.panel()
     for name in resources:
         state=p.locator(f'[data-resource="{name}"]');expect(state).to_have_attribute('data-state','error');expect(state).to_contain_text('尚无可显示的成功快照');expect(state).to_have_attribute('data-sampled-at','')
@@ -100,7 +100,7 @@ try:
     resource_errors.clear();p.get_by_role('button',name='重试看板',exact=True).click();expect(p.locator('[data-resource="status"]')).to_have_attribute('data-state','success');h.check('R01_first_error_retry_recovers')
     # Unlike 403, the actual shared API client invalidates authentication on 401.
     p.locator('.ai-dialog>header').get_by_role('button',name='关闭',exact=True).click();resource_errors['settings']=401
-    before_writes=len(h.writes);p.get_by_role('button',name='AI 设置 · 来源',exact=True).click();p.wait_for_url('**/inbox/login')
+    before_writes=len(h.writes);p.locator('.ai-status-trigger').click();p.get_by_role('button',name='AI 设置 · 来源',exact=True).click();p.wait_for_url('**/inbox/login')
     expect(p.locator('.ai-dialog')).to_have_count(0);expect(p.locator('[data-resource]')).to_have_count(0)
     h.check('R01_real_401_logs_out_and_removes_cached_console',len(h.writes)==before_writes)
 except Exception as exc:h.errors.append(str(exc));raise

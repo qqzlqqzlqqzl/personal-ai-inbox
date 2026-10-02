@@ -1,0 +1,97 @@
+/* Mobile controls share the existing flex layout; the list remains the scroll owner. */
+.ai-short-label { display: none; }
+.mobile-sort-control { display: contents; }
+.mobile-sort-current { display: none; }
+.ai-toolbar label { color: var(--color-text-1, #223); }
+.ai-navigation-hidden { display: none !important; }
+.ai-status-dialog {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border-2);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--color-bg-2);
+  color: var(--color-text-1);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.ai-status-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.ai-status-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-status-dialog h2 { font-size: 1rem; margin: 0; }
+.ai-status-content { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 12px 0; }
+.ai-status-content .ai-progress { font-size: 1rem; color: var(--color-text-2); overflow-wrap: anywhere; }
+.ai-status-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ai-status-dialog button { min-width: 44px; min-height: 44px; font-size: 1rem; }
+.ai-status-dialog .ai-settings-button { margin-left: 0; }
+.ai-toolbar button:focus-visible, .ai-toolbar select:focus-visible { outline: 2px solid rgb(var(--primary-6)); outline-offset: 1px; }
+
+@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
+  .ai-toolbar {
+    border-bottom: 0; gap: 2px; padding: env(safe-area-inset-top, 0px) 4px 0;
+    font-size: .875rem; align-items: center;
+    color: var(--color-text-1); background: var(--color-bg-1);
+  }
+  .ai-toolbar .ai-modes, .ai-toolbar .ai-aux-modes { gap: 2px; }
+  .ai-toolbar .ai-wide-label { display: none; }
+  .ai-toolbar .ai-short-label { display: inline; }
+  .ai-toolbar > .ai-modes button, .ai-toolbar > .ai-aux-modes button,
+  .ai-toolbar > .ai-status-trigger, .ai-toolbar > .ai-minimum select {
+    box-sizing: border-box; min-width: 44px; min-height: 44px;
+    padding: 0 4px; font-size: .875rem; white-space: nowrap; touch-action: manipulation;
+  }
+  .ai-toolbar > .ai-minimum { gap: 0; }
+  .ai-toolbar > .ai-minimum select { width: 3.6em; padding-left: 2px; padding-right: 0; }
+  .ai-toolbar > .ai-status-trigger { margin-left: auto; }
+  .entry-col .search-and-sort-bar {
+    position: static; flex-shrink: 0; padding: 2px 0;
+    /* AiToolbar owns the top inset; do not count it again here. */
+  }
+  .entry-col .search-and-sort-bar .arco-btn-shape-circle { min-width: 44px; min-height: 44px; }
+  .entry-col .search-and-sort-bar .brand { margin-left: 4px; }
+  .entry-col .search-and-sort-bar .button-group { gap: 2px; margin: 0 4px; }
+  .entry-col .search-and-sort-bar .page-info { margin-left: 4px; min-width: 0; }
+  .entry-col .search-and-sort-bar .page-info .title-container .arco-typography { font-size: 1rem; }
+  .entry-col .search-and-sort-bar .page-info .count-label { display: inline-block; font-size: .875rem; margin-left: 3px; }
+  .entry-col .search-and-sort-bar .button-group { align-items: center; }
+  .entry-col .search-and-sort-bar .mobile-sort-control {
+    display: inline-grid; position: relative; box-sizing: border-box;
+    width: 9.5em; max-width: 42vw; min-width: 44px; min-height: 44px;
+    border: 1px solid var(--color-border-3); border-radius: 2px;
+    background: var(--color-bg-2); color: var(--color-text-1); font-size: .875rem;
+  }
+  .entry-col .search-and-sort-bar .mobile-sort-current {
+    display: flex; flex-wrap: wrap; align-items: center; align-content: center;
+    min-width: 0; min-height: 42px; padding: 0 18px 0 2px;
+    font-size: inherit; line-height: 1.5; pointer-events: none;
+  }
+  .mobile-sort-current > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+  .mobile-sort-current .mobile-sort-direction { white-space: nowrap; }
+  .entry-col .search-and-sort-bar .mobile-sort-control::after {
+    content: "⌄"; position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+    pointer-events: none; font-size: 14px;
+  }
+  .entry-col .search-and-sort-bar .mobile-sort-control:focus-within {
+    outline: 2px solid rgb(var(--primary-6)); outline-offset: 1px;
+  }
+  /* Native select retains touch/keyboard/AT behavior; its selected text is rendered above without clipping. */
+  .entry-col .search-and-sort-bar .ai-sort-select {
+    position: absolute; inset: 0; box-sizing: border-box; opacity: 0;
+    width: 100%; height: 100%; min-width: 44px; min-height: 44px;
+    cursor: pointer; font-size: .875rem; touch-action: manipulation;
+  }
+  .entry-panel {
+    padding: 4px; flex-shrink: 0; align-items: center; --mobile-edge-control-size: 44px; --mobile-edge-spacing: 4px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+  .entry-col .entry-panel .arco-btn-shape-circle,
+  .entry-col .entry-panel .arco-radio-button,
+  .entry-col .entry-panel .arco-radio-button-inner { min-width: 44px; min-height: 44px; }
+  .entry-col .entry-panel .arco-radio-button { margin: 0; }
+  .entry-col .entry-panel .arco-radio-group-type-button { display: flex; align-items: center; padding: 0; }
+  .entry-col .entry-panel .arco-radio-button-inner { display: flex; align-items: center; justify-content: center; }
+  .action-buttons:not(.mobile) .arco-btn { min-width: 44px; min-height: 44px; }
+  .action-buttons.mobile { --mobile-edge-control-size: 44px; }
+}
