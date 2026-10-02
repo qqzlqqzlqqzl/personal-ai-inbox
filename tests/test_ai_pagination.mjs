@@ -7,7 +7,7 @@ let state = {entries: [], articleListOffset: 0, articleListSnapshotRevision: 0, 
 let visible = true;
 const atom = value => ({get: () => value, set: v => {value = v}});
 const dependencies = {
-  contentState: {get: () => state, setKey: (key, value) => {state[key] = value}},
+  contentState: {get: () => ({isArticleListReady:true,...state}), setKey: (key, value) => {state[key] = value}},
   settingsState: atom({pageSize: 20, showStatus: "all", orderBy: "published_at", orderDirection: "desc"}),
   polyglotState: atom({polyglot: {t: x => x}}),
   useStore: store => store.get(), useRef: value => ({current: value}), atom,
@@ -17,7 +17,7 @@ const dependencies = {
   setTotal: total => {state.total = total}, setLoadMoreVisible: value => {visible = value},
   incrementArticleListSnapshotRevision: () => {state.articleListSnapshotRevision++},
   setLoadMoreError: () => {}, aiFilterEnabled: () => true, AI_PAGE_SIZE: 24,
-  createArticleListRequestKey: () => "same", getDataSessionRevision: () => 1,
+  createArticleListRequestKey: () => "same", getDataSessionRevision: () => 1, getReadingCalendarSnapshot: () => ({ready:true}),
   getEntryMutationSnapshot: () => ({pendingRequests: 0}), isEntryMutationSnapshotCurrent: () => true,
   Message: {error: message => {throw Error(message)}},
 };

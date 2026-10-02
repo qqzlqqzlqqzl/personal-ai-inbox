@@ -76,6 +76,8 @@ export {contentState} from '@/store/contentState';
 export {settingsState,updateSettings} from '@/store/settingsState';
 export {polyglotState} from '@/hooks/useLanguage';
 export {getTodayEntries} from '@/apis/entries';
+export {setAuth} from '@/store/authState';
+export {commitIdentityData} from '@/store/dataState';
 export {MemoryRouter} from 'react-router';
 export {useStore} from '@nanostores/react';`,
     resolveDir: web,
@@ -124,6 +126,8 @@ export {useStore} from '@nanostores/react';`,
   ],
 });
 const app = require(output);
+app.setAuth({server:"http://synthetic.test/mf",token:"fixture",username:"",password:""});
+app.commitIdentityData({id:1,timezone:"Asia/Shanghai"});
 app.polyglotState.set({ polyglot: { t: (key) => key } });
 app.contentState.setKey("infoFrom", "today");
 const requests = [];
