@@ -27,6 +27,20 @@ def bridge(config_path,*args,timeout):
         raise ProviderError('local_state')
     data=json.loads(result.stdout)
     if data.get('recovery_error'):
+        if data.get('state')=='dispatch_blocked':
+            from queue_dispatch import DispatchBlocked
+            error=DispatchBlocked(data.get('reason'))
+            # Only a fixed ordinal is accepted, never an external peer/path.
+            peer=data.get('peer','')
+            if peer in {'peer_'+str(i) for i in range(100)}:error.peer=peer
+            # Preserve the subprocess's one failure record; don't count the
+            # same dispatch block twice in the supervising cycle.
+            import math
+            failures=data.get('failures');retry=data.get('retry_at');at=data.get('at')
+            if (type(failures) is int and failures>0 and
+                all(type(v) in (int,float) and math.isfinite(v) and v>=0 for v in (retry,at))):
+                error.retry_record={'code':'local_state','failures':failures,'retry_at':retry,'at':at}
+            raise error
         raise ProviderError(data['recovery_error'])
     return data
 
@@ -137,6 +151,11 @@ def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.mon
             atomic_json(recovery,{'failures':0,'retry_at':0,'at':time.time()})
             return report
         except Exception as exc:
+            from queue_dispatch import DispatchBlocked,block_with_backoff
+            if isinstance(exc,DispatchBlocked):
+                report=block_with_backoff(control.root,exc)
+                atomic_json(control.root/'cycle-status.json',report)
+                return report
             record=record_failure(control.root,exception_code(exc),audit,config['owner'])
             report={'state':'cooldown',**record}
             atomic_json(control.root/'cycle-status.json',report)
@@ -162,11 +181,19 @@ def main():
     from batch_control import Controller
     root=Path(config['state_root'])
     os.umask(0o077)
-    root.mkdir(parents=True,exist_ok=True,mode=0o700)
+    from queue_dispatch import required_roots,DispatchBlocked,block_with_backoff
+    try:
+        control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],required_roots=required_roots(config))
+    except DispatchBlocked as exc:
+        print(json.dumps(block_with_backoff(root,exc)))
+        return
     with (root/'cycle.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'])
-        drain(args.config,config,control)
+        try:
+            result=drain(args.config,config,control)
+            if result.get('state')=='dispatch_blocked':print(json.dumps(result))
+        except DispatchBlocked as exc:
+            print(json.dumps(block_with_backoff(root,exc)))
 
 
 if __name__=='__main__':

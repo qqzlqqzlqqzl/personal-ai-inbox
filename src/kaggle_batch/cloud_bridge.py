@@ -17,7 +17,7 @@ from build_manifest import build
 from live_scope import resolve_entry_ids
 from import_results import import_validated
 from validate_business import validate
-from queue_dispatch import claimed_entries, defer_unresolved, recovery_generation
+from queue_dispatch import claimed_entries, required_roots, DispatchBlocked, defer_unresolved, recovery_generation
 
 
 def validate_model_config(config,versions):
@@ -326,7 +326,7 @@ async def verify_upstream(source,manifest):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--config',required=True)
-    parser.add_argument('action',choices=['prepare','advance','resolve'])
+    parser.add_argument('action',choices=['init','prepare','advance','resolve'])
     parser.add_argument('--limit',type=int,default=20)
     parser.add_argument('--batch')
     parser.add_argument('--replacement',action='append',default=[])
@@ -336,6 +336,19 @@ def main():
     config=json.loads(Path(args.config).read_text(encoding='utf-8'))
     global BRIDGE_CONTEXT
     BRIDGE_CONTEXT={'config':config,'action':args.action,'batch':args.batch}
+    root=Path(config['state_root'])
+    if args.action=='init':
+        Controller(root,config['owner'],initialize=True)
+        print(json.dumps({'state':'initialized','gpu_started':False}))
+        return
+    roots=required_roots(config)
+    control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],required_roots=roots)
+    if args.action=='prepare':
+        pending=control.next_pending()
+        if not pending or control.row(pending)['state']=='prepared':
+            claimed_entries(roots)
+    elif args.action=='advance' and args.batch and control.row(args.batch)['state']=='prepared':
+        claimed_entries(roots)
     os.environ['KAGGLE_API_TOKEN']=config['token_file']
     sys.path.insert(0,str(Path(config['source']).resolve()))
     from initialize_secrets import read_env
@@ -343,8 +356,6 @@ def main():
     if proxy:
         for name in ('HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy'):
             os.environ[name]=proxy
-    root=Path(config['state_root'])
-    root.mkdir(parents=True,exist_ok=True,mode=0o700)
     os.umask(0o077)
     import fcntl
     coordination=Path(config.get('coordination_root',root)) if args.action=='prepare' else root
@@ -353,7 +364,6 @@ def main():
         # Both accounts claim articles under the same lock. The subprocess timeout
         # bounds waiting; a second worker must not fail merely because extraction is busy.
         fcntl.flock(lock,fcntl.LOCK_EX)
-        control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'])
         if args.action=='resolve':
             if not args.batch:
                 raise ValueError('resolve requires --batch')
@@ -364,6 +374,7 @@ def main():
             if outstanding:
                 print(json.dumps({'existing_batch':outstanding}))
                 return
+            claimed_entries(roots)
             from quota_guard import query_client
             quota_gate=query_client(control.client)
             if not quota_gate['allowed']:
@@ -374,22 +385,28 @@ def main():
             extraction_backup=root/('before-extraction-'+str(time.time_ns()))
             extraction_backup.mkdir(mode=0o700)
             backup_before_import(config['database'],extraction_backup)
-            claimed=claimed_entries(config.get('peer_state_roots',[str(root)]))
+            claimed=claimed_entries(roots)
             allowed=resolve_entry_ids(config)
             import uuid,atexit
             lease_owner=config['owner']+'-'+uuid.uuid4().hex
             def release_leases():
-                with sqlite3.connect(config['database'],timeout=15) as db:
-                    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kaggle_prepare_leases'").fetchone():
-                        db.execute('DELETE FROM kaggle_prepare_leases WHERE owner=?',(lease_owner,))
+                # Cleanup must not recreate a missing source DB or leak a raw
+                # filesystem traceback from an atexit callback.
+                try:
+                    with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=rw',uri=True,timeout=15) as db:
+                        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kaggle_prepare_leases'").fetchone():
+                            db.execute('DELETE FROM kaggle_prepare_leases WHERE owner=?',(lease_owner,))
+                except (sqlite3.Error,OSError):
+                    pass
             atexit.register(release_leases)
             # Lease insertion and candidate selection use one SQLite transaction.
             # Retain the per-account cycle lock; release only cross-account lock.
             sample=asyncio.run(prepare_sample(config['source'],args.limit,claimed,allowed,config.get('analysis_only',False),config.get('independent_cards',False),lease_owner=lease_owner,on_claimed=lambda:fcntl.flock(lock,fcntl.LOCK_UN)))
             fcntl.flock(lock,fcntl.LOCK_EX)
+            claimed=claimed_entries(roots)
             with sqlite3.connect(config['database'],timeout=15) as db:
                 owned={row[0] for row in db.execute('SELECT entry_id FROM kaggle_prepare_leases WHERE owner=? AND expires>?',(lease_owner,time.time()))}
-            sample['samples']=[row for row in sample['samples'] if row['entry_id'] in owned]
+            sample['samples']=[row for row in sample['samples'] if row['entry_id'] in owned and row['entry_id'] not in claimed]
 
             atomic_json(root/'latest-extraction-report.json',{'at':time.time(),
                 'considered':sample['considered'],'selected':len(sample['samples']),'skipped':sample['skipped']})
@@ -406,7 +423,7 @@ def main():
             manifest['split_mode']=config.get('split_mode','layer')
             manifest['ubatch_size']=config.get('ubatch_size',128)
             if config.get('qwen_exception_review'):
-                claimed=claimed_entries(config.get('peer_state_roots',[str(root)]))
+                claimed=claimed_entries(roots)
                 with sqlite3.connect(config['database'],timeout=15) as db:
                     claimed.update(row[0] for row in db.execute('SELECT entry_id FROM kaggle_prepare_leases WHERE owner<>? AND expires>?',(lease_owner,time.time())))
                 from qwen_exceptions import prepare as prepare_exceptions
@@ -419,6 +436,7 @@ def main():
                 manifest['dispatch_generation']=retired
             generation=recovery_generation(config['database'],manifest)
             if generation:manifest['infrastructure_retry_generation']=generation
+            claimed_entries(roots)
             try:
                 batch=control.prepare(manifest,Path(__file__).with_name('batch_runner.py').read_text(encoding='utf-8'))
             except RetiredManifest as exc:
@@ -507,30 +525,37 @@ def main():
                           'missing_ids':evidence['missing_ids']}))
 
 
+def handle_failure(exc):
+    from recovery_policy import exception_code
+    code=exception_code(exc)
+    context=globals().get('BRIDGE_CONTEXT',{})
+    cfg=context.get('config',{})
+    if cfg.get('exception_audit_root'):
+        from exception_audit import Audit,clean
+        import traceback
+        frames=traceback.extract_tb(exc.__traceback__)
+        try:
+            Audit(cfg['exception_audit_root']).append('bridge_failure',owner=cfg.get('owner'),
+                action=context.get('action'),batch_id=context.get('batch'),code=code,
+                exception_type=type(exc).__name__,detail=getattr(exc,'detail',None),
+                frames=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in frames[-5:]])
+        except Exception:pass
+    if isinstance(exc,DispatchBlocked):
+        from queue_dispatch import block_with_backoff
+        return block_with_backoff(cfg.get('state_root'),exc)
+    local_recovery=None
+    if context.get('action')=='advance' and context.get('batch') and cfg.get('state_root'):
+        try:
+            control=Controller(cfg['state_root'],cfg['owner'],kaggle_python=cfg['kaggle_python'])
+            row=control.row(context['batch'])
+            if row['remote_status'] in TERMINAL and row['state'] not in {'imported','resolved','retired'}:
+                local_recovery=control.defer_local(context['batch'],code)
+        except Exception:pass
+    return local_recovery or {'recovery_error':code,'error_type':type(exc).__name__}
+
+
 if __name__=='__main__':
     try:
         main()
     except Exception as exc:
-        from recovery_policy import exception_code
-        code=exception_code(exc)
-        context=globals().get('BRIDGE_CONTEXT',{})
-        cfg=context.get('config',{})
-        if cfg.get('exception_audit_root'):
-            from exception_audit import Audit,clean
-            import traceback
-            frames=traceback.extract_tb(exc.__traceback__)
-            try:
-                Audit(cfg['exception_audit_root']).append('bridge_failure',owner=cfg.get('owner'),
-                    action=context.get('action'),batch_id=context.get('batch'),code=code,
-                    exception_type=type(exc).__name__,detail=getattr(exc,'detail',None),
-                    frames=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in frames[-5:]])
-            except Exception:pass
-        local_recovery=None
-        if context.get('action')=='advance' and context.get('batch') and cfg.get('state_root'):
-            try:
-                control=Controller(cfg['state_root'],cfg['owner'],kaggle_python=cfg['kaggle_python'])
-                row=control.row(context['batch'])
-                if row['remote_status'] in TERMINAL and row['state'] not in {'imported','resolved','retired'}:
-                    local_recovery=control.defer_local(context['batch'],code)
-            except Exception:pass
-        print(json.dumps(local_recovery or {'recovery_error':code,'error_type':type(exc).__name__}))
+        print(json.dumps(handle_failure(exc)))

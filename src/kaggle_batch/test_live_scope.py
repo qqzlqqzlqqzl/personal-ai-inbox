@@ -5,15 +5,17 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+from batch_control import Controller
 from live_scope import resolve_entry_ids
 import lane_scheduler as scheduler
 
 class LiveScopeTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
+        self.lane=self.root/'lane';Controller(self.lane,'fixture',initialize=True)
         self.db=self.root/'inbox.db';self.allow=self.root/'allow.json'
         self.allow.write_text(json.dumps({'entry_ids':[1]}))
-        self.cfg={'database':str(self.db),'entry_allowlist':str(self.allow),
+        self.cfg={'state_root':str(self.lane),'database':str(self.db),'entry_allowlist':str(self.allow),
                   'queue_scope':'all_enabled_feeds','scope_user_id':1,'peer_state_roots':[]}
         with sqlite3.connect(self.db) as db:
             db.execute('CREATE TABLE analyses(entry_id INTEGER,user_id INTEGER,feed_id INTEGER,state TEXT,next_try REAL,attempts INTEGER)')
