@@ -23,9 +23,9 @@ def uncertain(tmp_path):
         if args[0]=='quota':
             return '[{"resource":"GPU","remaining":"0h"}]'
         raise AssertionError('No GPU writes expected')
-    c=Controller(tmp_path,'owner',client)
+    c=Controller(tmp_path,'owner',client, initialize=True)
     manifest={'session_timeout':600,'runtime_source':'owner/runtime','items':[
-        {'id':'a','input_hash':'fixed','messages':[{'role':'user','content':'fixture'}]}]}
+        {'id':'a','input_hash':'fixed','source_refs':[{'entry_id':1}],'messages':[{'role':'user','content':'fixture'}]}]}
     batch=c.prepare(manifest,'MANIFEST = None\n')
     c._set(batch,'submit_unknown',error='network')
     with c.db() as db:db.execute('UPDATE batches SET updated=100 WHERE id=?',(batch,))

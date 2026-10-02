@@ -20,9 +20,9 @@ def folder():
 
 class RecoveryTests(unittest.TestCase):
     def test_zero_exit_push_error_is_still_quota_rejection(self):
-        c=Controller(folder(),'owner',client=lambda args,timeout:'[{"resource":"GPU","remaining":"2h"}]' if args[0]=='quota' else 'Kernel push error: Maximum weekly GPU quota of 30.00 hours reached.')
+        c=Controller(folder(),'owner',client=lambda args,timeout:'[{"resource":"GPU","remaining":"2h"}]' if args[0]=='quota' else 'Kernel push error: Maximum weekly GPU quota of 30.00 hours reached.', initialize=True)
         b=c.prepare({'session_timeout':600,'runtime_source':'o/r','items':[
-            {'id':'a','messages':[{'role':'user','content':'x'}],'input_hash':'h'}]},'MANIFEST = None\n')
+            {'id':'a','messages':[{'role':'user','content':'x'}],'input_hash':'h','source_refs':[{'entry_id':1}]}]},'MANIFEST = None\n')
         with self.assertRaises(ProviderError) as err:c.submit(b)
         self.assertEqual('quota',err.exception.code)
         self.assertEqual('quota',c.row(b)['error'])
@@ -48,9 +48,9 @@ class RecoveryTests(unittest.TestCase):
 
     def test_rejected_and_confirmed_missing_releases_claim_but_timeout_does_not(self):
         for code,retired in [('quota',False),('network',False)]:
-            c=Controller(folder(),'owner',client=lambda *a:(_ for _ in ()).throw(ProviderError('not_found')))
+            c=Controller(folder(),'owner',client=lambda *a:(_ for _ in ()).throw(ProviderError('not_found')), initialize=True)
             batch=c.prepare({'session_timeout':600,'runtime_source':'o/r','items':[
-                {'id':'a','messages':[{'role':'user','content':'x'}],'input_hash':'h'}]},'MANIFEST = None\n')
+                {'id':'a','messages':[{'role':'user','content':'x'}],'input_hash':'h','source_refs':[{'entry_id':1}]}]},'MANIFEST = None\n')
             c._set(batch,'submit_unknown',error=code)
             with c.db() as db:db.execute('UPDATE batches SET updated=?',(time.time()-700,))
             if retired:self.assertEqual('retired',c.status(batch)['state'])

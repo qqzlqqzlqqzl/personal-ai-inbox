@@ -93,9 +93,9 @@ def controller(tmp_path,remaining='1h'):
                 'manifest_hash':manifest['manifest_hash'],'id':'a','input_hash':'test','status':'ok','content':'{}'})+'\n')
             return ''
         raise AssertionError(args)
-    control=Controller(tmp_path,'testowner',client)
+    control=Controller(tmp_path,'testowner',client, initialize=True)
     manifest={'runtime_source':'owner/runtime','session_timeout':600,
-              'items':[{'id':'a','input_hash':'test','messages':[{'role':'user','content':'fixture'}]}]}
+              'items':[{'id':'a','input_hash':'test','source_refs':[{'entry_id':1}],'messages':[{'role':'user','content':'fixture'}]}]}
     batch=control.prepare(manifest,'MANIFEST = None\n')
     return control,batch,quota,calls
 

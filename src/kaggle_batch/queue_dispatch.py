@@ -1,5 +1,11 @@
-"""Shared claims and bounded retries for the two cloud Kaggle workers."""
+"""Required lane claims and bounded retries for cloud Kaggle workers."""
 import json
+import hashlib
+import re
+try:
+    from .recovery_policy import ProviderError
+except ImportError:
+    from recovery_policy import ProviderError
 from pathlib import Path
 import sqlite3
 import time
@@ -8,28 +14,178 @@ FINISHED = {'imported', 'retired', 'resolved'}
 ACCEPTED = {'imported', 'already_imported', 'existing_result_preserved'}
 
 
+class DispatchBlocked(ProviderError):
+    """Fixed diagnostics only: never retain database paths or raw exceptions."""
+    REASONS = {'missing_ledger', 'unreadable_ledger', 'invalid_ledger',
+               'invalid_state', 'invalid_id', 'orphan_claim', 'invalid_manifest',
+               'invalid_topology', 'initialization_evidence', 'invalid_recovery', 'local_state_cooldown'}
+
+    def __init__(self, reason, peer=0):
+        super().__init__('local_state')
+        self.reason = reason if reason in self.REASONS else 'invalid_ledger'
+        self.retry_record = None
+        self.peer = 'peer_' + str(peer) if type(peer) is int and peer >= 0 else 'peer_0'
+
+    def report(self):
+        return {'state': 'dispatch_blocked', 'recovery_error': self.code,
+                'reason': self.reason, 'peer': self.peer, 'gpu_started': False}
+
+
+def block_with_backoff(root, error, now=None):
+    """Best-effort fixed local-state backoff; never open or recreate a ledger."""
+    try:
+        from .recovery_policy import record_failure
+    except ImportError:
+        from recovery_policy import record_failure
+    class QuietAudit:
+        def append(self, *args, **kwargs):
+            pass
+    now=time.time() if now is None else now
+    report = {**error.report(),'code':'local_state','failures':1,'at':now,'retry_at':now+660}
+    if error.retry_record is not None:
+        return {**report, **error.retry_record}
+    try:
+        if root is not None and Path(root).is_dir():
+            report.update(record_failure(root, 'local_state', QuietAudit(), None, now=now))
+    except (OSError, ValueError, TypeError):
+        pass
+    return report
+
+
+def month_roots(root):
+    """Known campaign topology also applies to the standalone Controller CLI."""
+    root=Path(root).resolve()
+    keys=('primary','secondary','third','fourth','fifth')
+    if root.name in {'kaggle-month-' + key for key in keys}:
+        return [root.parent / ('kaggle-month-' + key) for key in keys]
+    return []
+
+
+def required_roots(config):
+    try:
+        own = config['state_root']
+        peers = config.get('peer_state_roots', [])
+        if not isinstance(own, (str, Path)) or not own or not isinstance(peers, list):
+            raise ValueError
+        values = [own, *peers]
+        if any(not isinstance(p, (str, Path)) or not p for p in values):
+            raise ValueError
+        roots = list(dict.fromkeys(Path(p).resolve() for p in values))
+        if not set(month_roots(own)) <= set(roots):
+            raise ValueError
+        return roots
+    except (KeyError, TypeError, ValueError, OSError):
+        raise DispatchBlocked('invalid_topology') from None
+
+
+def _batch_id(value):
+    return isinstance(value, str) and re.fullmatch(r'[a-zA-Z0-9_-]{1,200}', value) is not None
+
+
+def _entry_id(value):
+    if type(value) is not int or value <= 0 or value > 2**63-1:
+        raise ValueError
+    return value
+
+
+def _manifest_claims(root, batch, expected):
+    value = json.loads((root / batch / 'manifest.json').read_text(encoding='utf-8'))
+    if not isinstance(value, dict) or value.get('batch_id') != batch:
+        raise ValueError
+    canonical = {k: v for k, v in value.items() if k not in {'batch_id', 'manifest_hash'}}
+    actual = hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False,
+                            separators=(',', ':')).encode()).hexdigest()
+    if value.get('manifest_hash') != actual or (expected is not None and expected != actual):
+        raise ValueError
+    items = value.get('items')
+    if not isinstance(items, list) or not items:
+        raise ValueError
+    claims = set()
+    item_ids = set()
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get('id'), str) or not item['id'] or item['id'] in item_ids:
+            raise ValueError
+        item_ids.add(item['id'])
+        refs = item.get('source_refs')
+        if not isinstance(refs, list) or not refs:
+            raise ValueError
+        for ref in refs:
+            if not isinstance(ref, dict):
+                raise ValueError
+            claims.add(_entry_id(ref.get('entry_id')))
+    return claims
+
+
 def claimed_entries(roots):
-    claimed=set()
-    for root in map(Path,roots):
-        database=root/'batches.sqlite3'
-        if not database.exists():
-            continue
-        db=sqlite3.connect(database.resolve().as_uri()+'?mode=ro',uri=True,timeout=15)
+    """All required ledgers or a typed block; one read-only snapshot per root."""
+    claimed = set()
+    try:
+        roots = list(roots)
+    except (TypeError,ValueError):
+        raise DispatchBlocked('invalid_topology') from None
+    if not roots:
+        raise DispatchBlocked('invalid_topology')
+    for peer, root in enumerate(roots):
+        db = None
         try:
-            batches=db.execute("SELECT id FROM batches WHERE state NOT IN ('imported','retired','resolved')").fetchall()
+            root = Path(root)
+            database = root / 'batches.sqlite3'
+            if not database.is_file():
+                raise DispatchBlocked('missing_ledger', peer)
+            db = sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)
+            db.execute('BEGIN')
+            if db.execute('PRAGMA quick_check').fetchall() != [('ok',)]:
+                raise DispatchBlocked('invalid_ledger', peer)
+            columns = {r[1] for r in db.execute('PRAGMA table_info(batches)')}
+            if not {'id','manifest_hash','state','remote_status','error','updated'} <= columns:
+                raise DispatchBlocked('invalid_ledger', peer)
+            batches = db.execute('SELECT id,state,manifest_hash FROM batches').fetchall()
+            states = {}
+            hashes = {}
+            for batch, state, manifest_hash in batches:
+                if not _batch_id(batch) or batch in states:
+                    raise DispatchBlocked('invalid_id', peer)
+                if state not in FINISHED | {'prepared','submitting','submitted','running','submit_unknown','terminal','downloaded'}:
+                    raise DispatchBlocked('invalid_state', peer)
+                if not isinstance(manifest_hash, str) or re.fullmatch(r'[0-9a-f]{64}', manifest_hash) is None:
+                    raise DispatchBlocked('invalid_ledger', peer)
+                states[batch] = state
+                hashes[batch] = manifest_hash
+            ledger = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='batch_claims'").fetchone()
+            per_batch = {}
+            if ledger:
+                for batch, entry in db.execute('SELECT batch_id,entry_id FROM batch_claims'):
+                    if not _batch_id(batch):
+                        raise DispatchBlocked('invalid_id', peer)
+                    if batch not in states:
+                        raise DispatchBlocked('orphan_claim', peer)
+                    try:
+                        entry = _entry_id(entry)
+                    except ValueError:
+                        raise DispatchBlocked('invalid_id', peer) from None
+                    per_batch.setdefault(batch, set()).add(entry)
+            for batch, state in states.items():
+                if state in FINISHED:
+                    continue
+                refs = per_batch.get(batch)
+                if refs:
+                    # Transactional claims remain authoritative even if a parked
+                    # manifest has disappeared or is corrupt.
+                    claimed.update(refs)
+                else:
+                    try:
+                        claimed.update(_manifest_claims(root, batch, hashes[batch]))
+                    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError):
+                        raise DispatchBlocked('invalid_manifest', peer) from None
+        except DispatchBlocked:
+            raise
+        except sqlite3.OperationalError:
+            raise DispatchBlocked('unreadable_ledger', peer) from None
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            raise DispatchBlocked('invalid_ledger', peer) from None
         finally:
-            db.close()
-        for (batch,) in batches:
-            # Prefer the transactional claim ledger. A missing/corrupt manifest
-            # in one parked batch no longer crashes every healthy worker.
-            with sqlite3.connect(database.resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as ledger:
-                exists=ledger.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='batch_claims'").fetchone()
-                rows=ledger.execute('SELECT entry_id FROM batch_claims WHERE batch_id=?',(batch,)).fetchall() if exists else []
-            if rows:
-                claimed.update(int(row[0]) for row in rows)
-            else:
-                manifest=json.loads((root/batch/'manifest.json').read_text(encoding='utf-8'))
-                claimed.update(ref['entry_id'] for item in manifest['items'] for ref in item['source_refs'])
+            if db is not None:
+                db.close()
     return claimed
 
 

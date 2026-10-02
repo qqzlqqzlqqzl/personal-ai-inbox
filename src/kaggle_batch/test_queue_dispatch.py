@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import unittest
 import uuid
 
+from batch_control import digest
 from cloud_cycle import drain
 from queue_dispatch import claimed_entries,defer_unresolved,recovery_generation
 import test_import_results
@@ -19,11 +20,12 @@ class QueueTests(unittest.TestCase):
             folder=root/owner
             (folder/'batch').mkdir(parents=True)
             db=sqlite3.connect(folder/'batches.sqlite3')
-            db.execute('CREATE TABLE batches(id TEXT,state TEXT)')
-            db.execute('INSERT INTO batches VALUES (?,?)',('batch',state))
+            db.execute('CREATE TABLE batches(id TEXT,manifest_hash TEXT,state TEXT,remote_status TEXT,error TEXT,updated REAL)')
+            value={'items':[{'id':'a','source_refs':[{'entry_id':entry}]}]}
+            db.execute('INSERT INTO batches VALUES (?,?,?,NULL,NULL,0)',('batch',digest(value),state))
             db.commit()
             db.close()
-            (folder/'batch/manifest.json').write_text(json.dumps({'items':[{'source_refs':[{'entry_id':entry}]}]}))
+            (folder/'batch/manifest.json').write_text(json.dumps({**value,'batch_id':'batch','manifest_hash':digest(value)}))
             roots.append(folder)
         self.assertEqual({11,12},claimed_entries(roots))
 

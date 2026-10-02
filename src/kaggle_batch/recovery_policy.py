@@ -92,13 +92,20 @@ def backoff(code,failures):
     # exponential backoff protects Kaggle from tight retry loops.
     return min(3600,660*2**min(max(failures-1,0),3))
 
-def record_failure(root,code,audit,owner):
+def record_failure(root,code,audit,owner,now=None):
     try:from .batch_control import atomic_json
     except ImportError:from batch_control import atomic_json
     path=Path(root)/'recovery.json'
-    previous=json.loads(path.read_text()) if path.exists() else {}
-    failures=previous.get('failures',0)+1 if previous.get('code')==code else 1
-    value={'code':code,'failures':failures,'retry_at':time.time()+backoff(code,failures),'at':time.time()}
+    try:
+        previous=json.loads(path.read_text()) if path.exists() else {}
+    except (OSError,ValueError,RecursionError):
+        previous={}
+    if not isinstance(previous,dict):previous={}
+    prior=previous.get('failures',0)
+    if type(prior) is not int or prior<0:prior=0
+    failures=prior+1 if previous.get('code')==code else 1
+    now=time.time() if now is None else now
+    value={'code':code,'failures':failures,'retry_at':now+backoff(code,failures),'at':now}
     audit.append('infrastructure_backoff',owner=owner,**value)
     atomic_json(path,value)
     return value

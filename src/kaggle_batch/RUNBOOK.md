@@ -91,3 +91,64 @@ timeout 20 runtime/venv/bin/python src/kaggle_batch/cloud_cycle.py --config src/
 在脚本目录运行 `timeout 120 /home/ubuntu/ai-news/runtime/venv/bin/python -m unittest discover -p 'test_*.py'`。生产项目自身测试和 secret audit 另行执行。真实 GPU、故障注入、产品 API 和 Chromium 证据与单元测试分别记录。
 
 更新前保留 Git 代码归档与 SQLite 在线备份，部署只增加本批处理目录。代码回滚用明确部署提交的 git revert，并保留 state 和批次证据；不用删除目录、不清空模型附件、不覆盖整库。已经导入的业务数据若确需回滚，应先另做当前备份，核对后按原项目 SOP 的数据库恢复步骤执行，不能自动恢复旧整库覆盖后来操作。
+
+## Required lane ledgers and first installation
+
+New dispatch fails closed with `state=dispatch_blocked`, `recovery_error=local_state`,
+a fixed `reason` and ordinal `peer_N` when any required ledger is missing,
+unreadable, damaged, incomplete, or contains unknown states, invalid IDs or
+orphan claims. Reports contain no ledger paths, manifest contents or provider
+errors. `state_root` is always required, including when `peer_state_roots=[]`.
+The existing `kaggle-month-{primary,secondary,third,fourth,fifth}` layout requires
+all five sibling roots even through the standalone Controller CLI; the scheduler also checks all five lane configurations
+agree on the complete topology. Additional explicitly configured peers remain
+required by each bridge. A retry time permits another check, never claim release.
+
+Claims are read with `mode=ro` in a single transaction per ledger and connections
+are explicitly closed. This provides one consistent snapshot for each ledger;
+it is not a distributed atomic snapshot of all five databases. Dispatch checks
+are made under the existing coordination lock before extraction, after extraction
+reacquires that lock, and before manifest publication. Prepared submission and
+scheduler service startup recheck required ledgers. A blocked scheduler starts
+zero lane services, including recovery services that could otherwise drain new
+work. No automatic ledger repair, recreation or retirement occurs.
+
+Valid transactional claims remain authoritative when a parked manifest is missing
+or corrupt. Legacy ledgers without `batch_claims`, or batches with no claim rows,
+need a complete manifest with matching batch ID, stored/canonical hash, unique
+item IDs and positive integer source references. Only `imported`, `retired` and
+`resolved` release claims. Existing submitted/running/uncertain batches can still
+be reconciled explicitly by the same ID when another peer is blocked; the normal
+same-ID recovery/absence-proof policy is unchanged. A recovered worker must pass
+the required-ledger gate before starting another batch.
+
+Normal Controller construction and all subsequent writes require an existing
+DB with `mode=rw`. First installation is a separate **init-only** action:
+
+```sh
+python src/kaggle_batch/cloud_bridge.py --config /path/to/fresh-lane-config.json init
+# Or initialize a standalone fresh root:
+python src/kaggle_batch/batch_control.py --root /path/to/fresh-root --owner OWNER init
+```
+
+These are documentation examples, not deployment commands. Initialize every fresh
+required lane before dispatch. Initialization does not read tokens, invoke a
+provider, extract articles or import results. An existing valid ledger is
+idempotent; a corrupt ledger is rejected. A root without its DB but with any
+existing evidence (including batch folders, SQLite sidecars, recovery records or
+locks) is rejected as `initialization_evidence`. Missing existing state requires
+operator recovery of the ledger, not init. Existing SQLite schemas are retained;
+this change adds no tables, columns or migrations.
+
+`local_state` uses the existing 660/1320/2640/3600-second capped retry policy.
+The bridge failure is counted once by its supervising cycle. The scheduler reads
+its own dispatch recovery record before any ledger, service or quota work; before
+`retry_at` it returns a fixed `local_state_cooldown` block with zero starts and
+without incrementing failures. At expiry it must complete topology/ledger
+validation and the final pre-start recheck before clearing that record. Damaged
+recovery JSON or non-object/counter values produce a fixed `invalid_recovery`
+block, and failure recording safely resets malformed metadata. These are
+infrastructure counters; article attempts and unknown claims are unchanged. Tests in
+`test_required_ledgers.py` use temporary state and synthetic/mock providers,
+credentials, extraction, HTTP boundaries and systemctl; no GPU or production
+acceptance is implied by these tests.

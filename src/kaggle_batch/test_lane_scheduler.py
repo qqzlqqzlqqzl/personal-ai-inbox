@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from batch_control import Controller
+from batch_control import Controller,digest
 from recovery_policy import ProviderError
 import lane_scheduler as scheduler
 
@@ -63,18 +63,20 @@ class ClaimTests(unittest.TestCase):
             db.executemany('INSERT INTO analyses VALUES (?,?,?,?,?)',[(1,1,'waiting_model',0,0),(2,1,'waiting_model',0,0),(3,1,'done',0,0),(4,1,'requires_fulltext_adapter',0,0)])
             db.execute("INSERT INTO card_translations VALUES (3,1,'pending',0,0)")
         self.allow.write_text(json.dumps({'entry_ids':[1,2,3,4]}))
+        value={'items':[{'id':'a','source_refs':[{'entry_id':2}]}]}
         with sqlite3.connect(self.peer/'batches.sqlite3') as db:
-            db.execute('CREATE TABLE batches(id TEXT,state TEXT)');db.execute("INSERT INTO batches VALUES ('b','submit_unknown')")
-        (self.peer/'b').mkdir();(self.peer/'b/manifest.json').write_text(json.dumps({'items':[{'source_refs':[{'entry_id':2}]}]}))
+            db.execute('CREATE TABLE batches(id TEXT,manifest_hash TEXT,state TEXT,remote_status TEXT,error TEXT,updated REAL)')
+            db.execute("INSERT INTO batches VALUES ('b',?,'submit_unknown',NULL,NULL,0)",(digest(value),))
+        (self.peer/'b').mkdir();(self.peer/'b/manifest.json').write_text(json.dumps({**value,'batch_id':'b','manifest_hash':digest(value)}))
     def tearDown(self):self.temp.cleanup()
 
     def test_due_queue_excludes_only_actually_claimed_items(self):
-        cfg={'database':str(self.db),'entry_allowlist':str(self.allow),'peer_state_roots':[str(self.peer)]}
+        cfg={'state_root':str(self.peer),'database':str(self.db),'entry_allowlist':str(self.allow),'peer_state_roots':[str(self.peer)]}
         due,claimed=scheduler.due_entries(time.time(),cfg)
         self.assertEqual({1,3},due);self.assertEqual({2},claimed)
 
     def test_exception_review_is_counted_as_real_scheduler_work(self):
-        cfg={'database':str(self.db),'entry_allowlist':str(self.allow),'peer_state_roots':[str(self.peer)],
+        cfg={'state_root':str(self.peer),'database':str(self.db),'entry_allowlist':str(self.allow),'peer_state_roots':[str(self.peer)],
              'qwen_exception_review':True}
         due,claimed=scheduler.due_entries(time.time(),cfg)
         self.assertEqual({1,3,4},due);self.assertEqual({2},claimed)
@@ -83,9 +85,9 @@ class ClaimTests(unittest.TestCase):
 class UncertainSubmitTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
-        self.c=Controller(self.root,'owner',client=lambda *a:(_ for _ in ()).throw(ProviderError('not_found')))
+        self.c=Controller(self.root,'owner',client=lambda *a:(_ for _ in ()).throw(ProviderError('not_found')), initialize=True)
         self.batch=self.c.prepare({'session_timeout':600,'runtime_source':'o/r','items':[
-            {'id':'a','messages':[{'role':'user','content':'x'}],'input_hash':'h'}]},'MANIFEST = None\n')
+            {'id':'a','messages':[{'role':'user','content':'x'}],'input_hash':'h','source_refs':[{'entry_id':1}]}]},'MANIFEST = None\n')
 
     def tearDown(self):self.temp.cleanup()
 
