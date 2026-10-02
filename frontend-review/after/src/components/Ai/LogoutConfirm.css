@@ -1,0 +1,13 @@
+.logout-draft-notice{line-height:1.65;overflow-wrap:anywhere}
+.logout-draft-notice>button{min-height:44px;padding:8px 14px;border:1px solid var(--color-border-2,#cbd5e1);border-radius:8px;background:var(--color-bg-1,#fff);color:inherit;cursor:pointer}
+.logout-draft-notice textarea{width:100%;box-sizing:border-box;max-height:40vh;margin-top:10px}
+.logout-draft-notice>button:focus-visible{outline:2px solid var(--color-primary-light-4,#5787bb);outline-offset:3px}
+
+.note-logout-modal > [data-focus-lock-disabled] { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.note-logout-modal .arco-modal-content { flex: 1; min-height: 0; overflow-y: auto; }
+.note-logout-modal .arco-modal-header, .note-logout-modal .arco-modal-footer { flex-shrink: 0; }
+.arco-modal.note-logout-modal .arco-modal-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 0; margin-top: 16px; }
+.arco-modal.note-logout-modal .arco-modal-footer > button { margin: 0; }
+.arco-modal.note-logout-modal .arco-modal-header { margin-bottom: 16px; }
+@media (max-width: 480px) { .arco-modal.note-logout-modal .arco-modal-footer { flex-direction: column; align-items: stretch; } }
+.note-logout-modal .arco-modal-footer button { min-height: 44px; }

@@ -227,3 +227,52 @@ def test_historical_selector_nearby_unknown_variants_fail_closed(tmp_path, monke
     with pytest.raises(RuntimeError, match="Unreviewed source drift, refusing overwrite: .*SearchAndSortBar"):
         install(isolated)
     assert _source_bytes(web) == drifted
+
+SESSION_PRIVACY_BASELINE = "0d77969743868cd4ff859a4aec2784115c8c49c8"
+
+def test_released_closed_draft_baseline_upgrade_preserves_backups_and_equals_pristine(tmp_path, monkeypatch):
+    isolated = tmp_path / "released-draft-upgrade"
+    web = _pinned_checkout(isolated)
+    archive = subprocess.check_output([
+        "git", "-C", str(ROOT), "archive", "--format=tar", SESSION_PRIVACY_BASELINE,
+        "src", "patches", "frontend-review",
+    ])
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        source.extractall(isolated, filter="data")
+    monkeypatch.setenv("AI_NEWS_ROOT", str(isolated))
+    _apply_authoring(isolated)
+    assert hashlib.sha256((web / "src/components/Ai/note-drafts.js").read_bytes()).hexdigest() == "632c6ee65f2ea9369bcfc89e896db490e36b3eba8c36b904e21f041c10bded51"
+    backups = _source_bytes(isolated / "runtime/reactflux-original")
+    for name in ("src", "patches", "frontend-review"):
+        shutil.rmtree(isolated / name)
+        shutil.copytree(ROOT / name, isolated / name)
+    _apply_authoring(isolated)
+    for name, value in backups.items():
+        assert (isolated / "runtime/reactflux-original" / name).read_bytes() == value
+    upgraded = _source_bytes(web)
+    _apply_authoring(isolated)
+    assert _source_bytes(web) == upgraded
+    pristine = tmp_path / "privacy-target-pristine"
+    pristine_web = _pinned_checkout(pristine)
+    for name in ("src", "patches", "frontend-review"):
+        shutil.copytree(ROOT / name, pristine / name)
+    monkeypatch.setenv("AI_NEWS_ROOT", str(pristine))
+    _apply_authoring(pristine)
+    assert _source_bytes(pristine_web) == upgraded
+
+
+@pytest.mark.parametrize("relative", [
+    "src/utils/session.js", "src/apis/ofetch.js", "src/components/Ai/note-drafts.js",
+    "src/components/HomeRedirect.jsx", "src/pages/RouterProtect.jsx", "src/components/Sidebar/Profile.jsx",
+])
+def test_session_privacy_unknown_drift_refuses_every_overlay_write(tmp_path, relative):
+    isolated = tmp_path / "privacy-drift"
+    web = isolated / "upstream/reactflux"
+    shutil.copytree(ROOT / "frontend-review/after", web)
+    shutil.copytree(ROOT / "frontend-review", isolated / "frontend-review")
+    target = web / relative
+    target.write_bytes(target.read_bytes() + b"\n// unknown session privacy drift\n")
+    drifted = _source_bytes(web)
+    with pytest.raises(RuntimeError, match="Unreviewed source drift, refusing overwrite"):
+        install(isolated)
+    assert _source_bytes(web) == drifted

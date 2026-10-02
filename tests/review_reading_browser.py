@@ -3,7 +3,8 @@ import json,re
 from review_reader_harness import Harness
 from playwright.sync_api import expect
 
-h=Harness('review-reading');p=h.page
+# Keep persisted auth generation across navigation/reload, as in a real tab.
+h=Harness('review-reading',persist_auth=True);p=h.page
 modes={'save_error':False,'load_error':False,'hold_save':False,'image_ok':False}
 pending=[]
 h.feeds[0].update(icon={'feed_id':7,'icon_id':0},checked_at='2026-10-01T08:00:00Z',parsing_error_count=0,parsing_error_message='',disabled=False,hide_globally=False)

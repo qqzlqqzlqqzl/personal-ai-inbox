@@ -6,6 +6,7 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import test from 'node:test'
+import {createNoteSessionManager,createNoteSessionAuth} from '../frontend-review/after/src/components/Ai/note-session-core.js'
 const local=process.env.READER_COMPONENT_TOOLS
 const webRequire=createRequire(local?join(local,'package.json'):new URL('../upstream/reactflux/package.json',import.meta.url))
 const {build}=local?webRequire('esbuild'):createRequire(webRequire.resolve('vite'))('esbuild')
@@ -23,15 +24,18 @@ await build({stdin:{contents:`export {default as AiPanel} from '${base}Ai/AiPane
  b.onResolve({filter:/SourceHistory$|NavigationPalette$|ImageLinkTag$/},()=>({path:'unused',namespace:'fixture'}))
  b.onResolve({filter:/^(classnames|html-react-parser)$/},({path})=>({path,namespace:'fixture'}))
  b.onResolve({filter:/^@/},({path})=>({path,namespace:'fixture'}))
- b.onLoad({filter:/.*/,namespace:'fixture'},({path})=>({loader:'js',contents:path==='css'?'':path==='unused'?'export default ()=>null':path==='classnames'?`export default (...args)=>args.filter(x=>typeof x==='string').join(' ')`:path==='html-react-parser'?`export const attributesToProps=attrs=>attrs`:path==='@arco-design/web-react'?`export const Tooltip=({children})=>children`:path==='@/hooks/useLanguage'?`const value={polyglot:{t:key=>key}};export const polyglotState={get:()=>value,subscribe:()=>()=>{}}`:path==='@/hooks/usePhotoSlider'?`export default ()=>({isPhotoSliderVisible:false,photoSliderSessionId:1})`:path==='@/store/settingsState'?`export const articleFontSizeState={get:()=>1,subscribe:()=>()=>{}}`:path==='@/utils/constants'?`export const MIN_THUMBNAIL_SIZE=32`:path==='@/apis/ofetch'?`export default Object.fromEntries(['get','put','post'].map(method=>[method,(...args)=>globalThis.fixture.api(method,...args)]))`:path==='@/hooks/useAppData'?'export default ()=>({refreshFeedData:async()=>{}})':path==='@nanostores/react'?`import {useSyncExternalStore} from 'react';export const useStore=store=>useSyncExternalStore(store.subscribe,store.get,store.get)`:path==='@/store/aiState'?`export const aiState={get:()=>fixture.ai.get(),set:v=>fixture.ai.set(v),setKey:(k,v)=>fixture.ai.setKey(k,v),subscribe:fn=>fixture.ai.subscribe(fn)}`:path==='@/store/authState'?`export const authState={get:()=>fixture.auth.get(),subscribe:fn=>fixture.auth.subscribe(fn)}`:path==='@/store/dataState'?`export const dataState={get:()=>fixture.data.get(),subscribe:fn=>fixture.data.subscribe(fn)};export const getDataSessionRevision=()=>fixture.revision`:path==='@/store/contentState'?`export const invalidateArticleList=()=>fixture.invalidations++;export const contentState={get:()=>fixture.content};export const setActiveContent=v=>{fixture.content.activeContent=v};export const setEntries=v=>{fixture.content.entries=v};export const activeContentState={get:()=>fixture.active,subscribe:()=>()=>{}}`:(()=>{throw Error('Unexpected dependency '+path)})()}))
+ b.onLoad({filter:/.*/,namespace:'fixture'},({path})=>({loader:'js',contents:path==='css'?'':path==='unused'?'export default ()=>null':path==='classnames'?`export default (...args)=>args.filter(x=>typeof x==='string').join(' ')`:path==='html-react-parser'?`export const attributesToProps=attrs=>attrs`:path==='@arco-design/web-react'?`export const Tooltip=({children})=>children`:path==='@/hooks/useLanguage'?`const value={polyglot:{t:key=>key}};export const polyglotState={get:()=>value,subscribe:()=>()=>{}}`:path==='@/hooks/usePhotoSlider'?`export default ()=>({isPhotoSliderVisible:false,photoSliderSessionId:1})`:path==='@/store/settingsState'?`export const articleFontSizeState={get:()=>1,subscribe:()=>()=>{}}`:path==='@/utils/constants'?`export const MIN_THUMBNAIL_SIZE=32`:path==='@/utils/note-session'?`export const noteSession=new Proxy({},{get:(_,key)=>{const value=fixture.noteManager[key];return typeof value==='function'?value.bind(fixture.noteManager):value}})`:path==='@/apis/ofetch'?`export default Object.fromEntries(['get','put','post'].map(method=>[method,(...args)=>globalThis.fixture.api(method,...args)]))`:path==='@/hooks/useAppData'?'export default ()=>({refreshFeedData:async()=>{}})':path==='@nanostores/react'?`import {useSyncExternalStore} from 'react';export const useStore=store=>useSyncExternalStore(store.subscribe,store.get,store.get)`:path==='@/store/aiState'?`export const aiState={get:()=>fixture.ai.get(),set:v=>fixture.ai.set(v),setKey:(k,v)=>fixture.ai.setKey(k,v),subscribe:fn=>fixture.ai.subscribe(fn)}`:path==='@/store/authState'?`export const authState={get:()=>fixture.auth.get(),subscribe:fn=>fixture.auth.subscribe(fn)}`:path==='@/store/dataState'?`export const dataState={get:()=>fixture.data.get(),subscribe:fn=>fixture.data.subscribe(fn)};export const getDataSessionRevision=()=>fixture.revision`:path==='@/store/contentState'?`export const invalidateArticleList=()=>fixture.invalidations++;export const contentState={get:()=>fixture.content};export const setActiveContent=v=>{fixture.content.activeContent=v};export const setEntries=v=>{fixture.content.entries=v};export const activeContentState={get:()=>fixture.active,subscribe:()=>()=>{}}`:(()=>{throw Error('Unexpected dependency '+path)})()}))
 }}]})
 const {AiPanel,AiToolbar,ArticleNote,RecoverableImage,ImageOverlayButton}=createRequire(import.meta.url)(output)
 const config={enabled:false,translation_enabled:false,base_url:'https://example.test/v1',model:'initial-model',prompt:'initial prompt',minimum_score:6,daily_articles:80,daily_tokens:500000,max_chars:40000,json_mode:true}
 const samples={settings:config,status:{counts:{done:3},coverage:{reader_total:7},kaggle:{enabled:false}},catalog:[{name:'stored source',url:'https://example.test/feed',category:'test',status:'ok',subscribed:false}],roster:{counts:{total:2},sources:[]}}
 function store(value){const listeners=new Set();return{get:()=>value,set(next){value=next;listeners.forEach(fn=>fn())},setKey(k,v){this.set({...value,[k]:v})},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)}}}
 function setup(){
+ globalThis.fixture?.noteManager?.dispose()
  document.body.innerHTML='<button id="opener">Open</button><div id="root"></div>';document.querySelector('#opener').focus();window.sessionStorage.clear()
  globalThis.fixture={requests:[],writes:[],ai:store({mode:'all',auxiliary:'none',sort:'time',minimum:6,hydrated:true}),auth:store({server:'https://reader.example.test/mf',username:'',token:'test'}),data:store({currentUser:{id:1}}),content:{entries:[]},active:{url:'https://example.test/article'},revision:1,invalidations:0,api(method,url,body,options){if(method==='get'){options=body;body=null}else this.writes.push({method,url,body});return new Promise((resolve,reject)=>this.requests.push({method,url,body,options,resolve,reject,done:false}))}}
+ fixture.data.set({...fixture.data.get(),identityAuthSessionKey:JSON.stringify([fixture.auth.get().server,fixture.auth.get().token,fixture.auth.get().username,fixture.auth.get().password])})
+ fixture.noteManager=createNoteSessionManager({auth:fixture.auth,data:fixture.data,authKey:a=>JSON.stringify([a.server,a.token,a.username,a.password]),validAuth:a=>!!(a.server&&a.token),getRevision:()=>fixture.revision,getStorage:()=>window.sessionStorage})
  const root=createRoot(document.querySelector('#root'));return root
 }
 const nameOf=r=>r.url.endsWith('/roster')?'roster':r.url.split('/').at(-1)
@@ -108,7 +112,7 @@ await test('R05 logout invalidates pending save, queued write and metadata; unau
 })
 await test('R05 pending load after session change cannot publish note or metadata',async()=>{
  const root=setup();await act(async()=>root.render(React.createElement(ArticleNote,{entry:{id:101}})));const old=request('101')
- await act(async()=>{fixture.revision++;fixture.data.set({currentUser:{id:2}})});const fresh=request('101');assert.notEqual(fresh,old);assert.equal(old.options.signal.aborted,true)
+ await act(async()=>{fixture.revision++;fixture.data.set({...fixture.data.get(),currentUser:{id:2}})});const fresh=request('101');assert.notEqual(fresh,old);assert.equal(old.options.signal.aborted,true)
  await complete(fresh,{note:'owner two',updated_at:'new'});await complete(old,{note:'owner one secret',updated_at:'old'});assert.equal(document.querySelector('textarea').value,'owner two');assert.equal(fixture.writes.length,0);await act(async()=>root.unmount())
 })
 await test('R05 recovery discard and pagehide boundaries; storage refusal and clipboard fallback stay explicit',async()=>{
@@ -143,4 +147,35 @@ await test('R07 actual image-overlay src/article changes reset retries and readi
  await click('重试这张图片');await act(async()=>{const img=document.querySelector('img');Object.defineProperties(img,{naturalWidth:{value:900},naturalHeight:{value:600}});img.dispatchEvent(new dom.window.Event('load'))});assert.equal(document.querySelector('.image-overlay-button').disabled,false)
  await act(async()=>document.querySelector('.image-overlay-button').click());assert.equal(opens,1);await act(async()=>root.unmount())
 })
+await test('privacy closed A+B failed PUTs survive navigation but are purged together at session exit',async()=>{
+ const root=setup()
+ for(const id of [101,102]){
+  await act(async()=>root.render(React.createElement(ArticleNote,{entry:{id},key:id})));await complete(request(String(id)),{note:'server '+id})
+  const textarea=document.querySelector('textarea');await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value').set.call(textarea,'failed '+id);textarea.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})
+  await click('立即保存笔记');await complete(request(String(id)),{status:503},true);await act(async()=>root.render(null))
+  const retry=request(String(id));if(retry)await complete(retry,{status:503},true)
+ }
+ assert.equal(fixture.noteManager.inspect().count,2)
+ const key='reader.note.draft:v1:'+encodeURIComponent(JSON.stringify(['https://reader.example.test/mf','2','101']));window.sessionStorage.setItem(key,'keep')
+ await act(async()=>fixture.noteManager.end());assert.equal(window.sessionStorage.length,1);assert.equal(window.sessionStorage.getItem(key),'keep');await act(async()=>root.unmount())
+})
+await test('privacy unchanged-revision owner replacement aborts PUT and late success cannot alter metadata/new draft',async()=>{
+ const root=setup();fixture.content={activeContent:{id:101,ai:{has_note:false}},entries:[{id:101,ai:{has_note:false}}]}
+ await act(async()=>root.render(React.createElement(ArticleNote,{entry:{id:101}})));await complete(request('101'),{note:'owner one'})
+ const textarea=document.querySelector('textarea');await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value').set.call(textarea,'owner one secret');textarea.dispatchEvent(new dom.window.Event('input',{bubbles:true}))});await click('立即保存笔记');const old=request('101'),revision=fixture.revision
+ await act(async()=>fixture.data.set({...fixture.data.get(),currentUser:{id:2}}));assert.equal(fixture.revision,revision);assert.equal(old.options.signal.aborted,true)
+ await complete(request('101'),{note:'owner two'});const fresh=document.querySelector('textarea');await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value').set.call(fresh,'owner two draft');fresh.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})
+ const metadata=JSON.stringify(fixture.content);await complete(old,{updated_at:'late owner one'});assert.equal(document.querySelector('textarea').value,'owner two draft');assert.equal(JSON.stringify(fixture.content),metadata);assert.equal(fixture.noteManager.inspect().notes[0].note,'owner two draft')
+ await act(async()=>{fixture.noteManager.end();root.unmount()})
+})
+await test('privacy old closed pending writer cannot remove a reopened same-account draft with identical text',async()=>{
+ const root=setup(),render=key=>React.createElement(ArticleNote,{entry:{id:101},key})
+ await act(async()=>root.render(render('old')));await complete(request('101'),{note:'base one'})
+ const change=async value=>act(async()=>{const e=document.querySelector('textarea');Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value').set.call(e,value);e.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})
+ await change('same text');await click('立即保存笔记');const old=request('101')
+ await act(async()=>root.render(render('fresh')));assert.equal(old.options.signal.aborted,true);await complete(request('101'),{note:'base two'});await click('恢复本地草稿');await change('same text')
+ const draft=fixture.noteManager.inspect().notes[0];assert.equal(draft.base,'base two');await complete(old,{updated_at:'stale'});assert.equal(fixture.noteManager.inspect().count,1);assert.equal(fixture.noteManager.inspect().notes[0].base,'base two')
+ await act(async()=>{fixture.noteManager.end();root.unmount()})
+})
+
 await rm(directory,{recursive:true,force:true});dom.window.close()

@@ -52,5 +52,8 @@
   "src/components/Ai/NavigationPalette.jsx": [
     "05d40752652369d53aa04ed4214dfd3383c102c83f5d3bc9ec24ce0eebcf8b55",
     "cc284a3a81eb82cb106162702d7dd600d2ba2197fe955746948f17c7e846348e"
+  ],
+  "src/components/Ai/note-drafts.js": [
+    "632c6ee65f2ea9369bcfc89e896db490e36b3eba8c36b904e21f041c10bded51"
   ]
 }
