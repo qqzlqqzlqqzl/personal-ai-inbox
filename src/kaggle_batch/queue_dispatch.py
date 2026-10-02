@@ -18,7 +18,7 @@ class DispatchBlocked(ProviderError):
     """Fixed diagnostics only: never retain database paths or raw exceptions."""
     REASONS = {'missing_ledger', 'unreadable_ledger', 'invalid_ledger',
                'invalid_state', 'invalid_id', 'orphan_claim', 'invalid_manifest',
-               'invalid_topology', 'initialization_evidence'}
+               'invalid_topology', 'initialization_evidence', 'invalid_recovery', 'local_state_cooldown'}
 
     def __init__(self, reason, peer=0):
         super().__init__('local_state')
@@ -31,7 +31,7 @@ class DispatchBlocked(ProviderError):
                 'reason': self.reason, 'peer': self.peer, 'gpu_started': False}
 
 
-def block_with_backoff(root, error):
+def block_with_backoff(root, error, now=None):
     """Best-effort fixed local-state backoff; never open or recreate a ledger."""
     try:
         from .recovery_policy import record_failure
@@ -40,13 +40,13 @@ def block_with_backoff(root, error):
     class QuietAudit:
         def append(self, *args, **kwargs):
             pass
-    now=time.time()
+    now=time.time() if now is None else now
     report = {**error.report(),'code':'local_state','failures':1,'at':now,'retry_at':now+660}
     if error.retry_record is not None:
         return {**report, **error.retry_record}
     try:
         if root is not None and Path(root).is_dir():
-            report.update(record_failure(root, 'local_state', QuietAudit(), None))
+            report.update(record_failure(root, 'local_state', QuietAudit(), None, now=now))
     except (OSError, ValueError, TypeError):
         pass
     return report

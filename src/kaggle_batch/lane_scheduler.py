@@ -206,9 +206,27 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
         return {'state':'paused','started':[],'at':now}
     state_path=ROOT/'state/kaggle-month-dispatch/scheduler.json'
     def blocked(exc):
-        report={**block_with_backoff(state_path.parent,exc),'started':[],'at':now}
+        report={**block_with_backoff(state_path.parent,exc,now=now),'started':[],'at':now}
         atomic_json(state_path,report)
         return report
+    recovery_path=state_path.parent/'recovery.json'
+    try:
+        recovery=read_json(recovery_path,{})
+        if not isinstance(recovery,dict):raise DispatchBlocked('invalid_recovery')
+        retry_at=effective_retry_at(recovery)
+        failures=recovery.get('failures',0)
+        if type(failures) is not int or failures<0:raise DispatchBlocked('invalid_recovery')
+        if retry_at>now:
+            # Admission is closed throughout cooldown: no service/quota calls,
+            # no increased failure count, and no mutation of batch claims.
+            report={**DispatchBlocked('local_state_cooldown').report(),'started':[],
+                    'code':'local_state','failures':failures,'retry_at':retry_at,'at':now}
+            atomic_json(state_path,report)
+            return report
+    except DispatchBlocked as exc:
+        return blocked(exc)
+    except (OSError,ValueError,TypeError,RecursionError):
+        return blocked(DispatchBlocked('invalid_recovery'))
     try:
         configs,roots=dispatch_topology()
         claimed_entries(roots)
@@ -228,6 +246,9 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
         claimed_entries(roots)
     except DispatchBlocked as exc:
         return blocked(exc)
+    # Clear only after the last complete admission snapshot succeeds.
+    if recovery:
+        atomic_json(recovery_path,{'failures':0,'retry_at':0,'at':now})
     for key in starts:
         if (STAGE/'paused.json').exists():break
         try:

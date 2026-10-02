@@ -473,3 +473,182 @@ def test_standalone_month_controller_requires_five_peers_but_keeps_same_id_recov
     recovered=Controller(roots[0],'fixture',client=lambda *a:'has status "KernelWorkerStatus.RUNNING"')
     assert recovered.status(key)['state']=='running'
     assert claimed_entries([roots[0]])=={1}
+
+
+@pytest.mark.parametrize('recovery',['[]','null','"private secret manifest"','12','{broken','{"code":"local_state","failures":[]}'])
+@pytest.mark.parametrize('fault',['missing','corrupt'])
+def test_malformed_recovery_and_bad_peer_return_redacted_block_without_provider(tmp_path,monkeypatch,recovery,fault):
+    root=tmp_path/'own';peer=tmp_path/'peer';fresh(root);fresh(peer)
+    (root/'recovery.json').write_text(recovery)
+    if fault=='missing':(peer/'batches.sqlite3').unlink()
+    else:(peer/'batches.sqlite3').write_bytes(b'private secret corruption')
+    path,cfg=bridge_config(tmp_path,root,[peer])
+    provider=Mock(side_effect=AssertionError('provider forbidden'))
+    credentials=Mock(side_effect=AssertionError('credentials forbidden'))
+    monkeypatch.setattr(Controller,'_cli',provider)
+    monkeypatch.setitem(sys.modules,'initialize_secrets',SimpleNamespace(read_env=credentials))
+    output=io.StringIO()
+    with contextlib.redirect_stdout(output):
+        try:run_bridge(monkeypatch,path,'prepare')
+        except Exception as exc:print(json.dumps(cloud_bridge.handle_failure(exc)))
+    report=json.loads(output.getvalue())
+    assert report['state']=='dispatch_blocked' and report['recovery_error']=='local_state'
+    assert report['failures']==1 and report['retry_at']>report['at']
+    assert 'private' not in output.getvalue() and str(tmp_path) not in output.getvalue()
+    assert json.loads((root/'recovery.json').read_text())['failures']==1
+    provider.assert_not_called();credentials.assert_not_called()
+
+
+@pytest.mark.parametrize('recovery',['[]','null','"private secret manifest"','{broken'])
+@pytest.mark.parametrize('fault',['missing','corrupt'])
+def test_scheduler_malformed_recovery_and_bad_peer_start_zero(tmp_path,monkeypatch,recovery,fault):
+    roots,cfg=topology(tmp_path,monkeypatch)
+    folder=tmp_path/'state/kaggle-month-dispatch';folder.mkdir(parents=True)
+    (folder/'recovery.json').write_text(recovery)
+    if fault=='missing':(roots[2]/'batches.sqlite3').unlink()
+    else:(roots[2]/'batches.sqlite3').write_bytes(b'private secret corruption')
+    run=Mock(side_effect=AssertionError('provider/systemctl forbidden'));starter=Mock()
+    report=scheduler.tick(run=run,starter=starter,now=100)
+    assert report['state']=='dispatch_blocked' and report['reason']=='invalid_recovery'
+    assert report['retry_at']==760 and report['failures']==1
+    assert str(tmp_path) not in json.dumps(report) and 'private' not in json.dumps(report)
+    run.assert_not_called();starter.assert_not_called()
+    # After the repaired record's cooldown, the bad peer is still checked and
+    # cannot be mistaken for an empty queue.
+    report=scheduler.tick(run=run,starter=starter,now=760)
+    assert report['state']=='dispatch_blocked' and report['reason'] in {'missing_ledger','invalid_ledger'}
+    assert report['retry_at']==2080 and report['failures']==2
+    run.assert_not_called();starter.assert_not_called()
+
+
+def test_scheduler_cooldown_honored_then_complete_revalidation_clears_it(tmp_path,monkeypatch):
+    roots,cfg=topology(tmp_path,monkeypatch)
+    c=Controller(roots[0],'fixture');key=c.prepare(manifest(99),'MANIFEST = None\n');c._set(key,'submit_unknown')
+    inbox=tmp_path/'article-attempts.sqlite3'
+    with sqlite3.connect(inbox) as db:
+        db.execute('CREATE TABLE analyses(entry_id INTEGER,attempts INTEGER)');db.execute('INSERT INTO analyses VALUES (1,0)')
+    article_bytes=inbox.read_bytes()
+    peer_db=roots[2]/'batches.sqlite3';saved=peer_db.read_bytes();peer_db.unlink()
+    run=Mock(side_effect=AssertionError('no commands until retry'));starter=Mock()
+    report=scheduler.tick(run=run,starter=starter,now=100)
+    assert report['retry_at']==760 and report['failures']==1
+    peer_db.write_bytes(saved) # Repair does not bypass the recorded cooldown.
+    read_claims=Mock(wraps=claimed_entries);monkeypatch.setattr(scheduler,'claimed_entries',read_claims)
+    report=scheduler.tick(run=run,starter=starter,now=759)
+    assert report['reason']=='local_state_cooldown' and report['retry_at']==760
+    read_claims.assert_not_called();run.assert_not_called();starter.assert_not_called()
+    assert claimed_entries(roots)=={99} and c.row(key)['state']=='submit_unknown'
+    monkeypatch.setattr(scheduler,'service_states',lambda *a:{})
+    lanes={k:{'active':False,'ready':True,'outstanding':None,'retry_at':0,'cycle':{},'quota_gate':{'allowed':True}} for k in scheduler.KEYS}
+    monkeypatch.setattr(scheduler,'snapshot_lanes',lambda *a:lanes)
+    monkeypatch.setattr(scheduler,'due_entries',lambda *a:({1},set()))
+    monkeypatch.setattr(scheduler,'queue_summary',lambda *a:{'next_item_retry':0,'analyses':{'waiting_model':1},'cards':{},'total':1})
+    report=scheduler.tick(run=run,starter=starter,now=760)
+    assert report['state']=='started' and report['started']==['primary']
+    assert read_claims.call_count==2 # All roots both on entry and before starts.
+    assert all(set(call.args[0])==set(roots) for call in read_claims.call_args_list)
+    reset=json.loads((tmp_path/'state/kaggle-month-dispatch/recovery.json').read_text())
+    assert reset['failures']==0 and reset['retry_at']==0
+    assert inbox.read_bytes()==article_bytes
+    assert claimed_entries(roots)=={99} and c.row(key)['state']=='submit_unknown'
+    # A later failure starts a fresh backoff sequence after successful admission.
+    peer_db.unlink()
+    report=scheduler.tick(run=run,starter=starter,now=761)
+    assert report['failures']==1 and report['retry_at']==1421
+    assert starter.call_count==1
+
+
+def test_scheduler_retry_schedule_is_enforced_and_capped(tmp_path,monkeypatch):
+    roots,cfg=topology(tmp_path,monkeypatch)
+    (roots[4]/'batches.sqlite3').unlink()
+    run=Mock(side_effect=AssertionError('no providers on blocked retry'));starter=Mock()
+    now=100
+    for count,delay in enumerate([660,1320,2640,3600,3600],1):
+        report=scheduler.tick(run=run,starter=starter,now=now)
+        assert report['failures']==count and report['retry_at']==now+delay
+        cooldown=scheduler.tick(run=run,starter=starter,now=now+delay-1)
+        assert cooldown['reason']=='local_state_cooldown' and cooldown['failures']==count
+        assert cooldown['retry_at']==report['retry_at']
+        now=report['retry_at']
+    run.assert_not_called();starter.assert_not_called()
+
+
+@pytest.mark.parametrize('fault',['missing','corrupt'])
+def test_real_controller_inner_prepare_guard_rolls_back_without_publication(tmp_path,monkeypatch,fault):
+    root=tmp_path/'own';peer=tmp_path/'peer';fresh(root);fresh(peer)
+    c=Controller(root,'fixture',client=Mock(),required_roots=[root,peer]);checks=[]
+    def check(roots):
+        checks.append(tuple(roots))
+        if len(checks)==2:
+            if fault=='missing':(peer/'batches.sqlite3').unlink()
+            else:(peer/'batches.sqlite3').write_bytes(b'private secret corruption')
+        return claimed_entries(roots)
+    monkeypatch.setattr(batch_control,'claimed_entries',check)
+    with pytest.raises(DispatchBlocked):c.prepare(manifest(),'MANIFEST = None\n')
+    assert len(checks)==2
+    with c.db() as db:
+        assert db.execute('SELECT count(*) FROM batches').fetchone()[0]==0
+        assert db.execute('SELECT count(*) FROM batch_claims').fetchone()[0]==0
+    assert not list(root.glob('*/manifest.json')) and not list(root.glob('*/runner.py'))
+    c.client.assert_not_called()
+
+
+def test_peer_claim_added_during_extraction_excludes_article_before_real_publish(tmp_path,monkeypatch):
+    root=tmp_path/'own';peer=tmp_path/'peer';fresh(root);fresh(peer)
+    peer_control=Controller(peer,'fixture',client=Mock())
+    path,cfg=bridge_config(tmp_path,root,[peer])
+    with sqlite3.connect(cfg['database']) as db:
+        db.execute('CREATE TABLE kaggle_prepare_leases(entry_id INTEGER,owner TEXT,expires REAL)')
+    Path(cfg['versions']).write_text('{}')
+    monkeypatch.setitem(sys.modules,'initialize_secrets',SimpleNamespace(read_env=lambda *a:{}))
+    monkeypatch.setattr('quota_guard.query_client',lambda *a:{'allowed':True})
+    monkeypatch.setattr(cloud_bridge,'validate_model_config',lambda *a:None)
+    monkeypatch.setattr(cloud_bridge,'backup_before_import',lambda *a:None)
+    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a:[1,2])
+    published=[]
+    def build(sample,*args,**kwargs):
+        published.extend(row['entry_id'] for row in sample['samples'])
+        assert published==[2]
+        return manifest(2)
+    monkeypatch.setattr(cloud_bridge,'build',build)
+    async def extract(*args,**kwargs):
+        assert not args[2] # Initial peer ledger was healthy and empty.
+        with sqlite3.connect(cfg['database']) as db:
+            db.executemany('INSERT INTO kaggle_prepare_leases VALUES (?,?,?)',[(entry,kwargs['lease_owner'],10**12) for entry in (1,2)])
+        kwargs['on_claimed']()
+        key=peer_control.prepare(manifest(1),'MANIFEST = None\n')
+        peer_control._set(key,'submit_unknown')
+        return {'samples':[{'entry_id':1},{'entry_id':2}],'considered':2,'skipped':[],'next_retry_at':None}
+    monkeypatch.setattr(cloud_bridge,'prepare_sample',extract)
+    provider=Mock(side_effect=AssertionError('no Kaggle provider writes'))
+    monkeypatch.setattr(Controller,'_cli',provider)
+    output=io.StringIO()
+    with contextlib.redirect_stdout(output):run_bridge(monkeypatch,path,'prepare')
+    result=json.loads(output.getvalue());assert result['selected']==1
+    own_control=Controller(root,'fixture',client=Mock())
+    own_manifest=own_control.manifest(result['batch_id'])
+    assert {ref['entry_id'] for item in own_manifest['items'] for ref in item['source_refs']}=={2}
+    assert claimed_entries([peer])=={1} and claimed_entries([root])=={2}
+    provider.assert_not_called();peer_control.client.assert_not_called()
+
+
+@pytest.mark.parametrize('recovery',['[]','null','"private secret manifest"'])
+@pytest.mark.parametrize('fault',['missing','corrupt'])
+def test_cycle_malformed_recovery_with_bad_peer_remains_redacted_block(tmp_path,monkeypatch,recovery,fault):
+    root=tmp_path/'own';peer=tmp_path/'peer';fresh(root);fresh(peer)
+    (root/'recovery.json').write_text(recovery)
+    if fault=='missing':(peer/'batches.sqlite3').unlink()
+    else:(peer/'batches.sqlite3').write_bytes(b'private secret corruption')
+    path,cfg=bridge_config(tmp_path,root,[peer])
+    cfg.update(interval_hours=6,schedule_enabled=True,exception_audit_root=str(tmp_path/'audit'))
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setattr(sys,'argv',['cloud_cycle','--config',str(path)])
+    call=Mock(side_effect=AssertionError('no provider/bridge activity'))
+    monkeypatch.setattr(cloud_cycle,'drain_once',call)
+    monkeypatch.setattr(Controller,'_cli',call)
+    output=io.StringIO()
+    with contextlib.redirect_stdout(output):cloud_cycle.main()
+    report=json.loads(output.getvalue())
+    assert report['state']=='dispatch_blocked' and report['reason']=='invalid_recovery'
+    assert 'private' not in output.getvalue() and str(tmp_path) not in output.getvalue()
+    call.assert_not_called()

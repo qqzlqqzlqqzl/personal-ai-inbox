@@ -60,3 +60,38 @@ ledger; cross-ledger atomicity still depends on the existing coordination lock
 and repeated admission checks. The complete five-lane layout is the existing
 named `kaggle-month-*` family; arbitrary layouts still require explicit peers.
 Independent parent review is required before merge/deploy.
+
+
+## Follow-up independent review corrections
+
+The two P2 review findings are fixed on the same draft PR. Failure recording now
+validates recovery JSON shape and failure-counter type, so arrays/null/strings,
+invalid JSON and invalid counters cannot turn a redacted dispatch block into an
+AttributeError traceback. Cycle admission also converts invalid recovery input
+to the same fixed typed block before bridge/provider activity.
+
+Scheduler cooldown is now enforced using its persisted dispatch recovery record
+and the tick's explicit clock. Before retry_at, it performs no ledger, service or
+quota work, starts zero services and does not increment failures. At expiry,
+complete topology/claim validation and the final pre-start snapshot must succeed
+before clearing the cooldown. Tests cover repaired ledger before/at expiry,
+660/1320/2640/3600 capped timing, reset after successful admission, unchanged
+article attempts and retained submit_unknown claims. Normal same-ID recovery
+branches are unchanged.
+
+Additional real-Controller tests delete/corrupt a peer at prepare's inner
+transaction guard, assert rollback and no manifest/runner publication, and never
+mock Controller.prepare. A bridge regression adds a real valid peer claim after
+extraction releases the coordination lock; the later recheck excludes that
+article and publishes only the remaining article through the real Controller.
+
+Targeted follow-up regression: 130 passed. Final full Python and new-head hosted
+Reader CI results are recorded in the PR update. Prior-head hosted Reader CI was
+independently confirmed green with no skip by the parent. All new evidence is
+isolated; no production requests, merge, deployment, or issue closure occurred.
+
+Follow-up full regression: 792 passed, 1 skipped, 2 warnings, 161 subtests passed in 81.24s (0:01:21)
+
+Follow-up evidence: `/tmp/required-ledger-validation/python-p2-final.log` and
+`python-p2-final.xml`; log SHA256 `419dbc630fc483219a9cb05fb2ef69e32cafc1be10fba276cda5296bc34dcccd`.
+Changed Python files were byte-compared with the full-suite source copy.

@@ -137,8 +137,12 @@ def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.mon
     recovery=control.root/'recovery.json'
     deadline=clock()+int(config.get('cycle_timeout_seconds',19800))
     while deadline-clock()>=60:
-        previous=json.loads(recovery.read_text()) if recovery.exists() else {}
-        effective_retry=effective_retry_at(previous)
+        try:
+            previous=json.loads(recovery.read_text()) if recovery.exists() else {}
+            effective_retry=effective_retry_at(previous)
+        except (OSError,ValueError,TypeError,RecursionError):
+            from queue_dispatch import DispatchBlocked
+            raise DispatchBlocked('invalid_recovery') from None
         remaining=effective_retry-time.time()
         if remaining>0:
             report={'state':'cooldown','at':time.time(),**previous,'effective_retry_at':effective_retry}

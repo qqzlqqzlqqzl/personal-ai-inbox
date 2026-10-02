@@ -141,7 +141,14 @@ operator recovery of the ledger, not init. Existing SQLite schemas are retained;
 this change adds no tables, columns or migrations.
 
 `local_state` uses the existing 660/1320/2640/3600-second capped retry policy.
-The bridge failure is counted once by its supervising cycle. Tests in
+The bridge failure is counted once by its supervising cycle. The scheduler reads
+its own dispatch recovery record before any ledger, service or quota work; before
+`retry_at` it returns a fixed `local_state_cooldown` block with zero starts and
+without incrementing failures. At expiry it must complete topology/ledger
+validation and the final pre-start recheck before clearing that record. Damaged
+recovery JSON or non-object/counter values produce a fixed `invalid_recovery`
+block, and failure recording safely resets malformed metadata. These are
+infrastructure counters; article attempts and unknown claims are unchanged. Tests in
 `test_required_ledgers.py` use temporary state and synthetic/mock providers,
 credentials, extraction, HTTP boundaries and systemctl; no GPU or production
 acceptance is implied by these tests.
