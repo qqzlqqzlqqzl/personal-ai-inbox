@@ -104,6 +104,14 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: python tests/mobile_reading_browser.py
+      - name: Account calendar consistency across three browser timezones
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: python tests/calendar_browser_acceptance.py
+      - name: Invalid and failed account timezone recovery in Chromium
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: python tests/calendar_identity_browser.py
       - name: Save verified CJK font archive after full regression
         if: steps.cjk-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -130,5 +138,6 @@ jobs:
             runtime/sort-component.json
             runtime/mobile-reading-*/
             runtime/mobile-reading-metrics.json
+            runtime/calendar-*/
             runtime/browser-build/
           retention-days: 7
