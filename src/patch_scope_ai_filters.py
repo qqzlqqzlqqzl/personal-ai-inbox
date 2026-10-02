@@ -148,7 +148,7 @@ patch(
     '      if (!content.filterDate && !content.filterString && !aiFilterEnabled()) {',
 )
 
-# "Today" now means the browser's natural local day, not a rolling 24 hours.
+# Today uses the authenticated account reading calendar; see the final calendar overlay.
 
 # The checked-in earlier stage installs only a score-order toggle. Older
 # deployments already have the selector. Normalize the former explicitly so a
@@ -587,6 +587,9 @@ for locale, anchor, additions in [
             raise RuntimeError("locale empty-state anchor missing: " + locale)
         backup(path)
         locale_file.write_text(locale_text.replace(anchor, additions, 1))
+
+# Calendar inputs are checked in; the helper uses the same strict/idempotent anchors.
+exec(compile((ROOT / "patches/calendar-overlay.py").read_text(), str(ROOT / "patches/calendar-overlay.py"), "exec"))
 
 # Rebuild the tracked patch after the final overlay stage.
 diffs = []
