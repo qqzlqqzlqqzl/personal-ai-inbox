@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {displayState} from '../patches/agent-status/status-view.mjs';
+const fixture=JSON.parse(readFileSync(new URL('../patches/agent-status/mock-state.json',import.meta.url)));
+fixture.freshness='fresh';
+assert.equal(displayState(null).state,'unknown');assert.equal(displayState(null).counts,null);
+assert.equal(displayState(fixture,new Date('2026-10-02T04:11:00Z')).state,'fresh');
+assert.equal(displayState(fixture,new Date('2026-10-02T04:11:00Z'),true).state,'unknown');
+assert.equal(displayState(fixture,new Date('2026-10-02T04:41:00Z')).state,'stale');
+const refetch=structuredClone(fixture);refetch.last_successful_pull_at='2026-10-02T05:00:00Z';
+assert.equal(displayState(refetch,new Date('2026-10-02T05:00:00Z')).state,'stale');
+assert.equal(displayState(refetch,new Date('2026-10-02T05:00:00Z')).counts.active,2);
+refetch.sample.observed_at='invalid';assert.equal(displayState(refetch).state,'unknown');assert.equal(displayState(refetch).counts,null);
+const serverStale=structuredClone(fixture);serverStale.freshness='stale';assert.equal(displayState(serverStale,new Date('2026-10-02T04:11:00Z')).state,'stale');
+console.log('8 frontend freshness/retention checks passed');

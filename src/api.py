@@ -1138,6 +1138,10 @@ async def get_vendor_source_status(request: Request):
     return await asyncio.to_thread(status)
 
 
+from agent_status_api import create_router as create_agent_status_router
+app.include_router(create_agent_status_router(authorize))
+
+
 @app.api_route(
     "/mf/{path:path}",
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
