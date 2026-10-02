@@ -18,7 +18,9 @@ def timer_text(hours):
             'Unit=ai-news-kaggle.service\n\n[Install]\nWantedBy=timers.target\n')
 
 
-def bridge(config_path,*args,timeout):
+def bridge(config_path,*args,timeout,expected_config_sha256=None):
+    if expected_config_sha256 is not None:
+        args=(*args,'--expected-config-sha256',expected_config_sha256)
     result=subprocess.run([sys.executable,str(Path(__file__).with_name('cloud_bridge.py')),
                            '--config',str(config_path),*args],timeout=timeout,
                           capture_output=True,text=True,encoding='utf-8')
@@ -45,8 +47,14 @@ def bridge(config_path,*args,timeout):
     return data
 
 
-def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, clock=time.monotonic):
+def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, clock=time.monotonic, *, authorize=None, recovery_batch=None):
     from batch_control import atomic_json
+    from dispatch_policy import require_automatic,DispatchStopped
+    authorize=authorize or (lambda:require_automatic(config))
+    def invoke(action,*args,timeout):
+        kwargs={'timeout':timeout}
+        if hasattr(authorize,'fingerprint'):kwargs['expected_config_sha256']=authorize.fingerprint
+        return call(config_path,action,*args,**kwargs)
     duration=int(config.get('cycle_timeout_seconds',19800))
     if not 60<=duration<=19800:
         raise ValueError('Cycle must fit within the six-hour schedule')
@@ -59,17 +67,21 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
         print(json.dumps(value),flush=True)
         return value
     while clock()<deadline:
+        authorize()
         report('preparing')
-        if config.get('reconcile_only'):
-            existing=control.outstanding()
-            if not existing:
-                return report('nothing_to_reconcile',gpu_started=False)
-            if existing['state']=='prepared':
-                return report('prepared_requires_worker',batch_id=existing['id'],gpu_started=False)
-            prepared={'existing_batch':existing['id']}
+        if recovery_batch:
+            existing=control.row(recovery_batch)
+            if existing['state']=='prepared':raise DispatchStopped('manual_recovery_cannot_submit')
+            prepared={'existing_batch':recovery_batch}
+        elif config.get('reconcile_only') is True:
+            from dispatch_policy import readonly_reconcile
+            return readonly_reconcile(config)
         else:
-            prepared=call(config_path,'prepare','--limit',str(config['batch_limit']),
+            prepared=invoke('prepare','--limit',str(config['batch_limit']),
                           timeout=max(1,min(7200,int(deadline-clock()))))
+        if prepared.get('state') in DispatchStopped.STATES:
+            raise DispatchStopped(prepared['state'])
+        authorize()
         if prepared.get('state')=='retired_manifest_requires_new_attempt':
             return report(prepared['state'],batch_id=prepared['batch_id'],gpu_started=False,recovery_required=True)
         batch=prepared.get('batch_id') or prepared.get('existing_batch')
@@ -101,7 +113,11 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
         elif resume_state!='prepared':
             report('reconciling',batch_id=batch,previous_state=resume_state)
         while clock()<deadline:
-            outcome=call(config_path,'advance','--batch',batch,timeout=max(1,min(600,int(deadline-clock()))))
+            authorize()
+            outcome=invoke('recover' if recovery_batch else 'advance','--batch',batch,timeout=max(1,min(600,int(deadline-clock()))))
+            if outcome.get('state') in DispatchStopped.STATES:
+                raise DispatchStopped(outcome['state'])
+            authorize()
             if outcome.get('submission_blocked'):
                 return report(outcome['quota_gate']['state'],batch_id=batch,
                               quota_gate=outcome['quota_gate'],gpu_started=False)
@@ -123,20 +139,27 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
             sleep(min(660,max(0,deadline-clock())))
         else:
             return report('observation_timeout',batch_id=batch)
-        if not config.get('drain_queue'):
+        if recovery_batch or not config.get('drain_queue'):
             return report('completed',batch_id=batch)
     return report('cycle_window_complete')
 
 
-def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.monotonic):
+def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.monotonic, *, authorize=None,recovery_batch=None):
+    from dispatch_policy import require_automatic,DispatchStopped
+    authorize=authorize or (lambda:require_automatic(config))
+    try:authorize()
+    except DispatchStopped as exc:return exc.report()
     if not config.get('exception_audit_root'):
-        return drain_once(config_path,config,control,call,sleep,clock)
+        try:return drain_once(config_path,config,control,call,sleep,clock,authorize=authorize,recovery_batch=recovery_batch)
+        except DispatchStopped as exc:return exc.report()
     from exception_audit import Audit
     from batch_control import atomic_json
     audit=Audit(config['exception_audit_root']);audit.prune()
     recovery=control.root/'recovery.json'
     deadline=clock()+int(config.get('cycle_timeout_seconds',19800))
     while deadline-clock()>=60:
+        try:authorize()
+        except DispatchStopped as exc:return exc.report()
         try:
             previous=json.loads(recovery.read_text()) if recovery.exists() else {}
             effective_retry=effective_retry_at(previous)
@@ -151,10 +174,15 @@ def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.mon
             # The persistent watchdog returns after the recorded cooldown.
             return report
         try:
-            report=drain_once(config_path,{**config,'cycle_timeout_seconds':int(deadline-clock())},control,call,sleep,clock)
+            report=drain_once(config_path,{**config,'cycle_timeout_seconds':int(deadline-clock())},control,call,sleep,clock,authorize=authorize,recovery_batch=recovery_batch)
+            authorize()
             atomic_json(recovery,{'failures':0,'retry_at':0,'at':time.time()})
             return report
+        except DispatchStopped as exc:
+            return exc.report()
         except Exception as exc:
+            try:authorize()
+            except DispatchStopped as stopped:return stopped.report()
             from queue_dispatch import DispatchBlocked,block_with_backoff
             if isinstance(exc,DispatchBlocked):
                 report=block_with_backoff(control.root,exc)
@@ -168,36 +196,58 @@ def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.mon
 
 
 def main():
+    from dispatch_policy import (load_config,ConfigGuard,DispatchStopped,
+        manual_target,readonly_reconcile,require_automatic)
     parser=argparse.ArgumentParser()
     parser.add_argument('--config',required=True)
     parser.add_argument('--render-timer',action='store_true')
-    parser.add_argument('--manual',action='store_true',help='Explicit single run while the schedule remains disabled')
+    modes=parser.add_mutually_exclusive_group()
+    modes.add_argument('--manual',action='store_true',help='Retired broad bypass; returns manual_authorization_required')
+    modes.add_argument('--manual-recovery',action='store_true',help='Explicit mutating recovery of one existing --batch; never prepare or submit')
+    modes.add_argument('--reconcile-readonly',action='store_true',help='Local self-ledger snapshot only; no Controller/provider/import/write')
+    parser.add_argument('--batch')
     args=parser.parse_args()
-    config=json.loads(Path(args.config).read_text(encoding='utf-8'))
-    timer=timer_text(config['interval_hours'])
-    if args.render_timer:
-        print(timer,end='')
-        return
-    if not config.get('schedule_enabled',False) and not args.manual:
-        print(json.dumps({'state':'schedule_disabled','gpu_started':False}))
-        return
-    import fcntl
-    from batch_control import Controller
-    root=Path(config['state_root'])
-    os.umask(0o077)
+    root=None
     from queue_dispatch import required_roots,DispatchBlocked,block_with_backoff
     try:
-        control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],required_roots=required_roots(config))
+        config=load_config(args.config)
+        if args.render_timer:
+            print(timer_text(config['interval_hours']),end='')
+            return
+        if args.manual:raise DispatchStopped('manual_authorization_required')
+        if args.reconcile_readonly or (config.get('reconcile_only') is True and not args.manual_recovery):
+            if not args.reconcile_readonly:
+                # Config reconcile_only permits a local observer only when scheduled.
+                require_automatic({**config,'reconcile_only':False})
+            guard=ConfigGuard(args.config,config,manual_recovery=True)
+            result=readonly_reconcile(config,args.batch)
+            guard()
+            print(json.dumps(result))
+            return
+        guard=ConfigGuard(args.config,config,manual_recovery=args.manual_recovery)
+        guard()
+        root=Path(config['state_root'])
+        if args.batch and not args.manual_recovery:
+            raise DispatchStopped('manual_authorization_required')
+        if args.manual_recovery:manual_target(root,args.batch,time.time())
+        import fcntl
+        from batch_control import Controller
+        os.umask(0o077)
+        control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],
+                           required_roots=required_roots(config),admission=guard)
+        with (root/'cycle.lock').open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            guard()
+            if args.manual_recovery:manual_target(root,args.batch,time.time())
+            cycle_config={**config,'drain_queue':False} if args.manual_recovery else config
+            result=drain(args.config,cycle_config,control,authorize=guard,
+                         recovery_batch=args.batch if args.manual_recovery else None)
+            if result.get('state') in DispatchStopped.STATES|{'dispatch_blocked'}:
+                print(json.dumps(result))
+    except DispatchStopped as exc:
+        print(json.dumps(exc.report()))
     except DispatchBlocked as exc:
         print(json.dumps(block_with_backoff(root,exc)))
-        return
-    with (root/'cycle.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        try:
-            result=drain(args.config,config,control)
-            if result.get('state')=='dispatch_blocked':print(json.dumps(result))
-        except DispatchBlocked as exc:
-            print(json.dumps(block_with_backoff(root,exc)))
 
 
 if __name__=='__main__':

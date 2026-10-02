@@ -1,0 +1,10 @@
+[Unit]
+Description=Personal Inbox automatic bounded Kaggle lane %i
+After=ai-news-miniflux.service ai-news-postgres.service
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/ai-news
+ExecStart=/home/ubuntu/ai-news/runtime/venv/bin/python /home/ubuntu/ai-news/src/kaggle_batch/cloud_cycle.py --config /home/ubuntu/ai-news/src/kaggle_batch/cloud-config-month-%i.json
+TimeoutStartSec=20400
+UMask=0077
+NoNewPrivileges=true

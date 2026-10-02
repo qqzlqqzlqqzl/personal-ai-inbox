@@ -41,6 +41,9 @@ def _parse_quota_rows(rows):
 
 def _quota_for_lane(key):
     config=json.loads((ROOT/f'src/kaggle_batch/cloud-config-month-{key}.json').read_text())
+    if key not in effective_enabled_lanes():return {'state':'error','error':'schedule_disabled'}
+    if json.loads((ROOT/f'src/kaggle_batch/cloud-config-month-{key}.json').read_text())!=config:
+        return {'state':'error','error':'configuration_changed'}
     env={**os.environ,'KAGGLE_API_TOKEN':config['token_file']}
     try:
         result=subprocess.run(
@@ -53,9 +56,20 @@ def _quota_for_lane(key):
         return {'state':'error','error':'quota_unavailable'}
 
 
+def effective_enabled_lanes():
+    from kaggle_batch.dispatch_policy import automatic_allowed,paused,DispatchStopped
+    try:
+        if paused(STAGE/'paused.json'):return []
+        configs={key:json.loads((ROOT/f'src/kaggle_batch/cloud-config-month-{key}.json').read_text()) for key in KEYS}
+        if any(not isinstance(cfg,dict) for cfg in configs.values()):return []
+        return [key for key,cfg in configs.items() if automatic_allowed(cfg)]
+    except (OSError,ValueError,TypeError,RecursionError,DispatchStopped):
+        return []
+
+
 def quota_status(now=None,ttl=_QUOTA_TTL):
     now=float(time.time() if now is None else now)
-    folder=ROOT/'state/kaggle-month-dispatch';folder.mkdir(parents=True,exist_ok=True)
+    folder=ROOT/'state/kaggle-month-dispatch'
     cache=folder/'quota-status.json'
     def load():
         try:
@@ -63,6 +77,12 @@ def quota_status(now=None,ttl=_QUOTA_TTL):
             return value if isinstance(value,dict) else {}
         except (OSError,ValueError,TypeError):return {}
     cached=load()
+    enabled=effective_enabled_lanes()
+    if not enabled:
+        # Disabled UI polling is a cache-only observation, including expired data.
+        lanes=cached.get('lanes',{})
+        return {**cached,'lanes':lanes if isinstance(lanes,dict) else {},'refresh_disabled':True}
+    folder.mkdir(parents=True,exist_ok=True)
     if now-float(cached.get('checked_at',0) or 0)<ttl and all(k in cached.get('lanes',{}) for k in KEYS):
         return cached
     with _quota_lock:
@@ -70,9 +90,10 @@ def quota_status(now=None,ttl=_QUOTA_TTL):
         if now-float(cached.get('checked_at',0) or 0)<ttl and all(k in cached.get('lanes',{}) for k in KEYS):
             return cached
         previous=cached.get('lanes',{}) if isinstance(cached.get('lanes'),dict) else {}
-        lanes={}
+        lanes={key:{**previous.get(key,{}),'state':'stale','stale':True,'error':'schedule_disabled'}
+               for key in KEYS if key not in enabled}
         with ThreadPoolExecutor(max_workers=len(KEYS)) as pool:
-            futures={pool.submit(_quota_for_lane,key):key for key in KEYS}
+            futures={pool.submit(_quota_for_lane,key):key for key in enabled}
             for future in as_completed(futures):
                 key=futures[future]
                 try:value=future.result()
@@ -114,6 +135,7 @@ def status():
     for block in units.stdout.strip().split('\n\n'):
         values=dict(line.split('=',1) for line in block.splitlines() if '=' in line)
         if values.get('Id'):services[values['Id']]=values
+    enabled_lanes=effective_enabled_lanes()
     quotas=quota_status()
     for key in KEYS:
         folder=ROOT/'state'/('kaggle-month-'+key)
@@ -133,8 +155,9 @@ def status():
             except sqlite3.Error:pass
         lanes[key]['quota']=quotas.get('lanes',{}).get(key,{'state':'error','error':'quota_unavailable'})
         from kaggle_batch.quota_guard import admission
-        lanes[key]['quota_gate']=admission(lanes[key]['quota'],checked_at=quotas.get('checked_at'))
-    enabled=not (STAGE/'paused.json').exists()
+        lanes[key]['quota_gate']=(admission(lanes[key]['quota'],checked_at=quotas.get('checked_at'))
+            if key in enabled_lanes else {'allowed':False,'state':'schedule_disabled'})
+    enabled=bool(effective_enabled_lanes())
     scheduler_file=ROOT/'state/kaggle-month-dispatch/scheduler.json'
     scheduler=json.loads(scheduler_file.read_text()) if scheduler_file.exists() else {'state':'not_started'}
     return {'scheduler':scheduler,'scope':{k:scope[k] for k in ['from','to','articles','unknown_date_excluded']} | {'scope_type':scope.get('scope_type','recent_month'),'label':scope.get('scope_label','最近一个月')},'enabled':enabled,

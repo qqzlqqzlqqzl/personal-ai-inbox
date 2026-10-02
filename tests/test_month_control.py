@@ -35,9 +35,12 @@ def test_quota_for_lane_uses_isolated_token_file_without_returning_it(tmp_path, 
     token.parent.mkdir()
     token.write_text("secret")
     (config_dir / "cloud-config-month-primary.json").write_text(json.dumps({
+        "schedule_enabled": True,
         "kaggle_python": "/opt/kaggle-python",
         "token_file": str(token),
     }))
+    monkeypatch.setattr(month_control,"KEYS",("primary",))
+    monkeypatch.setattr(month_control,"STAGE",tmp_path/"stage")
     captured = {}
 
     def fake_run(args, **kwargs):
@@ -59,6 +62,10 @@ def test_quota_for_lane_uses_isolated_token_file_without_returning_it(tmp_path, 
 def test_quota_status_caches_all_lanes(tmp_path, monkeypatch):
     monkeypatch.setattr(month_control, "ROOT", tmp_path)
     monkeypatch.setattr(month_control, "KEYS", ("primary", "secondary"))
+    config_dir=tmp_path/"src/kaggle_batch";config_dir.mkdir(parents=True)
+    for key in month_control.KEYS:
+        (config_dir/f"cloud-config-month-{key}.json").write_text(json.dumps({"schedule_enabled":True}))
+    monkeypatch.setattr(month_control,"STAGE",tmp_path/"stage")
     calls = []
     def fake_lane(key):
         calls.append(key)
@@ -82,6 +89,9 @@ def test_quota_status_caches_all_lanes(tmp_path, monkeypatch):
 def test_quota_status_preserves_last_good_value_on_refresh_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(month_control, "ROOT", tmp_path)
     monkeypatch.setattr(month_control, "KEYS", ("primary",))
+    config_dir=tmp_path/"src/kaggle_batch";config_dir.mkdir(parents=True)
+    (config_dir/"cloud-config-month-primary.json").write_text(json.dumps({"schedule_enabled":True}))
+    monkeypatch.setattr(month_control,"STAGE",tmp_path/"stage")
     monkeypatch.setattr(month_control, "_quota_for_lane", lambda key: {
         "state": "ok", "gpu": {"used_hours": 5.0, "remaining_hours": 25.0, "total_hours": 30.0, "refresh_at": "2026-10-03T00:00:00"}
     })

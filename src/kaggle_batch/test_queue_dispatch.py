@@ -36,7 +36,7 @@ class QueueTests(unittest.TestCase):
         def call(config,action,*args,timeout):
             if action=='prepare':return {'existing_batch':'b'}
             self.assertEqual('advance',action);state['b']='retired';return {'state':'retired'}
-        result=drain('config',{'batch_limit':20,'drain_queue':False},control,call,
+        result=drain('config',{'schedule_enabled':True,'batch_limit':20,'drain_queue':False},control,call,
                      sleeps.append,lambda:0)
         self.assertEqual('retired_missing_remote',result['state']);self.assertEqual(0,result['completed_batches']);self.assertEqual([],sleeps)
 
@@ -46,7 +46,7 @@ class QueueTests(unittest.TestCase):
         def call(config,action,*args,timeout):
             if action=='prepare':return {'existing_batch':'cached'}
             return {'state':'local_retry_scheduled','retry_at':time.time()+660}
-        result=drain('config',{'batch_limit':20,'drain_queue':False},control,call,lambda n:None,lambda:0)
+        result=drain('config',{'schedule_enabled':True,'batch_limit':20,'drain_queue':False},control,call,lambda n:None,lambda:0)
         self.assertEqual('local_retry_scheduled',result['state'])
         self.assertEqual(0,result['completed_batches'])
 
@@ -125,7 +125,7 @@ class QueueTests(unittest.TestCase):
         def sleep(seconds):
             sleeps.append(seconds)
             elapsed[0]+=seconds
-        result=drain('config',{'batch_limit':20,'drain_queue':True},control,call,sleep,lambda:elapsed[0])
+        result=drain('config',{'schedule_enabled':True,'batch_limit':20,'drain_queue':True},control,call,sleep,lambda:elapsed[0])
         self.assertEqual('empty',result['state'])
         self.assertEqual(2,result['completed_batches'])
         self.assertEqual([660,660,660],sleeps)

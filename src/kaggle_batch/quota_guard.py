@@ -48,9 +48,10 @@ def query_client(client, *, now=None):
                 'checked_at':time.time() if now is None else now}
 
 
-def query_config(config, run=None):
+def query_config(config, run=None, *, authorize=None):
     run = subprocess.run if run is None else run
     def client(args, timeout):
+        if authorize is not None:authorize()
         result = run([config['kaggle_python'],'-m','kaggle',*args], capture_output=True,
                      text=True,encoding='utf-8',timeout=timeout,
                      env={**os.environ,'KAGGLE_API_TOKEN':config['token_file']})
@@ -62,6 +63,7 @@ def query_config(config, run=None):
 
 def may_start(lane):
     """A never-submitted prepared batch is new GPU work, not recovery."""
+    if lane.get('schedule_enabled') is not True:return False
     outstanding = lane.get('outstanding')
     if outstanding and outstanding.get('state') != 'prepared':
         return True

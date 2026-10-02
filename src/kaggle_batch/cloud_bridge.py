@@ -326,29 +326,38 @@ async def verify_upstream(source,manifest):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--config',required=True)
-    parser.add_argument('action',choices=['init','prepare','advance','resolve'])
+    parser.add_argument('action',choices=['init','prepare','advance','recover','resolve'])
     parser.add_argument('--limit',type=int,default=20)
     parser.add_argument('--batch')
+    parser.add_argument('--expected-config-sha256',help='Parent config identity; not an authorization token')
     parser.add_argument('--replacement',action='append',default=[])
     args=parser.parse_args()
     if not 1<=args.limit<=200:
         raise ValueError('A batch must contain 1..200 articles')
-    config=json.loads(Path(args.config).read_text(encoding='utf-8'))
+    from dispatch_policy import load_config,ConfigGuard,manual_target,DispatchStopped
+    config=load_config(args.config)
     global BRIDGE_CONTEXT
-    BRIDGE_CONTEXT={'config':config,'action':args.action,'batch':args.batch}
-    root=Path(config['state_root'])
+    BRIDGE_CONTEXT={'config':config,'config_path':args.config,'action':args.action,'batch':args.batch}
     if args.action=='init':
-        Controller(root,config['owner'],initialize=True)
+        Controller(Path(config['state_root']),config['owner'],initialize=True)
         print(json.dumps({'state':'initialized','gpu_started':False}))
         return
+    recovery_only=args.action=='recover'
+    guard=ConfigGuard(args.config,config,manual_recovery=recovery_only,expected_fingerprint=args.expected_config_sha256)
+    guard()
+    root=Path(config['state_root'])
+    if recovery_only:
+        manual_target(root,args.batch,time.time())
+        config={**config,'drain_queue':False}
     roots=required_roots(config)
-    control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],required_roots=roots)
+    control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],required_roots=roots,admission=guard)
     if args.action=='prepare':
         pending=control.next_pending()
         if not pending or control.row(pending)['state']=='prepared':
             claimed_entries(roots)
     elif args.action=='advance' and args.batch and control.row(args.batch)['state']=='prepared':
         claimed_entries(roots)
+    guard()
     os.environ['KAGGLE_API_TOKEN']=config['token_file']
     sys.path.insert(0,str(Path(config['source']).resolve()))
     from initialize_secrets import read_env
@@ -364,6 +373,8 @@ def main():
         # Both accounts claim articles under the same lock. The subprocess timeout
         # bounds waiting; a second worker must not fail merely because extraction is busy.
         fcntl.flock(lock,fcntl.LOCK_EX)
+        guard()
+        if recovery_only:manual_target(root,args.batch,time.time())
         if args.action=='resolve':
             if not args.batch:
                 raise ValueError('resolve requires --batch')
@@ -374,6 +385,7 @@ def main():
             if outstanding:
                 print(json.dumps({'existing_batch':outstanding}))
                 return
+            guard()
             claimed_entries(roots)
             from quota_guard import query_client
             quota_gate=query_client(control.client)
@@ -403,6 +415,7 @@ def main():
             # Retain the per-account cycle lock; release only cross-account lock.
             sample=asyncio.run(prepare_sample(config['source'],args.limit,claimed,allowed,config.get('analysis_only',False),config.get('independent_cards',False),lease_owner=lease_owner,on_claimed=lambda:fcntl.flock(lock,fcntl.LOCK_UN)))
             fcntl.flock(lock,fcntl.LOCK_EX)
+            guard()
             claimed=claimed_entries(roots)
             with sqlite3.connect(config['database'],timeout=15) as db:
                 owned={row[0] for row in db.execute('SELECT entry_id FROM kaggle_prepare_leases WHERE owner=? AND expires>?',(lease_owner,time.time()))}
@@ -436,6 +449,7 @@ def main():
                 manifest['dispatch_generation']=retired
             generation=recovery_generation(config['database'],manifest)
             if generation:manifest['infrastructure_retry_generation']=generation
+            guard()
             claimed_entries(roots)
             try:
                 batch=control.prepare(manifest,Path(__file__).with_name('batch_runner.py').read_text(encoding='utf-8'))
@@ -458,16 +472,23 @@ def main():
             print(json.dumps(row))
             return
         if row['state']=='prepared':
+            if recovery_only:raise DispatchStopped('manual_recovery_cannot_submit')
+            guard()
             print(json.dumps(control.submit(args.batch)))
             return
-        row=control.status(args.batch)
+        guard()
+        row=(control.status(args.batch,allow_retirement=False) if recovery_only
+             else control.status(args.batch))
         if row['state']=='retired':
             print(json.dumps(row));return
         if row['remote_status'] not in TERMINAL:
             print(json.dumps(row))
             return
         try:
+            guard()
             evidence=control.download(args.batch,salvage=True)
+        except DispatchStopped:
+            raise
         except Exception as exc:
             from recovery_policy import exception_code
             print(json.dumps(control.defer_local(args.batch,exception_code(exc))))
@@ -483,6 +504,7 @@ def main():
         atomic_json(folder/'business-validation.json',report)
         unchanged=asyncio.run(verify_upstream(config['source'],manifest))
         backup_before_import(config['database'],folder)
+        guard()
         outcome=import_validated(config['database'],business,report,unchanged)
         if any(item['kind']=='exception' for item in manifest['items']):
             from exception_audit import Audit
@@ -526,6 +548,8 @@ def main():
 
 
 def handle_failure(exc):
+    from dispatch_policy import DispatchStopped,ConfigGuard
+    if isinstance(exc,DispatchStopped):return exc.report()
     from recovery_policy import exception_code
     code=exception_code(exc)
     context=globals().get('BRIDGE_CONTEXT',{})
@@ -546,7 +570,9 @@ def handle_failure(exc):
     local_recovery=None
     if context.get('action')=='advance' and context.get('batch') and cfg.get('state_root'):
         try:
-            control=Controller(cfg['state_root'],cfg['owner'],kaggle_python=cfg['kaggle_python'])
+            guard=ConfigGuard(context['config_path'],cfg)
+            guard()
+            control=Controller(cfg['state_root'],cfg['owner'],kaggle_python=cfg['kaggle_python'],admission=guard)
             row=control.row(context['batch'])
             if row['remote_status'] in TERMINAL and row['state'] not in {'imported','resolved','retired'}:
                 local_recovery=control.defer_local(context['batch'],code)

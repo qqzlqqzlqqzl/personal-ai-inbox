@@ -61,7 +61,7 @@ class RecoveryTests(unittest.TestCase):
     @unittest.skipUnless(os.name=='posix','Linux audit lock')
     def test_cooldown_persists_without_repeated_remote_calls(self):
         root=folder();control=SimpleNamespace(root=root)
-        cfg={'exception_audit_root':str(root/'audit'),'owner':'o','batch_limit':20,'cycle_timeout_seconds':1000}
+        cfg={'schedule_enabled':True,'exception_audit_root':str(root/'audit'),'owner':'o','batch_limit':20,'cycle_timeout_seconds':1000}
         def fail(*args,**kwargs):raise ProviderError('quota')
         from unittest.mock import Mock
         call=Mock(side_effect=fail)

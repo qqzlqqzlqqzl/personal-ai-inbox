@@ -16,10 +16,10 @@
 
 ```sh
 cd /home/ubuntu/ai-news
-timeout 8000 runtime/venv/bin/python src/kaggle_batch/cloud_cycle.py --config src/kaggle_batch/cloud-config.json --manual
+timeout 8000 runtime/venv/bin/python src/kaggle_batch/cloud_cycle.py --config src/kaggle_batch/cloud-config.json --manual-recovery --batch EXISTING_BATCH_ID
 ```
 
-这是一个有限批次：默认最多选择 20 篇；空队列不启动 GPU。按 source_refs 保存输入版本，已完成评分不重算，可处理单独的翻译积压。新手灰度先将 `batch_limit` 设置为 3，再运行一次。不要同时从其他目录另起同一生产队列。
+这是明确授权的已有批次恢复，只能处理指定 ID，不 prepare、submit 或继续 drain 新工作。旧 `--manual` 宽泛绕过已关闭。新工作只能在严格 `schedule_enabled=true` 且无 pause 时走自动入口。按 source_refs 保存输入版本，已完成评分不重算，可处理单独的翻译积压。新手灰度先将 `batch_limit` 设置为 3，再运行一次。不要同时从其他目录另起同一生产队列。
 
 周期内相邻检查 sleep 660 秒；恢复已有任务也先等 660 秒。外层观察超时不等于 Kaggle 终止，下次仍处理原 ID。程序从云端独立执行；需要脱离 SSH 时由云端进程管理器执行同一命令，不由桌面持续轮询。
 
@@ -62,13 +62,13 @@ CLI 操作前应在同一进程环境中设置 KAGGLE_API_TOKEN 为私有 token 
 
 ## 6h / 12h 调度（保持关闭）
 
-配置支持 `interval_hours=6` 或 `12`。`schedule_enabled=false` 时，非 manual 调用在读取凭据/提交 GPU 前退出。模板位于 `ai-news-kaggle.service.example`；下列命令仅输出 timer 文本，不安装或启用：
+配置支持 `interval_hours=6` 或 `12`。`schedule_enabled=false`、缺失或非布尔 true 时，自动入口在 provider/service admission 前退出，包括旧批次恢复。长周期、子进程和 provider 边界重新核验 exact config 与 pause；停止返回不重置 recovery。明确 `--manual-recovery --batch ID` 只能恢复已有非 prepared ID，并保留 cooldown。`--reconcile-readonly` 只读自身账本，无 Controller、凭据、provider 或导入。模板位于 `ai-news-kaggle.service.example`；下列命令仅输出 timer 文本，不安装或启用：
 
 ```sh
 timeout 20 runtime/venv/bin/python src/kaggle_batch/cloud_cycle.py --config src/kaggle_batch/cloud-config.json --render-timer
 ```
 
-只有另行决定启用时，才安装 user service/timer 并修改开关。当前没有启用 Kaggle 定时任务。
+只有另行决定启用时，才安装 user service/timer 并修改开关。配置关闭与 timer 是否 enabled 是不同状态；本源码修复未查看或改变生产 timer。Month UI enabled 使用 effective schedule/pause；停止时额度仅读缓存。新 month service 模板没有 --manual，需要根独立审核后部署。参见 `docs/ops/kaggle/scheduler-stop-review.md`。
 
 ## 已测质量与额度限制
 

@@ -221,7 +221,7 @@ def test_same_id_recovery_does_not_need_missing_peer_or_resubmit(tmp_path,state)
 
 
 def bridge_config(tmp_path,root,peers):
-    cfg={'state_root':str(root),'peer_state_roots':[str(p) for p in peers],
+    cfg={'schedule_enabled':True,'state_root':str(root),'peer_state_roots':[str(p) for p in peers],
          'owner':'fixture','kaggle_python':'never','source':str(tmp_path),
          'database':str(tmp_path/'inbox.sqlite3'),'versions':str(tmp_path/'versions.json'),
          'token_file':'fixture-unused','model_dataset':'fixture/model',
@@ -292,7 +292,7 @@ def test_peer_disappears_during_extraction_without_exception_review(tmp_path,mon
 
 def topology(tmp_path,monkeypatch):
     roots=[tmp_path/key for key in scheduler.KEYS]
-    configs={key:{'state_root':str(root),'peer_state_roots':[str(p) for p in roots]} for key,root in zip(scheduler.KEYS,roots)}
+    configs={key:{'schedule_enabled':True,'state_root':str(root),'peer_state_roots':[str(p) for p in roots]} for key,root in zip(scheduler.KEYS,roots)}
     for root in roots:fresh(root)
     monkeypatch.setattr(scheduler,'ROOT',tmp_path)
     monkeypatch.setattr(scheduler,'STAGE',tmp_path/'stage')
@@ -325,7 +325,7 @@ def test_scheduler_block_starts_zero_services_including_recovery(tmp_path,monkey
 def test_scheduler_rechecks_after_snapshot_before_any_start(tmp_path,monkeypatch):
     roots,configs=topology(tmp_path,monkeypatch)
     monkeypatch.setattr(scheduler,'service_states',lambda *a:{})
-    lanes={k:{'active':False,'ready':True,'outstanding':{'state':'submit_unknown'},'retry_at':0,'cycle':{}} for k in scheduler.KEYS}
+    lanes={k:{'schedule_enabled':True,'active':False,'ready':True,'outstanding':{'state':'submit_unknown'},'retry_at':0,'cycle':{}} for k in scheduler.KEYS}
     def snapshot(*args):
         (roots[4]/'batches.sqlite3').unlink();return lanes
     monkeypatch.setattr(scheduler,'snapshot_lanes',snapshot)
@@ -429,7 +429,7 @@ def test_bridge_happy_prepare_publishes_with_all_fresh_peers(tmp_path,monkeypatc
 def test_scheduler_fresh_complete_topology_can_start_mock_service(tmp_path,monkeypatch):
     roots,configs=topology(tmp_path,monkeypatch)
     monkeypatch.setattr(scheduler,'service_states',lambda *a:{})
-    lanes={k:{'active':False,'ready':True,'outstanding':None,'retry_at':0,'cycle':{},'quota_gate':{'allowed':True}} for k in scheduler.KEYS}
+    lanes={k:{'schedule_enabled':True,'active':False,'ready':True,'outstanding':None,'retry_at':0,'cycle':{},'quota_gate':{'allowed':True}} for k in scheduler.KEYS}
     monkeypatch.setattr(scheduler,'snapshot_lanes',lambda *a:lanes)
     monkeypatch.setattr(scheduler,'due_entries',lambda *a:({1},set()))
     monkeypatch.setattr(scheduler,'queue_summary',lambda *a:{'next_item_retry':0,'analyses':{'waiting_model':1},'cards':{},'total':1})
@@ -539,7 +539,7 @@ def test_scheduler_cooldown_honored_then_complete_revalidation_clears_it(tmp_pat
     read_claims.assert_not_called();run.assert_not_called();starter.assert_not_called()
     assert claimed_entries(roots)=={99} and c.row(key)['state']=='submit_unknown'
     monkeypatch.setattr(scheduler,'service_states',lambda *a:{})
-    lanes={k:{'active':False,'ready':True,'outstanding':None,'retry_at':0,'cycle':{},'quota_gate':{'allowed':True}} for k in scheduler.KEYS}
+    lanes={k:{'schedule_enabled':True,'active':False,'ready':True,'outstanding':None,'retry_at':0,'cycle':{},'quota_gate':{'allowed':True}} for k in scheduler.KEYS}
     monkeypatch.setattr(scheduler,'snapshot_lanes',lambda *a:lanes)
     monkeypatch.setattr(scheduler,'due_entries',lambda *a:({1},set()))
     monkeypatch.setattr(scheduler,'queue_summary',lambda *a:{'next_item_retry':0,'analyses':{'waiting_model':1},'cards':{},'total':1})

@@ -153,7 +153,7 @@ class SchedulerGuardTests(unittest.TestCase):
             root=pathlib.Path(tmp);(root/'bad.json').write_text('{broken')
             def config(key):
                 if key=='third':return json.loads((root/'bad.json').read_text())
-                return {'state_root':str(root/key)}
+                return {'schedule_enabled':True,'state_root':str(root/key)}
             with patch.object(scheduler,'lane_config',side_effect=config), patch.object(scheduler,'query_config',return_value={'allowed':True,'state':'available'}):
                 lanes=scheduler.snapshot_lanes(time.time(),{k:'inactive' for k in scheduler.KEYS})
             self.assertFalse(lanes['third']['ready'])
@@ -166,7 +166,7 @@ class SchedulerGuardTests(unittest.TestCase):
             root=pathlib.Path(tmp);primary=root/'primary';primary.mkdir()
             with (primary/'cycle.lock').open('a') as lock:
                 fcntl.flock(lock,fcntl.LOCK_EX)
-                with patch.object(scheduler,'lane_config',side_effect=lambda key:{'state_root':str(root/key)}):
+                with patch.object(scheduler,'lane_config',side_effect=lambda key:{'schedule_enabled':True,'state_root':str(root/key)}):
                     lanes=scheduler.snapshot_lanes(time.time(),{k:'inactive' for k in scheduler.KEYS})
                 self.assertTrue(lanes['primary']['active'])
                 starts,_=scheduler.plan(lanes,60,0)
