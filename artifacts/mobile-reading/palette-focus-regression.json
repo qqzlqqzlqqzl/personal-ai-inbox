@@ -1,0 +1,16 @@
+{
+  "beforeHead": "5aaec317dca4a0b7b62d054436c94c32776fcb13",
+  "route": [
+    "desktop Quick Jump",
+    "AI 设置与资源看板",
+    "resize to 390px mobile",
+    "close settings"
+  ],
+  "beforeFailed": true,
+  "expected": ".ai-status-trigger focused",
+  "observedBefore": "inactive",
+  "beforeLogSha256": "6658b37b90a91a9edebc5465098d7d0a3924071e010533b0f02390ddc98e013f",
+  "hiddenOpenerRemainsConnected": true,
+  "afterFocusPassed": true,
+  "directSettingsRegressionRetained": true
+}

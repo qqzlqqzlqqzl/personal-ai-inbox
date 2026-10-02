@@ -3,5 +3,7 @@
   "files": 339,
   "sourceFiles": 221,
   "releaseFiles": 118,
-  "changed": []
+  "changed": [],
+  "beforeManifestSha256": "2a93dc572bff50d144e8c74d3e9ee3ae7cd43b3aba90559998e2572dbcef8f10",
+  "afterManifestSha256": "2a93dc572bff50d144e8c74d3e9ee3ae7cd43b3aba90559998e2572dbcef8f10"
 }
