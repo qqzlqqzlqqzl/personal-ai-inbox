@@ -34,7 +34,7 @@ await build({stdin:{contents:`export * from '${base}utils/session.js';export * f
   ofetch:`export const ofetch={create:hooks=>{boundary.hooks=hooks;return()=>{}}}`,
  }[path]??(()=>{throw Error('Unexpected '+path)})()}))
 }}]})
-const {startSession,clearSession,noteSession,confirmDraftLogout,getNoteRequestStamp}=createRequire(import.meta.url)(output)
+let {startSession,clearSession,resetSessionData,noteSession,confirmDraftLogout,getNoteRequestStamp}=createRequire(import.meta.url)(output)
 const React=web('react'),{act}=React,{createRoot}=web('react-dom/client')
 const auth={server:'https://reader.example.test/mf',token:'synthetic-token',username:'',password:''}
 const key=(owner,id,server=auth.server)=>'reader.note.draft:v1:'+encodeURIComponent(JSON.stringify([server,String(owner),String(id)]))
@@ -67,4 +67,44 @@ await test('explicit confirmed discard purges closed drafts; storage failure rep
  begin();closedDrafts();const original=dom.window.Storage.prototype.removeItem;dom.window.Storage.prototype.removeItem=function(){throw Error('denied')}
  try{const result=clearSession();assert.equal(result.ok,false);assert.equal(boundary.warnings.length,1);startSession(auth,'2.3.3',{id:1});assert.equal(noteSession.read(noteSession.acquire(101)),null)}finally{dom.window.Storage.prototype.removeItem=original}
 })
+
+function reloadLegacy(){
+ noteSession.dispose();boundary.auth.set({...auth});boundary.data.set({currentUser:null,identityAuthSessionKey:null,sessionRevision:0})
+ boundary.events=[];boundary.warnings=[];boundary.navigations=[];window.sessionStorage.clear()
+ const moduleRequire=createRequire(import.meta.url);delete moduleRequire.cache[output]
+ ;({startSession,clearSession,resetSessionData,noteSession,confirmDraftLogout,getNoteRequestStamp}=moduleRequire(output))
+ for(const eid of [101,102])window.sessionStorage.setItem(key(1,eid),JSON.stringify({version:1,note:'legacy closed '+eid,base:'server',at:Date.now()}))
+ for(const other of [key(2,101),key(1,101,'https://other.example.test/mf'),'other-feature'])window.sessionStorage.setItem(other,'keep')
+}
+await test('actual legacy first-refresh cancel permits verified migration; early explicit logout admits incomplete scoped cleanup',async()=>{
+ reloadLegacy();const snapshot=noteSession.inspect();assert.equal(snapshot.scopeKnown,false);assert.equal(snapshot.storageOK,false);assert.equal(noteSession.exportText(noteSession.context()),null)
+ confirmDraftLogout({title:'退出',description:'退出'});const props=boundary.modal;assert.equal(props.title,'退出前确认草稿清理限制');assert.equal(props.okText,'仍退出账号')
+ const root=createRoot(document.querySelector('#root'));await act(async()=>root.render(props.content));assert.match(document.body.textContent,/退出不能保证删除/);assert.equal(document.querySelector('button'),null)
+ props.afterClose();assert.equal(boundary.auth.get().token,auth.token);assert.ok(window.sessionStorage.getItem(key(1,101)))
+ await act(async()=>boundary.data.set({...boundary.data.get(),currentUser:{id:1},identityAuthSessionKey:JSON.stringify([auth.server,auth.token,auth.username,auth.password])}))
+ assert.equal(noteSession.inspect().count,2);assert.equal(noteSession.read(noteSession.acquire(101)).note,'legacy closed 101');await act(async()=>root.unmount())
+ reloadLegacy();const result=clearSession();assert.equal(result.ok,false);assert.equal(result.reason,'unverified_owner');assert.equal(result.removed,0);assert.equal(boundary.auth.get().token,'');assert.equal(boundary.warnings.length,1);assert.match(boundary.warnings[0].content,/尚未确认旧会话账号/)
+ for(const other of [key(1,101),key(1,102),key(2,101),key(1,101,'https://other.example.test/mf'),'other-feature'])assert.ok(window.sessionStorage.getItem(other))
+ startSession(auth,'2.3.3',{id:1});assert.equal(noteSession.read(noteSession.acquire(101)),null)
+})
+await test('actual pre-identity legacy 401 warns and logs out without deleting unverified owner scopes',async()=>{
+ reloadLegacy();const current={options:{}};boundary.hooks.onRequest(current)
+ await assert.rejects(boundary.hooks.onResponseError({...current,response:{status:401,statusText:'early legacy 401',_data:{}}}))
+ assert.equal(boundary.auth.get().token,'');assert.equal(boundary.warnings.length,1);assert.equal(noteSession.lastCleanup().scopeKnown,false)
+ assert.ok(window.sessionStorage.getItem(key(1,101)));assert.equal(window.sessionStorage.getItem(key(2,101)),'keep');assert.equal(boundary.navigations.length,1)
+})
+await test('actual removeItem denial warns on forced owner replacement, data reset and startSession without blocking leases',()=>{
+ begin();closedDrafts();const old=noteSession.acquire(103);noteSession.store(old,'owner one live','server');const revision=boundary.data.get().sessionRevision
+ const original=dom.window.Storage.prototype.removeItem;dom.window.Storage.prototype.removeItem=function(){throw Error('remove denied')}
+ try{
+  boundary.data.set({...boundary.data.get(),currentUser:{id:2}});assert.equal(boundary.data.get().sessionRevision,revision)
+  assert.equal(noteSession.lastCleanup().ok,false);assert.equal(boundary.warnings.length,1);assert.match(boundary.warnings[0].content,/无法保证物理删除/)
+  assert.ok(window.sessionStorage.getItem(key(1,101)));assert.equal(noteSession.store(old,'stale','server'),false)
+  const fresh=noteSession.acquire(201);assert.ok(fresh);noteSession.store(fresh,'owner two draft','server');assert.equal(noteSession.read(fresh).note,'owner two draft')
+  resetSessionData();assert.equal(boundary.warnings.length,2);assert.equal(noteSession.isCurrentLease(fresh),false);assert.equal(noteSession.acquire(201),null);assert.ok(boundary.auth.get().token)
+  boundary.data.set({...boundary.data.get(),currentUser:{id:2},identityAuthSessionKey:JSON.stringify([auth.server,auth.token,auth.username,auth.password])});assert.equal(noteSession.read(noteSession.acquire(201)),null)
+  startSession(auth,'2.3.3',{id:1});assert.equal(boundary.warnings.length,3);assert.equal(noteSession.editorContext().scope.owner,'1');assert.equal(noteSession.read(noteSession.acquire(101)),null)
+ }finally{dom.window.Storage.prototype.removeItem=original}
+})
+
 noteSession.dispose();await rm(directory,{recursive:true,force:true});dom.window.close()

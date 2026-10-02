@@ -1,4 +1,3 @@
-import { Notification } from "@arco-design/web-react"
 import { resetAuth, setAuth } from "@/store/authState"
 import { resetContent } from "@/store/contentState"
 import { commitIdentityData, resetData, setVerifiedServer } from "@/store/dataState"
@@ -19,7 +18,6 @@ export const clearSession = ({ expected } = {}) => {
   if (!result.retired) return result
   resetAuth()
   resetSessionData({ invalidate: false })
-  if (!result.ok) Notification.warning({ title: "已退出账号", content: "浏览器拒绝部分本地草稿清理。旧会话草稿已失效，但无法保证物理删除。" })
   return result
 }
 

@@ -27,7 +27,8 @@ function DraftNotice({ expected, description }) {
   return <div className="logout-draft-notice">
     <p>{description}</p>
     {snapshot.count > 0 && <p role="status">本标签页还有 {snapshot.count} 篇未同步笔记草稿，包括已经关闭的文章。确认退出会丢弃这些本地草稿。</p>}
-    {!snapshot.storageOK && <p role="alert">浏览器未允许完整读取本地草稿。可先导出当前可用备份，或取消退出；若清理被拒绝，旧会话草稿会失效，但无法保证浏览器物理删除。</p>}
+    {!snapshot.scopeKnown && <p role="alert">当前账号身份尚未确认，无法判断哪些旧版草稿属于本会话，退出不能保证删除这些本地草稿。可取消后重试身份验证；仍退出会让旧会话失效，但未识别草稿可能留在浏览器中。</p>}
+    {snapshot.scopeKnown && !snapshot.storageOK && <p role="alert">浏览器未允许完整读取本地草稿。可先导出当前可用备份，或取消退出；若清理被拒绝，旧会话草稿会失效，但无法保证浏览器物理删除。</p>}
     {snapshot.unreadableCount > 0 && <p role="status">另有无法读取的本地草稿；导出仅包含可读取内容。</p>}
     {snapshot.count > 0 && <button type="button" onClick={exportDrafts}>导出本地草稿</button>}
     {status && <p role="status">{status}</p>}
@@ -44,9 +45,9 @@ export function confirmDraftLogout({ title, description, onConfirm }) {
     ...confirmDialogProps,
     className: "note-logout-modal",
     style: { width: "min(520px, calc(100vw - 32px))", maxHeight: "calc(100dvh - 32px)", display: "inline-flex", flexDirection: "column" },
-    title: snapshot.count || !snapshot.storageOK ? "退出前处理未同步笔记" : title,
+    title: !snapshot.scopeKnown ? "退出前确认草稿清理限制" : snapshot.count || !snapshot.storageOK ? "退出前处理未同步笔记" : title,
     content: <DraftNotice expected={expected} description={description} />,
-    okText: snapshot.count || !snapshot.storageOK ? "丢弃本地草稿并退出" : "确认退出",
+    okText: !snapshot.scopeKnown ? "仍退出账号" : snapshot.count || !snapshot.storageOK ? "丢弃本地草稿并退出" : "确认退出",
     cancelText: "取消，保留会话",
     okButtonProps: { ...destructiveConfirmButtonProps, status: "danger" },
     onOk: () => {

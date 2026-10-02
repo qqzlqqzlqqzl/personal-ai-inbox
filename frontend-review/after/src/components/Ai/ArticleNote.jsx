@@ -6,6 +6,7 @@ import { dataState } from "@/store/dataState"
 import { contentState, setActiveContent, setEntries } from "@/store/contentState"
 import { noteSession } from "@/utils/note-session"
 import { MAX_NOTE } from "./note-drafts"
+import { requestWithNoteDeadline } from "./note-request"
 import "./AiNews.css"
 import "./ReviewWorkflows.css"
 
@@ -42,9 +43,9 @@ function NoteEditor({ entryId }) {
     const value = s.note, controller = new AbortController()
     s.saveController = controller; s.pending = true; s.queued = false
     if (s.alive) { setFailed(false); setStatus("正在保存…") }
-    apiClient.put(`/v1/ai/notes/${entryId}`, { note: value }, {
-      retry: 0, keepalive, timeout: 15000, signal: controller.signal,
-    }).then(result => {
+    requestWithNoteDeadline(controller, signal => apiClient.put(`/v1/ai/notes/${entryId}`, { note: value }, {
+      retry: 0, keepalive, signal,
+    })).then(result => {
       if (!currentSession()) return
       s.saved = value; syncNoteMeta(entryId, !!value.trim(), result.updated_at)
       if (s.note === value) {
@@ -69,7 +70,7 @@ function NoteEditor({ entryId }) {
     s.controller?.abort()
     const controller = new AbortController(); s.controller = controller
     setLoading(true); setFailed(false); setStatus("正在加载…")
-    apiClient.get(`/v1/ai/notes/${entryId}`, { retry: 0, signal: controller.signal, timeout: 15000 }).then(result => {
+    requestWithNoteDeadline(controller, signal => apiClient.get(`/v1/ai/notes/${entryId}`, { retry: 0, signal })).then(result => {
       if (!s.alive || !currentSession() || s.controller !== controller) return
       const value = typeof result.note === "string" ? result.note.slice(0, MAX_NOTE) : "", draft = noteSession.read(lease.current)
       s.saved = value; s.note = value; s.loaded = true
@@ -82,7 +83,8 @@ function NoteEditor({ entryId }) {
       }
       syncNoteMeta(entryId, !!value.trim(), result.updated_at)
     }).catch(() => {
-      if (!s.alive || !currentSession() || controller.signal.aborted) return
+      if (!s.alive || !currentSession() || s.controller !== controller ||
+        (controller.signal.aborted && controller.signal.reason?.name !== "TimeoutError")) return
       setStatus("笔记加载失败，可以重试；不会用空内容覆盖服务器。"); setFailed(true)
       const draft = noteSession.read(lease.current); if (draft) setBackup(draft.note)
     }).finally(() => {

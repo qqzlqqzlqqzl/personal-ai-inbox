@@ -19,12 +19,12 @@ function storage() {
     removeItem(key) { if (this.denied) throw Error("storage refused"); map.delete(key) },
     clear() { this.clearCalls++; throw Error("unscoped clear forbidden") } }
 }
-function fixture({ authValue = credentials, owner = 1, disk = storage(), revision = 7 } = {}) {
+function fixture({ authValue = credentials, owner = 1, disk = storage(), revision = 7, onRetire } = {}) {
   const auth = store({ ...authValue }), data = store({ currentUser: owner === null ? null : { id: owner },
     identityAuthSessionKey: owner === null ? "" : authKey(authValue), sessionRevision: revision })
   let id = 0
   const manager = createNoteSessionManager({ auth, data, authKey, validAuth: value => !!value.server && !!value.token,
-    getStorage: () => disk, newId: () => "fixture-session-" + ++id })
+    getStorage: () => disk, onRetire, newId: () => "fixture-session-" + ++id })
   return { auth, data, disk, manager, newAuth(user = { id: 1 }) {
     const value = createNoteSessionAuth(credentials, user, () => "new-login-" + ++id)
     auth.set(value); data.set({ ...data.get(), currentUser: user, identityAuthSessionKey: authKey(value) })
@@ -120,4 +120,26 @@ await test("data reset invalidates leases before reset and resumes only after ve
   f.data.set({ ...f.data.get(), currentUser: { id: 1 }, identityAuthSessionKey: authKey(f.auth.get()) })
   assert.notEqual(f.manager.acquire(101), null); f.manager.dispose()
 })
-console.log("Scoped note-session lifecycle: eight synthetic privacy regressions passed")
+
+await test("legacy first refresh without verified identity reports incomplete cleanup and never purges other owners",()=>{
+ const f=fixture({owner:null}),a=draftKey(credentials.server,1,101),b=draftKey(credentials.server,1,102),other=draftKey(credentials.server,2,101)
+ for(const key of [a,b,other])storeDraft(f.disk,key,"legacy closed secret","server")
+ const before=[...f.disk.map],snapshot=f.manager.inspect()
+ assert.equal(snapshot.scopeKnown,false);assert.equal(snapshot.storageOK,false);assert.equal(snapshot.reason,"unverified_owner");assert.equal(f.manager.exportText(f.manager.context()),null)
+ const result=f.manager.end();assert.equal(result.ok,false);assert.equal(result.scopeKnown,false);assert.equal(result.removed,0);assert.deepEqual([...f.disk.map],before)
+ f.newAuth();assert.equal(f.manager.read(f.manager.acquire(101)),null);assert.equal(f.disk.clearCalls,0);f.manager.dispose()
+})
+await test("cancelled legacy logout can safely migrate after identity verifies and only delete that owner scope",()=>{
+ const f=fixture({owner:null}),a=draftKey(credentials.server,1,101),other=draftKey(credentials.server,2,101)
+ storeDraft(f.disk,a,"legacy own draft","server");storeDraft(f.disk,other,"other owner draft","server")
+ const stamp=f.manager.requestStamp();f.data.set({...f.data.get(),currentUser:{id:1},identityAuthSessionKey:authKey(f.auth.get())})
+ assert.equal(f.manager.requestStamp(),stamp);assert.equal(f.manager.inspect().scopeKnown,true);assert.equal(f.manager.read(f.manager.acquire(101)).note,"legacy own draft")
+ assert.equal(f.manager.end().ok,true);assert.equal(f.disk.getItem(a),null);assert.notEqual(f.disk.getItem(other),null);f.manager.dispose()
+})
+
+await test("silent storage deletion refusal is verified and reported without reviving retired writers",()=>{
+ const reports=[],f=fixture({onRetire:value=>reports.push(value)}),old=f.manager.acquire(101)
+ f.manager.store(old,"retained plaintext","server");f.disk.removeItem=()=>{}
+ const result=f.manager.end();assert.equal(result.ok,false);assert.equal(reports.length,1);assert.equal(reports[0].ok,false);assert.equal(f.manager.isCurrentLease(old),false)
+ assert.equal(readDraft(f.disk,old.key).note,"retained plaintext");f.manager.dispose()
+})

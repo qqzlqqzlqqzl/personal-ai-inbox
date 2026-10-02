@@ -98,7 +98,10 @@ jobs:
       - name: Session-owned note privacy and explicit logout regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/note_session_browser_acceptance.py
+        run: |
+          python tests/note_session_browser_acceptance.py
+          python tests/note_request_recovery_browser.py
+          python tests/note_legacy_browser_acceptance.py
       - name: Search IME and cancel regression in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -141,6 +144,8 @@ jobs:
             runtime/review-console/
             runtime/review-reading/
             runtime/note-session-privacy/
+            runtime/note-request-recovery/
+            runtime/note-legacy-*/
             runtime/search-ime-*/
             runtime/sort-*/
             runtime/sort-component.json

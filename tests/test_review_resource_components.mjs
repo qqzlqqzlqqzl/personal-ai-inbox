@@ -178,4 +178,46 @@ await test('privacy old closed pending writer cannot remove a reopened same-acco
  await act(async()=>{fixture.noteManager.end();root.unmount()})
 })
 
+
+await test('deadline hung PUT releases pending, preserves queued latest draft and enables explicit retry; late old success is ignored',async()=>{
+ const root=setup();await act(async()=>root.render(React.createElement(ArticleNote,{entry:{id:101}})));await complete(request('101'),{note:'server'})
+ const realSet=globalThis.setTimeout,realClear=globalThis.clearTimeout,timers=new Map();let id=0
+ globalThis.setTimeout=(fn,ms)=>{timers.set(++id,{fn,ms});return id};globalThis.clearTimeout=id=>timers.delete(id)
+ const change=async value=>act(async()=>{const e=document.querySelector('textarea');Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value').set.call(e,value);e.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})
+ try{
+  await change('first hung');await click('立即保存笔记');const old=request('101');assert.equal(fixture.writes.length,1);assert.ok([...timers.values()].some(x=>x.ms===15000))
+  await change('latest queued');await click('立即保存笔记');assert.equal(fixture.writes.length,1)
+  await act(async()=>{for(const [key,item]of [...timers])if(item.ms===15000){timers.delete(key);item.fn()}})
+  assert.equal(old.options.signal.aborted,true);assert.match(document.body.textContent,/保存未完成/);assert.equal(fixture.noteManager.inspect().notes[0].note,'latest queued');assert.equal(fixture.writes.length,1)
+  await click('重试保存');const retry=request('101');assert.notEqual(retry,old);assert.equal(retry.body.note,'latest queued');assert.equal(fixture.writes.length,2)
+  await complete(old,{updated_at:'late timed-out success'});assert.match(document.body.textContent,/正在保存/);assert.equal(fixture.noteManager.inspect().count,1)
+  await complete(retry,{updated_at:'current success'});assert.match(document.body.textContent,/已保存/);assert.equal(fixture.noteManager.inspect().count,0);assert.ok(![...timers.values()].some(x=>x.ms===15000))
+ }finally{await act(async()=>{fixture.noteManager.end();root.unmount()});globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear}
+})
+await test('deadline logout clears hung PUT deadline and queue; no timer or late response can affect relogin',async()=>{
+ const root=setup();await act(async()=>root.render(React.createElement(ArticleNote,{entry:{id:101}})));await complete(request('101'),{note:'server'})
+ const realSet=globalThis.setTimeout,realClear=globalThis.clearTimeout,timers=new Map();let id=0
+ globalThis.setTimeout=(fn,ms)=>{timers.set(++id,{fn,ms});return id};globalThis.clearTimeout=id=>timers.delete(id)
+ try{
+  const e=document.querySelector('textarea');await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value').set.call(e,'hung draft');e.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})
+  await click('立即保存笔记');const old=request('101');await click('立即保存笔记')
+  await act(async()=>{fixture.noteManager.end();fixture.auth.set({server:'',token:'',username:''});fixture.revision++;fixture.data.set({currentUser:null});root.render(null)})
+  assert.equal(old.options.signal.aborted,true);assert.ok(![...timers.values()].some(x=>x.ms===15000||x.ms===700));assert.equal(window.sessionStorage.length,0)
+  await act(async()=>{fixture.auth.set(createNoteSessionAuth({server:'https://reader.example.test/mf',token:'test',username:''},{id:1}));fixture.data.set({currentUser:{id:1},identityAuthSessionKey:JSON.stringify(['https://reader.example.test/mf','test','',undefined])});root.render(React.createElement(ArticleNote,{entry:{id:101},key:'relogin'}))})
+  await complete(request('101'),{note:'new server'});const metadata=JSON.stringify(fixture.content);await complete(old,{updated_at:'old after logout'})
+  assert.equal(document.querySelector('textarea').value,'new server');assert.equal(JSON.stringify(fixture.content),metadata);assert.equal(fixture.writes.length,1);assert.ok(![...timers.values()].some(x=>x.ms===15000||x.ms===700))
+ }finally{await act(async()=>{fixture.noteManager.end();root.unmount()});globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear}
+})
+await test('deadline hung GET terminates loading, allows reload and never accepts late timed-out content',async()=>{
+ const root=setup(),realSet=globalThis.setTimeout,realClear=globalThis.clearTimeout,timers=new Map();let id=0
+ globalThis.setTimeout=(fn,ms)=>{timers.set(++id,{fn,ms});return id};globalThis.clearTimeout=id=>timers.delete(id)
+ try{
+  await act(async()=>root.render(React.createElement(ArticleNote,{entry:{id:101}})));const old=request('101')
+  await act(async()=>{for(const [key,item]of [...timers])if(item.ms===15000){timers.delete(key);item.fn()}})
+  assert.equal(old.options.signal.aborted,true);assert.match(document.body.textContent,/笔记加载失败/);assert.equal(button('重新加载笔记').disabled,false)
+  await click('重新加载笔记');const fresh=request('101');await complete(old,{note:'stale hung GET'});await complete(fresh,{note:'fresh GET'})
+  assert.equal(document.querySelector('textarea').value,'fresh GET');assert.equal(timers.size,0)
+ }finally{await act(async()=>{fixture.noteManager.end();root.unmount()});globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear}
+})
+
 await rm(directory,{recursive:true,force:true});dom.window.close()

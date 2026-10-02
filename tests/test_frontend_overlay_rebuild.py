@@ -230,18 +230,23 @@ def test_historical_selector_nearby_unknown_variants_fail_closed(tmp_path, monke
 
 SESSION_PRIVACY_BASELINE = "0d77969743868cd4ff859a4aec2784115c8c49c8"
 
-def test_released_closed_draft_baseline_upgrade_preserves_backups_and_equals_pristine(tmp_path, monkeypatch):
+@pytest.mark.parametrize("baseline", [SESSION_PRIVACY_BASELINE, "8faaefaf58fa8aff6c598bb5e29c8a3b2224784c"])
+def test_known_closed_draft_baseline_upgrade_preserves_backups_and_equals_pristine(tmp_path, monkeypatch, baseline):
     isolated = tmp_path / "released-draft-upgrade"
     web = _pinned_checkout(isolated)
     archive = subprocess.check_output([
-        "git", "-C", str(ROOT), "archive", "--format=tar", SESSION_PRIVACY_BASELINE,
+        "git", "-C", str(ROOT), "archive", "--format=tar", baseline,
         "src", "patches", "frontend-review",
     ])
     with tarfile.open(fileobj=io.BytesIO(archive)) as source:
         source.extractall(isolated, filter="data")
     monkeypatch.setenv("AI_NEWS_ROOT", str(isolated))
     _apply_authoring(isolated)
-    assert hashlib.sha256((web / "src/components/Ai/note-drafts.js").read_bytes()).hexdigest() == "632c6ee65f2ea9369bcfc89e896db490e36b3eba8c36b904e21f041c10bded51"
+    expected_helper = {
+        SESSION_PRIVACY_BASELINE: "632c6ee65f2ea9369bcfc89e896db490e36b3eba8c36b904e21f041c10bded51",
+        "8faaefaf58fa8aff6c598bb5e29c8a3b2224784c": "726fdf1937518a6bbbd418716c8a303a406cfe4a37c0ea3184fa84310806995a",
+    }
+    assert hashlib.sha256((web / "src/components/Ai/note-drafts.js").read_bytes()).hexdigest() == expected_helper[baseline]
     backups = _source_bytes(isolated / "runtime/reactflux-original")
     for name in ("src", "patches", "frontend-review"):
         shutil.rmtree(isolated / name)
@@ -264,6 +269,7 @@ def test_released_closed_draft_baseline_upgrade_preserves_backups_and_equals_pri
 @pytest.mark.parametrize("relative", [
     "src/utils/session.js", "src/apis/ofetch.js", "src/components/Ai/note-drafts.js",
     "src/components/HomeRedirect.jsx", "src/pages/RouterProtect.jsx", "src/components/Sidebar/Profile.jsx",
+    "src/components/Ai/note-session-core.js", "src/utils/note-session.js", "src/components/Ai/note-request.js",
 ])
 def test_session_privacy_unknown_drift_refuses_every_overlay_write(tmp_path, relative):
     isolated = tmp_path / "privacy-drift"

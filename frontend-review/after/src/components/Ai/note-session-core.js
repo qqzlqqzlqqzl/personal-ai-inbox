@@ -21,7 +21,7 @@ export function createNoteSessionAuth(auth, currentUser, newId = uniqueId) {
 // recovery of a physically undeletable old draft after a new login.
 export function createNoteSessionManager({
   auth, data, authKey, validAuth, getRevision = () => data.get().sessionRevision,
-  getStorage = () => window.sessionStorage, newId = uniqueId,
+  getStorage = () => window.sessionStorage, newId = uniqueId, onRetire = () => {},
 }) {
   let current = null, epoch = 0, blockedId = null, blockedKey = null, syncing = false
   let hasRetired = false, disposed = false, lastCleanup = { ok: true, removed: 0 }
@@ -48,7 +48,11 @@ export function createNoteSessionManager({
     for (const key of memory.keys()) if (matchesScope(key, scope)) keys.add(key)
     let ok = found.ok, removed = 0
     for (const key of keys) {
-      try { target.removeItem(key); removed++ } catch { ok = false }
+      try {
+        target.removeItem(key)
+        if (target.getItem(key) !== null) throw new Error("Local draft deletion could not be verified")
+        removed++
+      } catch { ok = false }
       memory.delete(key); knownKeys.delete(key)
     }
     return { ok, removed }
@@ -60,7 +64,13 @@ export function createNoteSessionManager({
     current = null; epoch++; hasRetired = true
     // Invalidate synchronously before storage, auth resets, or editor unmounts.
     invalidateWriters()
-    lastCleanup = purge(scope ?? outgoing?.scope)
+    const outgoingScope = scope ?? outgoing?.scope
+    const hasOutgoingSession = !!outgoing || validAuth(auth.get())
+    lastCleanup = !outgoingScope && hasOutgoingSession
+      ? { ok: false, removed: 0, scopeKnown: false, reason: "unverified_owner" }
+      : { ...purge(outgoingScope), scopeKnown: true }
+    // Reporting cannot prevent required retirement, logout, or scope replacement.
+    try { onRetire(lastCleanup) } catch {}
     notify()
     return lastCleanup
   }
@@ -180,6 +190,10 @@ export function createNoteSessionManager({
     inspect(expected = context()) {
       const value = sync()
       if (!matchesContext(expected)) return { current: false, notes: [], count: 0, storageOK: true }
+      if (!value.scope) return {
+        current: true, scope: null, scopeKnown: false, notes: [], count: 0,
+        storageOK: false, reason: "unverified_owner",
+      }
       const target = storage(), found = value.scope ? scopeKeys(target, value.scope.server, value.scope.owner) : { keys: [], ok: true }
       const keys = new Set(found.keys)
       for (const key of memory.keys()) if (matchesScope(key, value.scope)) keys.add(key)
@@ -195,11 +209,11 @@ export function createNoteSessionManager({
           notes.push({ entryId: draftScope(key).entryId, note: record.note, base: record.base, at: record.at })
         } else if (!record) unreadable.push(key)
       }
-      return { current: true, scope: value.scope, notes, count: notes.length, unreadableCount: unreadable.length, storageOK }
+      return { current: true, scope: value.scope, scopeKnown: true, notes, count: notes.length, unreadableCount: unreadable.length, storageOK }
     },
     exportText(expected) {
       const snapshot = this.inspect(expected)
-      if (!snapshot.current) return null
+      if (!snapshot.current || !snapshot.scopeKnown) return null
       return JSON.stringify({
         version: 1, kind: "本标签页未同步笔记草稿", exportedAt: new Date().toISOString(),
         server: snapshot.scope?.server, owner: snapshot.scope?.owner, notes: snapshot.notes,
