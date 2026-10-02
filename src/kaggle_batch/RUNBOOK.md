@@ -152,3 +152,12 @@ infrastructure counters; article attempts and unknown claims are unchanged. Test
 `test_required_ledgers.py` use temporary state and synthetic/mock providers,
 credentials, extraction, HTTP boundaries and systemctl; no GPU or production
 acceptance is implied by these tests.
+
+
+Admitted Chromium extraction fails closed on HTTP redirects because Playwright
+route callbacks do not cover automatic redirect hops. Its route.fetch is limited
+to one hop, and 3xx responses report browser_redirect_not_admitted; do not bypass
+this by removing admission. HTTPX transports retain checked redirect support.
+Scheduler, bridge live-scope loading and their error handlers reload admission
+before a new request/transaction/recovery mutation. A stop outranks an earlier
+ledger failure and does not replace existing recovery with local-state backoff.

@@ -39,6 +39,8 @@ MAX_ACTIVE=len(KEYS)
 BATCH_LIMIT=20
 
 
+from work_admission import check,options
+
 def read_json(path,default=None):
     path=Path(path)
     return json.loads(path.read_text()) if path.exists() else default
@@ -145,10 +147,12 @@ def snapshot_lanes(now,states,configs=None):
     return lanes
 
 
-def due_entries(now,config):
+def due_entries(now,config, *,admission=None):
+    check(admission)
     claimed=claimed_entries(required_roots(config))
-    allow=set(resolve_entry_ids(config) or [])
+    allow=set(resolve_entry_ids(config,**options(admission)) or [])
     if not allow:return set(),set()
+    check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         rows=db.execute("""SELECT DISTINCT a.entry_id FROM analyses a
             LEFT JOIN card_translations c ON c.entry_id=a.entry_id AND c.user_id=a.user_id
@@ -159,6 +163,7 @@ def due_entries(now,config):
                     AND c.next_try<=? AND c.attempts<3))""",(now,now)).fetchall()
     due={int(row[0]) for row in rows}&allow
     if config.get('qwen_exception_review'):
+        check(admission)
         with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
             has_reviews=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='qwen_exception_reviews'").fetchone()
             if has_reviews:
@@ -172,6 +177,7 @@ def due_entries(now,config):
                     WHERE state IN ('requires_fulltext_adapter','insufficient_content')
                        OR (state='fetch_error' AND attempts>=3)""").fetchall()
         due|={int(row[0]) for row in rows}&allow
+    check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kaggle_prepare_leases'").fetchone()
         leased={r[0] for r in db.execute('SELECT entry_id FROM kaggle_prepare_leases WHERE expires>?',(now,))} if exists else set()
@@ -179,10 +185,12 @@ def due_entries(now,config):
     return due-claimed,due&claimed
 
 
-def queue_summary(now,config):
-    ids=resolve_entry_ids(config) or []
+def queue_summary(now,config, *,admission=None):
+    check(admission)
+    ids=resolve_entry_ids(config,**options(admission)) or []
     if not ids:return {'analyses':{},'cards':{},'next_item_retry':0,'total':0}
     marks=','.join('?' for _ in ids)
+    check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         analyses=dict(db.execute(f'SELECT state,count(*) FROM analyses WHERE entry_id IN ({marks}) GROUP BY state',ids))
         cards=dict(db.execute(f'SELECT status,count(*) FROM card_translations WHERE entry_id IN ({marks}) GROUP BY status',ids))
@@ -255,7 +263,23 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
     if (STAGE/'paused.json').exists():
         return {'state':'paused','started':[],'at':now}
     state_path=ROOT/'state/kaggle-month-dispatch/scheduler.json'
+    configs=None
     def blocked(exc,started=None):
+        # A concurrent stop outranks the earlier ledger failure. Preserve its
+        # existing recovery record instead of opening a new local-state retry.
+        current=None
+        try:
+            current=schedule_snapshot()
+            schedule_admission(current)
+            if configs is not None and config_fingerprint(current)!=config_fingerprint(configs):
+                raise DispatchStopped('configuration_changed')
+        except DispatchStopped as stop:return stopped(stop,started)
+        except DispatchBlocked:
+            # An unchanged malformed topology is still a typed local error.
+            # A changed configuration cannot authorize error-path mutation.
+            if current is None:return stopped(DispatchStopped('configuration_unavailable'),started)
+            if configs is not None and config_fingerprint(current)!=config_fingerprint(configs):
+                return stopped(DispatchStopped('configuration_changed'),started)
         report={**block_with_backoff(state_path.parent,exc,now=now),'started':started or [],'at':now}
         atomic_json(state_path,report)
         return report
@@ -299,10 +323,13 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
     states=service_states(run);lanes=snapshot_lanes(now,states,configs)
     cfg=configs['primary']
     try:
-        due,claimed=due_entries(now,cfg)
+        due,claimed=due_entries(now,cfg,admission=lambda:revalidate_schedule(configs))
+    except DispatchStopped as exc:return stopped(exc)
     except DispatchBlocked as exc:
         return blocked(exc)
-    summary=queue_summary(now,cfg)
+    try:summary=queue_summary(now,cfg,admission=lambda:revalidate_schedule(configs))
+    except DispatchStopped as exc:return stopped(exc)
+    except DispatchBlocked as exc:return blocked(exc)
     previous=read_json(state_path,{}) or {};cursor=int(previous.get('cursor',0))%len(KEYS)
     starts,new_cursor=plan(lanes,len(due),cursor)
     started=[];failures=[]
@@ -326,6 +353,9 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
     except DispatchBlocked as exc:return blocked(exc,started)
     # A stopped tick is not a successful reset of persisted recovery.
     if recovery:
+        try:revalidate_schedule(configs)
+        except DispatchStopped as exc:return stopped(exc,started)
+        except DispatchBlocked as exc:return blocked(exc,started)
         atomic_json(recovery_path,{'failures':0,'retry_at':0,'at':now})
     times=[v for lane in lanes.values() for v in (lane['retry_at'],lane.get('local_retry_at',0)) if v>now]
     if summary['next_item_retry']:times.append(summary['next_item_retry'])
@@ -348,6 +378,9 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
                 'state_error':lane.get('state_error')} for key,lane in lanes.items()}}
     atomic_json(state_path,report)
     if started or failures:
+        try:revalidate_schedule(configs)
+        except DispatchStopped as exc:return stopped(exc,started)
+        except DispatchBlocked as exc:return blocked(exc,started)
         Audit(ROOT/'state/qwen-exception-audit').append('scheduler_tick',
             started=started,start_failures=failures,due_unclaimed=len(due),due_claimed=len(claimed))
     return report

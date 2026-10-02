@@ -5,7 +5,15 @@ Issue #94 fixes the confirmed released source defect at
 Library `libfile_732a97fa398c819193e8befa6b1f7bdf` v0 was materialized through
 Library prepare_materialize into `/tmp/scheduler-stop-admission-evidence`.
 Its SHA256 is `8bddca8048eb4af74f6cdda56bc11b13011b6f6b0308e4933ace6fadf2536f39`.
-No production unit/config/provider commands were run by this repair.
+No production unit/config/provider changes were authorized. An accidental
+`lane_scheduler.py --help` invocation did execute tick because the script does
+not parse arguments: it rewrote scheduler.json to schedule_disabled, gpu_started
+false and started []. The existing empty scheduler.lock timestamp did not change;
+no recovery.json was present. It was not reverted without the prior contents.
+Evidence: /tmp/scheduler-stop-admission-evidence/accidental-scheduler-entrypoint.json.
+This boundary violation requires root review; no service/provider call occurred
+in that disabled tick. Subsequent entrypoint checks run only imported code with
+explicit temporary ROOT/config fixtures.
 Searches for schedule_enabled, stop scheduler and watchdog found no duplicate;
 #52 is the completed scheduler migration, not this admission defect.
 
@@ -70,7 +78,12 @@ are not a distributed transaction: a previously admitted service can already be
 queued via systemctl --no-block. Its worker rechecks before work. An in-flight
 request or transaction admitted before stop may finish; the next request or
 transaction rechecks. HTTP admission also covers nested source clients and
-redirect hops, browser request routes, per-article writes and card enqueue.
+every HTTPX redirect hop, per-article writes and card enqueue. Chromium route
+callbacks do not cover automatic redirect hops. Admitted browser requests use
+route.fetch(max_redirects=0,max_retries=0), recheck stop, and abort every 3xx
+response with browser_redirect_not_admitted. This deliberately reduces browser
+redirect compatibility; direct articles work, and HTTPX transports still permit
+admitted redirects. No claim of browser automatic redirect admission is made.
 Business and exception imports check before each item transaction; the first
 committed item/receipt is preserved if stop prevents the next item. Failure
 handlers recheck before any audit/backoff mutation. Lease cleanup skips a new
@@ -86,7 +99,7 @@ No authentication, permissions, SQL schema or production setting was changed.
 
 ## Validation and handoff
 
-All tests use temporary state and mocks for provider, systemctl, HTTP,
+Unit tests use temporary state and mocks for provider, systemctl, HTTP,
 credentials and clock. External IPv4/IPv6 sockets are prohibited locally.
 Positive legacy test fixtures now explicitly declare schedule_enabled true;
 their behavioral assertions are retained. Full Kaggle and month/watchdog targeted
@@ -124,3 +137,40 @@ CI, which supplies both. This is not treated as a successful whole-suite run.
 Revised targeted verification: **455 passed + 59 subtests, no skip**, covering
 all six reviewed cases and affected source helpers. Evidence:
 `/tmp/scheduler-stop-admission-evidence/revision-targeted-final.{log,xml}`.
+
+
+## Additional independent review boundaries
+
+The scheduler error handler now reloads current admission before local-state
+backoff. A concurrent disabled/pause/identity change preserves a seeded network
+failure count 17 and retry bytes. Live-scope credential loading, synchronous
+HTTPX requests (including each redirect), temporary SQLite work and scheduler
+scope/summary paths use the same optional guard. Bridge rechecks immediately
+before resolving enabled feeds after the post-backup ledger read.
+
+Actual Chromium admission tests serve only a synthetic localhost article and
+307 redirect. Direct extraction succeeds; enabled/stop-during-response redirect
+cases each make zero landing requests. They run after CI Chromium installation.
+
+Hosted 794ffaa attempt 1 passed 916 Python tests + 161 subtests, JavaScript,
+components, build, CJK and prior browser suites, but failed mobile reading at
+helper panel() after desktop-to-mobile resize. Calendar steps did not run.
+The exact failed build was recovered from artifact 11222744808, run36999554104,
+SHA256 967c68f613f249a5b1efbe5d786a3636f9e6b007f9b88ba07d21c630b9f2da84.
+Its failure screenshot shows the rendered compact toolbar with the status modal
+closed, without a page crash. A natural 20-transition probe did not reproduce
+this timing. A controlled delayed matchMedia listener on this same build proves
+the old helper branches on count0 while viewport is compact, then has no settings
+button after the event commits. The helper now waits for the expected visible
+responsive opener. The controlled regression retains one modal, focus and zero
+API-write assertions; original mobile assertions and timeouts are unchanged.
+This is a synchronization repair, not a blanket flaky classification. Exact new
+head hosted CI is required before handing off any release recommendation.
+
+
+Final follow-up local verification: **465 passed + 59 subtests, no skips**,
+29.98 seconds. Log/XML: followup-targeted-final.{log,xml}. Real Chromium direct
+and redirect admission passed; controlled panel transition passed; original
+mobile --focus on the exact failed CI build passed with all focus/layout/fulltext
+assertions retained. These browser tests use synthetic localhost/mock API only.
+New exact-head hosted CI and independent source approval remain required.

@@ -3,7 +3,7 @@
 One admitted request/transaction may finish. The next operation rechecks current
 policy. Default callers keep their existing behavior.
 """
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager,contextmanager
 
 class AdmissionStopped(Exception):
     pass
@@ -54,3 +54,37 @@ def http_client(admission=None,**kwargs):
     # HTTPX hooks run on every redirect hop as well as the first request.
     client=httpx.AsyncClient(event_hooks=hooks,**kwargs)
     return _AdmittedClient(client,admission)
+
+
+class _AdmittedSyncClient:
+    def __init__(self,client,admission):
+        self.client,self.admission=client,admission
+    def __getattr__(self,name):
+        value=getattr(self.client,name)
+        if name not in {'get','post','put','patch','delete','head','options','request','send'}:return value
+        def request(*args,**kwargs):
+            check(self.admission)
+            result=value(*args,**kwargs)
+            check(self.admission)
+            return result
+        return request
+    @contextmanager
+    def stream(self,*args,**kwargs):
+        check(self.admission)
+        with self.client.stream(*args,**kwargs) as response:
+            check(self.admission)
+            yield response
+    def __enter__(self):
+        check(self.admission)
+        self.client.__enter__()
+        return self
+    def __exit__(self,*args):return self.client.__exit__(*args)
+
+def sync_http_client(admission=None,**kwargs):
+    import httpx
+    check(admission)
+    if admission is None:return httpx.Client(**kwargs)
+    hooks={key:list(value) for key,value in kwargs.pop('event_hooks',{}).items()}
+    def before_request(request):check(admission)
+    hooks.setdefault('request',[]).insert(0,before_request)
+    return _AdmittedSyncClient(httpx.Client(event_hooks=hooks,**kwargs),admission)

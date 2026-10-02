@@ -272,7 +272,7 @@ def test_peer_disappears_during_extraction_without_exception_review(tmp_path,mon
     monkeypatch.setattr('quota_guard.query_client',lambda *a:{'allowed':True})
     monkeypatch.setattr(cloud_bridge,'validate_model_config',lambda *a:None)
     monkeypatch.setattr(cloud_bridge,'backup_before_import',lambda *a:None)
-    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a:[1])
+    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a,**kw:[1])
     async def extract(*args,**kwargs):
         kwargs['on_claimed']()
         if phase=='extraction':((peer if lost=='peer' else root)/'batches.sqlite3').unlink()
@@ -329,8 +329,8 @@ def test_scheduler_rechecks_after_snapshot_before_any_start(tmp_path,monkeypatch
     def snapshot(*args):
         (roots[4]/'batches.sqlite3').unlink();return lanes
     monkeypatch.setattr(scheduler,'snapshot_lanes',snapshot)
-    monkeypatch.setattr(scheduler,'due_entries',lambda *a:({1},set()))
-    monkeypatch.setattr(scheduler,'queue_summary',lambda *a:{'next_item_retry':0})
+    monkeypatch.setattr(scheduler,'due_entries',lambda *a,**kw:({1},set()))
+    monkeypatch.setattr(scheduler,'queue_summary',lambda *a,**kw:{'next_item_retry':0})
     starter=Mock()
     assert scheduler.tick(starter=starter,now=100)['state']=='dispatch_blocked'
     starter.assert_not_called()
@@ -410,7 +410,7 @@ def test_bridge_happy_prepare_publishes_with_all_fresh_peers(tmp_path,monkeypatc
     monkeypatch.setattr('quota_guard.query_client',lambda *a:{'allowed':True})
     monkeypatch.setattr(cloud_bridge,'validate_model_config',lambda *a:None)
     monkeypatch.setattr(cloud_bridge,'backup_before_import',lambda *a:None)
-    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a:[1])
+    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a,**kw:[1])
     monkeypatch.setattr(cloud_bridge,'build',lambda *a,**kw:manifest())
     async def extract(*args,**kwargs):
         with sqlite3.connect(cfg['database']) as db:
@@ -431,8 +431,8 @@ def test_scheduler_fresh_complete_topology_can_start_mock_service(tmp_path,monke
     monkeypatch.setattr(scheduler,'service_states',lambda *a:{})
     lanes={k:{'schedule_enabled':True,'active':False,'ready':True,'outstanding':None,'retry_at':0,'cycle':{},'quota_gate':{'allowed':True}} for k in scheduler.KEYS}
     monkeypatch.setattr(scheduler,'snapshot_lanes',lambda *a:lanes)
-    monkeypatch.setattr(scheduler,'due_entries',lambda *a:({1},set()))
-    monkeypatch.setattr(scheduler,'queue_summary',lambda *a:{'next_item_retry':0,'analyses':{'waiting_model':1},'cards':{},'total':1})
+    monkeypatch.setattr(scheduler,'due_entries',lambda *a,**kw:({1},set()))
+    monkeypatch.setattr(scheduler,'queue_summary',lambda *a,**kw:{'next_item_retry':0,'analyses':{'waiting_model':1},'cards':{},'total':1})
     starter=Mock()
     report=scheduler.tick(starter=starter,now=100)
     assert report['state']=='started' and report['started']==['primary']
@@ -541,8 +541,8 @@ def test_scheduler_cooldown_honored_then_complete_revalidation_clears_it(tmp_pat
     monkeypatch.setattr(scheduler,'service_states',lambda *a:{})
     lanes={k:{'schedule_enabled':True,'active':False,'ready':True,'outstanding':None,'retry_at':0,'cycle':{},'quota_gate':{'allowed':True}} for k in scheduler.KEYS}
     monkeypatch.setattr(scheduler,'snapshot_lanes',lambda *a:lanes)
-    monkeypatch.setattr(scheduler,'due_entries',lambda *a:({1},set()))
-    monkeypatch.setattr(scheduler,'queue_summary',lambda *a:{'next_item_retry':0,'analyses':{'waiting_model':1},'cards':{},'total':1})
+    monkeypatch.setattr(scheduler,'due_entries',lambda *a,**kw:({1},set()))
+    monkeypatch.setattr(scheduler,'queue_summary',lambda *a,**kw:{'next_item_retry':0,'analyses':{'waiting_model':1},'cards':{},'total':1})
     report=scheduler.tick(run=run,starter=starter,now=760)
     assert report['state']=='started' and report['started']==['primary']
     assert read_claims.call_count==2 # All roots both on entry and before starts.
@@ -604,7 +604,7 @@ def test_peer_claim_added_during_extraction_excludes_article_before_real_publish
     monkeypatch.setattr('quota_guard.query_client',lambda *a:{'allowed':True})
     monkeypatch.setattr(cloud_bridge,'validate_model_config',lambda *a:None)
     monkeypatch.setattr(cloud_bridge,'backup_before_import',lambda *a:None)
-    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a:[1,2])
+    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a,**kw:[1,2])
     published=[]
     def build(sample,*args,**kwargs):
         published.extend(row['entry_id'] for row in sample['samples'])

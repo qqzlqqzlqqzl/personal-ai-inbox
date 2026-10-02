@@ -340,7 +340,7 @@ async def _browser_slot(timeout=80, *,admission=None):
 
 async def _fetch_browser_locked(url,selector,remove,repeated, *,admission=None):
     try:
-        from playwright.async_api import async_playwright,TimeoutError as PlaywrightTimeoutError
+        from playwright.async_api import async_playwright,TimeoutError as PlaywrightTimeoutError,Error as PlaywrightError
     except ImportError as exc:
         raise FulltextUnavailable('browser_runtime_missing') from exc
     css=selector.split(':',1)[1]
@@ -359,12 +359,22 @@ async def _fetch_browser_locked(url,selector,remove,repeated, *,admission=None):
                 stopped=[]
                 if admission is not None:
                     async def admit_request(route):
-                        try:check(admission)
-                        except AdmissionStopped as exc:
+                        try:
+                            check(admission)
+                            # Playwright route callbacks omit automatic redirect
+                            # hops. Fetch one hop only; never hand a redirect to
+                            # the browser where it could bypass admission.
+                            response=await route.fetch(max_redirects=0,max_retries=0)
+                            check(admission)
+                            if 300<=response.status<400:
+                                raise FulltextUnavailable('browser_redirect_not_admitted')
+                            await route.fulfill(response=response)
+                        except (AdmissionStopped,FulltextUnavailable) as exc:
                             stopped.append(exc)
                             await route.abort()
-                            return
-                        await route.continue_()
+                        except PlaywrightError:
+                            stopped.append(FulltextUnavailable('browser_request_failed'))
+                            await route.abort()
                     await page.route('**/*',admit_request)
                 check(admission)
                 try:

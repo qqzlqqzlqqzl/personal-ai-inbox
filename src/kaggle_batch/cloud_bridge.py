@@ -428,7 +428,8 @@ def main():
             backup_before_import(config['database'],extraction_backup)
             guard()
             claimed=claimed_entries(roots)
-            allowed=resolve_entry_ids(config)
+            guard()
+            allowed=resolve_entry_ids(config,admission=guard)
             import uuid,atexit
             lease_owner=config['owner']+'-'+uuid.uuid4().hex
             def release_leases():

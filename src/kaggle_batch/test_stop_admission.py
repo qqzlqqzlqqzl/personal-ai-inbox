@@ -88,8 +88,8 @@ def scheduler_inputs(monkeypatch,configs):
     def quota(cfg,*,authorize):
         authorize();return {'allowed':True,'state':'available'}
     monkeypatch.setattr(scheduler,'query_config',quota)
-    monkeypatch.setattr(scheduler,'due_entries',lambda *a:({1},set()))
-    monkeypatch.setattr(scheduler,'queue_summary',lambda *a:{'next_item_retry':0,'analyses':{'waiting_model':1}})
+    monkeypatch.setattr(scheduler,'due_entries',lambda *a,**kw:({1},set()))
+    monkeypatch.setattr(scheduler,'queue_summary',lambda *a,**kw:{'next_item_retry':0,'analyses':{'waiting_model':1}})
 
 
 def test_enabled_scheduler_preserves_success_and_claims(tmp_path,monkeypatch):
@@ -292,7 +292,7 @@ def test_disable_during_extraction_blocks_manifest_publication(tmp_path,monkeypa
     monkeypatch.setattr('quota_guard.query_client',lambda *a:{'allowed':True})
     monkeypatch.setattr(cloud_bridge,'validate_model_config',lambda *a:None)
     monkeypatch.setattr(cloud_bridge,'backup_before_import',lambda *a:None)
-    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a:[1])
+    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',lambda *a,**kw:[1])
     async def extract(*args,**kwargs):
         kwargs['on_claimed']();change(path,schedule_enabled=False)
         return {'samples':[],'considered':1,'skipped':[],'next_retry_at':None}

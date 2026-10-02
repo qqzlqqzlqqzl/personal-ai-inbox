@@ -8,15 +8,20 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+if __package__ in (None,''):
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from work_admission import check,options,sync_http_client
 
 
-def enabled_feeds(config):
+def enabled_feeds(config, *,admission=None):
+    check(admission)
     import httpx
     sys.path.insert(0, str(Path(config['source']).resolve()))
     from initialize_secrets import read_env
     from worker import MF
+    check(admission)
     token = read_env('ai.env')['MINIFLUX_API_KEY']
-    with httpx.Client(timeout=10, trust_env=False, follow_redirects=False) as client:
+    with sync_http_client(admission,timeout=10, trust_env=False, follow_redirects=False) as client:
         response = client.get(MF + '/v1/feeds', headers={'X-Auth-Token': token})
         response.raise_for_status()
         feeds = response.json()
@@ -25,7 +30,8 @@ def enabled_feeds(config):
     return feeds
 
 
-def resolve_entry_ids(config):
+def resolve_entry_ids(config, *,admission=None):
+    check(admission)
     mode = config.get('queue_scope', 'allowlist')
     if mode == 'allowlist':
         path = config.get('entry_allowlist')
@@ -35,13 +41,15 @@ def resolve_entry_ids(config):
     uid = config.get('scope_user_id')
     if type(uid) is not int or uid < 1:
         raise ValueError('Live scope requires an explicit user id')
-    feeds = enabled_feeds(config)
+    feeds = enabled_feeds(config,**options(admission))
     ids = [f['id'] for f in feeds if type(f.get('id')) is int
            and f.get('user_id') == uid and not f.get('disabled', False)]
     if not ids:
         return []
+    check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',
                          uri=True, timeout=15) as db:
+        check(admission)
         # TEMP tables avoid SQLite variable limits for large subscription sets.
         db.execute('CREATE TEMP TABLE live_feed_ids(id INTEGER PRIMARY KEY)')
         db.executemany('INSERT OR IGNORE INTO live_feed_ids VALUES (?)', ((i,) for i in ids))

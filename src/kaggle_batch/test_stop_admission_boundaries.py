@@ -372,24 +372,26 @@ def test_browser_route_blocks_next_request_and_closes_on_stop(tmp_path,monkeypat
     async def route(pattern,callback):
         nonlocal handler
         handler=callback
-    async def proceed():
+    async def proceed(**kwargs):
+        assert kwargs=={'max_redirects':0,'max_retries':0}
         continued.append(True)
         path.write_text(json.dumps({**cfg,'schedule_enabled':False}))
+        return SimpleNamespace(status=200)
     async def abort():aborted.append(True)
     async def goto(*args,**kwargs):
-        await handler(SimpleNamespace(continue_=proceed,abort=abort))
-        await handler(SimpleNamespace(continue_=proceed,abort=abort))
+        await handler(SimpleNamespace(fetch=proceed,fulfill=AsyncMock(),abort=abort))
+        await handler(SimpleNamespace(fetch=proceed,fulfill=AsyncMock(),abort=abort))
         raise RuntimeError('aborted navigation')
     page=SimpleNamespace(route=route,goto=goto,content=AsyncMock(side_effect=AssertionError('no extraction after stop')))
     browser=SimpleNamespace(new_page=AsyncMock(return_value=page),close=AsyncMock())
     playwright=SimpleNamespace(chromium=SimpleNamespace(launch=AsyncMock(return_value=browser)))
     @contextlib.asynccontextmanager
     async def launch():yield playwright
-    monkeypatch.setitem(sys.modules,'playwright.async_api',SimpleNamespace(async_playwright=launch,TimeoutError=TimeoutError))
+    monkeypatch.setitem(sys.modules,'playwright.async_api',SimpleNamespace(async_playwright=launch,TimeoutError=TimeoutError,Error=RuntimeError))
     monkeypatch.setattr(fulltext_source,'_browser_executable',lambda:'fixture-browser')
     with pytest.raises(DispatchStopped,match='schedule_disabled'):
         asyncio.run(fulltext_source._fetch_browser_locked('https://fixture.invalid/article','@browser:article','',False,admission=ConfigGuard(path,cfg)))
-    assert continued==[True] and aborted==[True]
+    assert continued==[True] and aborted==[True,True]
     browser.close.assert_awaited_once()
     assert browser.new_page.call_args.kwargs['service_workers']=='block'
     page.content.assert_not_awaited()
@@ -406,3 +408,128 @@ def test_stopped_direct_cli_without_pythonpath_has_no_state_or_provider_work(tmp
     result=subprocess.run(args,cwd=tmp_path,env=env,capture_output=True,text=True,timeout=20)
     assert result.returncode==0 and json.loads(result.stdout)['state']=='schedule_disabled'
     assert result.stderr=='' and not (tmp_path/'absent-ledger').exists()
+
+
+@pytest.mark.parametrize('stop_kind',['disabled','pause','identity'])
+def test_scheduler_stop_during_failed_ledger_read_preserves_prior_retry(tmp_path,monkeypatch,stop_kind):
+    import lane_scheduler as scheduler
+    from test_required_ledgers import topology
+    roots,configs=topology(tmp_path,monkeypatch)
+    folder=scheduler.ROOT/'state/kaggle-month-dispatch';folder.mkdir(parents=True)
+    recovery=folder/'recovery.json';before=b'{"code":"network","failures":17,"retry_at":0,"at":0}'
+    recovery.write_bytes(before)
+    def failure(roots):
+        if stop_kind=='disabled':
+            for cfg in configs.values():cfg['schedule_enabled']=False
+        elif stop_kind=='pause':
+            scheduler.STAGE.mkdir(exist_ok=True);(scheduler.STAGE/'paused.json').write_text('{}')
+        else:
+            # Use independent config snapshots so identity change is detectable.
+            configs['primary']['owner']='changed'
+        raise DispatchBlocked('unreadable_ledger')
+    if stop_kind=='identity':
+        monkeypatch.setattr(scheduler,'schedule_snapshot',lambda:json.loads(json.dumps(configs)))
+    monkeypatch.setattr(scheduler,'claimed_entries',failure)
+    forbidden=Mock(side_effect=AssertionError('no provider, service or audit'))
+    monkeypatch.setattr(scheduler,'query_config',forbidden)
+    monkeypatch.setattr(scheduler,'Audit',forbidden)
+    report=scheduler.tick(run=forbidden,starter=forbidden,now=1000)
+    assert report['state']=={'disabled':'schedule_disabled','pause':'paused','identity':'configuration_changed'}[stop_kind]
+    assert report['started']==[] and recovery.read_bytes()==before
+    forbidden.assert_not_called()
+
+
+def test_real_bridge_stop_during_claim_read_prevents_live_feed_request(tmp_path,monkeypatch):
+    import live_scope,httpx
+    root=tmp_path/'own';Controller(root,'fixture',initialize=True)
+    path,cfg=configuration(tmp_path,root);cfg.update(queue_scope='all_enabled_feeds',scope_user_id=1)
+    path.write_text(json.dumps(cfg));Path(cfg['versions']).write_text('{}')
+    real=cloud_bridge.claimed_entries;calls=[]
+    def claims(roots):
+        result=real(roots);calls.append(True)
+        # At the pre-scope seam after backup, not the earlier pre-quota checks.
+        if len(calls)==3:path.write_text(json.dumps({**cfg,'schedule_enabled':False}))
+        return result
+    monkeypatch.setattr(cloud_bridge,'claimed_entries',claims)
+    monkeypatch.setattr('quota_guard.query_client',lambda *a:{'allowed':True})
+    monkeypatch.setattr(cloud_bridge,'validate_model_config',lambda *a:None)
+    monkeypatch.setattr(cloud_bridge,'backup_before_import',lambda *a:None)
+    monkeypatch.setattr(cloud_bridge,'resolve_entry_ids',live_scope.resolve_entry_ids)
+    read_env=Mock(return_value={})
+    monkeypatch.setitem(sys.modules,'initialize_secrets',SimpleNamespace(read_env=read_env))
+    client=Mock(side_effect=AssertionError('no live feed HTTP client'))
+    monkeypatch.setattr(httpx,'Client',client)
+    monkeypatch.setattr(sys,'argv',['cloud_bridge','--config',str(path),'prepare'])
+    with pytest.raises(DispatchStopped,match='schedule_disabled'):cloud_bridge.main()
+    assert len(calls)==3 and read_env.call_count==1 # Only already-admitted outer bridge proxy read.
+    client.assert_not_called()
+    assert claimed_entries([root])==set() and not list(root.glob('*/manifest.json'))
+
+
+@pytest.mark.parametrize('stop_on_first',[False,True])
+def test_sync_http_client_checks_actual_redirect_hop(tmp_path,stop_on_first):
+    import httpx
+    from work_admission import sync_http_client
+    path,cfg=configuration(tmp_path,tmp_path/'own');calls=[]
+    def response(request):
+        calls.append(str(request.url))
+        if len(calls)==1:
+            if stop_on_first:path.write_text(json.dumps({**cfg,'schedule_enabled':False}))
+            return httpx.Response(307,headers={'location':'https://fixture.invalid/landing'})
+        return httpx.Response(200,text='complete')
+    def run():
+        with sync_http_client(ConfigGuard(path,cfg),transport=httpx.MockTransport(response),follow_redirects=True) as client:
+            return client.get('https://fixture.invalid/start')
+    if stop_on_first:
+        with pytest.raises(DispatchStopped,match='schedule_disabled'):run()
+        assert calls==['https://fixture.invalid/start']
+    else:
+        assert run().text=='complete'
+        assert calls==['https://fixture.invalid/start','https://fixture.invalid/landing']
+
+
+@pytest.mark.parametrize('entrypoint',['due_entries','queue_summary'])
+def test_scheduler_live_scope_stop_before_credentials_or_http(tmp_path,monkeypatch,entrypoint):
+    import lane_scheduler as scheduler,live_scope,httpx
+    path,cfg=configuration(tmp_path,tmp_path/'own');cfg.update(queue_scope='all_enabled_feeds',scope_user_id=1)
+    path.write_text(json.dumps(cfg));guard=ConfigGuard(path,cfg)
+    def claims(roots):
+        path.write_text(json.dumps({**cfg,'schedule_enabled':False}));return set()
+    monkeypatch.setattr(scheduler,'claimed_entries',claims)
+    forbidden=Mock(side_effect=AssertionError('no credentials or HTTP after stop'))
+    monkeypatch.setitem(sys.modules,'initialize_secrets',SimpleNamespace(read_env=forbidden))
+    monkeypatch.setattr(httpx,'Client',forbidden)
+    if entrypoint=='queue_summary':path.write_text(json.dumps({**cfg,'schedule_enabled':False}))
+    with pytest.raises(DispatchStopped,match='schedule_disabled'):
+        getattr(scheduler,entrypoint)(1000,cfg,admission=guard)
+    forbidden.assert_not_called()
+
+
+def test_live_scope_stop_after_credential_load_has_zero_http(tmp_path,monkeypatch):
+    import live_scope,httpx
+    path,cfg=configuration(tmp_path,tmp_path/'own')
+    def read_env(name):
+        path.write_text(json.dumps({**cfg,'schedule_enabled':False}))
+        return {'MINIFLUX_API_KEY':'synthetic-unused-token'}
+    monkeypatch.setitem(sys.modules,'initialize_secrets',SimpleNamespace(read_env=read_env))
+    monkeypatch.setitem(sys.modules,'worker',SimpleNamespace(MF='https://fixture.invalid'))
+    client=Mock(side_effect=AssertionError('no client after stop during credential load'))
+    monkeypatch.setattr(httpx,'Client',client)
+    with pytest.raises(DispatchStopped,match='schedule_disabled'):
+        live_scope.enabled_feeds(cfg,admission=ConfigGuard(path,cfg))
+    client.assert_not_called()
+
+
+def test_live_scope_stop_at_sqlite_open_prevents_temp_write(tmp_path,monkeypatch):
+    import live_scope
+    path,cfg=configuration(tmp_path,tmp_path/'own');cfg.update(queue_scope='all_enabled_feeds',scope_user_id=1)
+    path.write_text(json.dumps(cfg));db=sqlite3.connect(':memory:')
+    monkeypatch.setattr(live_scope,'enabled_feeds',lambda *a,**kw:[{'id':7,'user_id':1}])
+    def connect(*a,**kw):
+        assert kw['uri'] is True and a[0].endswith('?mode=ro')
+        path.write_text(json.dumps({**cfg,'schedule_enabled':False}));return db
+    monkeypatch.setattr(live_scope.sqlite3,'connect',connect)
+    with pytest.raises(DispatchStopped,match='schedule_disabled'):
+        live_scope.resolve_entry_ids(cfg,admission=ConfigGuard(path,cfg))
+    assert db.execute('SELECT count(*) FROM sqlite_temp_master').fetchone()[0]==0
+    db.close()
