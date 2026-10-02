@@ -4,6 +4,8 @@ Native select events and a 390px viewport are automated browser coverage, not
 physical phone-picker or hardware-keyboard certification. CSS zoom is explicit.
 """
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect
@@ -97,7 +99,7 @@ for name, width, zoom in [('desktop', 1440, 1), ('mobile', 390, 1), ('desktop-cs
 
     try:
         h.goto()
-        today = p.evaluate('Math.floor(new Date(new Date().setHours(0,0,0,0)).getTime()/1000)')
+        today = int(datetime.now(ZoneInfo("Asia/Shanghai")).replace(hour=0,minute=0,second=0,microsecond=0).timestamp())
         if zoom == 2:
             p.evaluate("document.documentElement.style.zoom='2'")
         await_order([101, 103, 102])
