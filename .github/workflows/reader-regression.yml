@@ -41,6 +41,9 @@ jobs:
           python tests/build_ci_reader.py --prepare-only
           pnpm --dir upstream/reactflux install --frozen-lockfile --ignore-scripts
           npm install --prefix runtime/history-test-tools --ignore-scripts jsdom@26.1.0
+      - name: Fetch exact historical public overlay baseline
+        # Retain only the immutable source needed for baseline-to-target regression.
+        run: git fetch --no-tags --depth=1 origin da5a6222779517b92782bf19e2a2166801676fb4
       - name: Full isolated Python regression
         env:
           PYTHONPATH: src:src/kaggle_batch
