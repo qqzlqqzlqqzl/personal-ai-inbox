@@ -1,0 +1,32 @@
+{
+  "release": "c2b60447ae3038a1566d44a2ea36fb08f653e517",
+  "candidateSourceCommit": "343b8962b531859b8e18a79a0e658c5268fadb04",
+  "candidateSrcTree": "b8917d7424d4d163e411f012fbfca41c810c8f18",
+  "pairedCODE": "9c8fbec23f3c4c7ca388800e95c84d96a9984710",
+  "pairedSrcTree": "b8917d7424d4d163e411f012fbfca41c810c8f18",
+  "pairedPinChanged": false,
+  "defaultPairedSourceAdmission": "passed after full local regression and cleanup",
+  "releaseFilesByteIdentical": [
+    "docs/ops/kaggle/required-ledger-review.md",
+    "src/kaggle_batch/RUNBOOK.md",
+    "src/kaggle_batch/batch_control.py",
+    "src/kaggle_batch/cloud_bridge.py",
+    "src/kaggle_batch/cloud_cycle.py",
+    "src/kaggle_batch/lane_scheduler.py",
+    "src/kaggle_batch/queue_dispatch.py",
+    "src/kaggle_batch/recovery_policy.py",
+    "src/kaggle_batch/test_batch_control.py",
+    "src/kaggle_batch/test_exception_recovery.py",
+    "src/kaggle_batch/test_lane_scheduler.py",
+    "src/kaggle_batch/test_live_scope.py",
+    "src/kaggle_batch/test_pipeline_resilience.py",
+    "src/kaggle_batch/test_queue_dispatch.py",
+    "src/kaggle_batch/test_quota_guard.py",
+    "src/kaggle_batch/test_recovery_safety.py",
+    "src/kaggle_batch/test_required_ledgers.py",
+    "tests/notes_pair_acceptance.py"
+  ],
+  "reviewedMobileCommit": "b30d3e48919e09d3eba2df0f4da09bfb8da8bc72",
+  "mobileOverlayTree": "187252b652cf1a4da18b42048d4978b9b8c0fded",
+  "mobileOverlayUnchanged": true
+}

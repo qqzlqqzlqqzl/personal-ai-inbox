@@ -2,7 +2,9 @@
 
 Refs #86。截图问题及对照生产基线为 da5a6222779517b92782bf19e2a2166801676fb4；分支 fix/mobile-reading-space，独立工作区 /home/ubuntu/ui-review-20261002-mobile。
 
-已合入 release 的时区修复基线 64f661e3b7fa7bbc361979e365469254f44adb03，保留其所有源码和两组 CI 浏览器回归。除共享 CI、Harness 参数外 14 文件逐字节相同，见 [base-integration.json](../../artifacts/mobile-reading/base-integration.json)。排序 overlay 的 before 来自该基线经正式 patch 阶段生成的已核对源码，保留日历逻辑。
+已合入 release 的时区修复基线 64f661e3b7fa7bbc361979e365469254f44adb03，保留其所有源码和两组 CI 浏览器回归。除共享 CI、Harness 参数外，时区涉及的 14 文件与当前 release 逐字节相同，见 [base-integration.json](../../artifacts/mobile-reading/base-integration.json)。排序 overlay 的 before 来自该基线经正式 patch 阶段生成的已核对源码，保留日历逻辑。
+
+最终再集成 ledger release c2b60447ae3038a1566d44a2ea36fb08f653e517，无冲突。集成源 commit 343b8962b531859b8e18a79a0e658c5268fadb04 的 src tree 为 b8917d7424d4d163e411f012fbfca41c810c8f18，与该 release 及既有 paired CODE 9c8fbec23f3c4c7ca388800e95c84d96a9984710 完全一致。默认源码准入函数在实际工作区通过，未修改 pin；18 个 release 变更文件逐字节一致，已审手机 overlay 树保持 b30d3e48 原值。见 [release-90-integration.json](../../artifacts/mobile-reading/release-90-integration.json)。
 
 用户截图已按当前 Library 流程在执行端获取，确认 254205 字节并实际查看。原始用户图片留在 git 忽略的 runtime/library，提交的截图均为隔离 API 场景。
 
@@ -37,7 +39,7 @@ AI 轮询、保存队列、查询/排序语义、后台分析、模型、预算�
 
 ## 验证与自审
 
-- 完整 Python：691 passed、161 subtests passed。保留原有测试，未知漂移仍在写入前拒绝。
+- 完整 Python：793 passed、161 subtests passed。保留原有测试，未知漂移仍在写入前拒绝。
 - 全部 JavaScript 脚本及 source_history_component_acceptance 通过。
 - 手机：320×640、360×640、390×844、412×915、430×932、390×576、390×400、640×360、844×390，明暗主题共 18 场景、261 项检查。
 - 模拟 touch；直接筛选、搜索/排序及底栏目标 ≥44×44；最低分文字对比度 ≥4.5。
