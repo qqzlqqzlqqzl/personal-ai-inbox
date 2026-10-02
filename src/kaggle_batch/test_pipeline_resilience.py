@@ -13,7 +13,7 @@ class DurableBatchTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=pathlib.Path(self.tmp.name)
         self.calls=[]
-        self.c=Controller(self.root,'owner',client=lambda *a:self.calls.append(a))
+        self.c=Controller(self.root,'owner',client=lambda *a:self.calls.append(a), initialize=True)
         self.b=self.c.prepare({'runtime_source':'owner/runtime','session_timeout':600,'items':[
           {'id':'a','input_hash':'ha','messages':[{'role':'user','content':'a'}],'source_refs':[{'entry_id':1}]},
           {'id':'b','input_hash':'hb','messages':[{'role':'user','content':'b'}],'source_refs':[{'entry_id':2}]},

@@ -17,9 +17,9 @@ class LifecycleTests(unittest.TestCase):
         self.fail_push = False
         self.fail_download = False
         self.omit_results = False
-        self.control = Controller(self.path,'owner',self.client)
+        self.control = Controller(self.path,'owner',self.client, initialize=True)
         self.manifest = {'runtime_source':'owner/runtime','session_timeout':600,
-            'items':[{'id':'analysis-1','input_hash':'version-a',
+            'items':[{'id':'analysis-1','input_hash':'version-a','source_refs':[{'entry_id':1}],
                       'messages':[{'role':'user','content':'public test fixture'}]}]}
 
     def client(self,args,timeout):
@@ -41,7 +41,7 @@ class LifecycleTests(unittest.TestCase):
             folder = Path(args[-1])
             manifest = json.loads((folder.parent/'manifest.json').read_text())
             value = {'batch_id':folder.parent.name,'manifest_hash':manifest['manifest_hash'],
-                     'id':'analysis-1','input_hash':'version-a','status':'ok','content':'{}'}
+                     'id':'analysis-1','input_hash':'version-a','source_refs':[{'entry_id':1}],'status':'ok','content':'{}'}
             (folder/'results.jsonl').write_text(json.dumps(value)+'\n')
             return 'downloaded'
         raise AssertionError(args)
@@ -192,8 +192,8 @@ class LifecycleTests(unittest.TestCase):
 
     def test_partial_failure_retry_contains_only_failed_and_missing_items(self):
         self.manifest['items'] += [
-            {'id':'analysis-2','input_hash':'version-b','messages':[{'role':'user','content':'b'}]},
-            {'id':'analysis-3','input_hash':'version-c','messages':[{'role':'user','content':'c'}]}]
+            {'id':'analysis-2','input_hash':'version-b','source_refs':[{'entry_id':2}],'messages':[{'role':'user','content':'b'}]},
+            {'id':'analysis-3','input_hash':'version-c','source_refs':[{'entry_id':3}],'messages':[{'role':'user','content':'c'}]}]
         batch=self.prepare()
         self.control.submit(batch)
         self.control.download(batch)

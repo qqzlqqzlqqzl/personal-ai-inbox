@@ -13,14 +13,14 @@ try:
     from .live_scope import resolve_entry_ids
     from .batch_control import atomic_json
     from .exception_audit import Audit
-    from .queue_dispatch import claimed_entries
+    from .queue_dispatch import claimed_entries, required_roots, DispatchBlocked, block_with_backoff
     from .recovery_policy import effective_retry_at
     from .quota_guard import query_config, plan_lanes
 except ImportError:  # direct script/test execution
     from live_scope import resolve_entry_ids
     from batch_control import atomic_json
     from exception_audit import Audit
-    from queue_dispatch import claimed_entries
+    from queue_dispatch import claimed_entries, required_roots, DispatchBlocked, block_with_backoff
     from recovery_policy import effective_retry_at
     from quota_guard import query_config, plan_lanes
 
@@ -119,6 +119,7 @@ def snapshot_lanes(now,states):
 
 
 def due_entries(now,config):
+    claimed=claimed_entries(required_roots(config))
     allow=set(resolve_entry_ids(config) or [])
     if not allow:return set(),set()
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
@@ -148,7 +149,6 @@ def due_entries(now,config):
         exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kaggle_prepare_leases'").fetchone()
         leased={r[0] for r in db.execute('SELECT entry_id FROM kaggle_prepare_leases WHERE expires>?',(now,))} if exists else set()
     due-=leased
-    claimed=claimed_entries(config.get('peer_state_roots',[]))
     return due-claimed,due&claimed
 
 
@@ -184,17 +184,71 @@ def start_lane(key,run=subprocess.run):
         timeout=20,check=True)
 
 
+def dispatch_topology():
+    try:
+        configs = {key: lane_config(key) for key in KEYS}
+        roots = [Path(configs[key]['state_root']).resolve() for key in KEYS]
+        if len(set(roots)) != len(KEYS):
+            raise DispatchBlocked('invalid_topology')
+        for key in KEYS:
+            if set(required_roots(configs[key])) != set(roots):
+                raise DispatchBlocked('invalid_topology')
+        return configs, roots
+    except DispatchBlocked:
+        raise
+    except (KeyError, TypeError, ValueError, OSError):
+        raise DispatchBlocked('invalid_topology') from None
+
+
 def _tick(run=subprocess.run,starter=start_lane,now=None):
     now=float(time.time() if now is None else now)
     if (STAGE/'paused.json').exists():
         return {'state':'paused','started':[],'at':now}
-    states=service_states(run);lanes=snapshot_lanes(now,states)
-    cfg=lane_config('primary');due,claimed=due_entries(now,cfg)
-    summary=queue_summary(now,cfg)
     state_path=ROOT/'state/kaggle-month-dispatch/scheduler.json'
+    def blocked(exc):
+        report={**block_with_backoff(state_path.parent,exc,now=now),'started':[],'at':now}
+        atomic_json(state_path,report)
+        return report
+    recovery_path=state_path.parent/'recovery.json'
+    try:
+        recovery=read_json(recovery_path,{})
+        if not isinstance(recovery,dict):raise DispatchBlocked('invalid_recovery')
+        retry_at=effective_retry_at(recovery)
+        failures=recovery.get('failures',0)
+        if type(failures) is not int or failures<0:raise DispatchBlocked('invalid_recovery')
+        if retry_at>now:
+            # Admission is closed throughout cooldown: no service/quota calls,
+            # no increased failure count, and no mutation of batch claims.
+            report={**DispatchBlocked('local_state_cooldown').report(),'started':[],
+                    'code':'local_state','failures':failures,'retry_at':retry_at,'at':now}
+            atomic_json(state_path,report)
+            return report
+    except DispatchBlocked as exc:
+        return blocked(exc)
+    except (OSError,ValueError,TypeError,RecursionError):
+        return blocked(DispatchBlocked('invalid_recovery'))
+    try:
+        configs,roots=dispatch_topology()
+        claimed_entries(roots)
+    except DispatchBlocked as exc:
+        return blocked(exc)
+    states=service_states(run);lanes=snapshot_lanes(now,states)
+    cfg=configs['primary']
+    try:
+        due,claimed=due_entries(now,cfg)
+    except DispatchBlocked as exc:
+        return blocked(exc)
+    summary=queue_summary(now,cfg)
     previous=read_json(state_path,{}) or {};cursor=int(previous.get('cursor',0))%len(KEYS)
     starts,new_cursor=plan(lanes,len(due),cursor)
     started=[];failures=[]
+    try:
+        claimed_entries(roots)
+    except DispatchBlocked as exc:
+        return blocked(exc)
+    # Clear only after the last complete admission snapshot succeeds.
+    if recovery:
+        atomic_json(recovery_path,{'failures':0,'retry_at':0,'at':now})
     for key in starts:
         if (STAGE/'paused.json').exists():break
         try:

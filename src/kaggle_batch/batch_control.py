@@ -19,10 +19,12 @@ try:
     from .quota_guard import query_client
     from .recovery_policy import ProviderError, classify_failure, classify, exception_code
     from .absence_proof import prove_absent
+    from .queue_dispatch import claimed_entries, DispatchBlocked, month_roots
 except ImportError:
     from quota_guard import query_client
     from recovery_policy import ProviderError, classify_failure, classify, exception_code
     from absence_proof import prove_absent
+    from queue_dispatch import claimed_entries, DispatchBlocked, month_roots
 
 TERMINAL = {'COMPLETE', 'ERROR', 'CANCELLED', 'CANCELED'}
 UNCERTAIN_NOT_FOUND_GRACE = {
@@ -49,11 +51,27 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 class Controller:
-    def __init__(self, root, owner, client=None, kaggle_python=None):
-        self.root = Path(root).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
+    def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None):
         if not re.fullmatch(r'[a-zA-Z0-9_-]+', owner):
             raise ValueError('Invalid Kaggle owner')
+        self.root = Path(root).resolve()
+        database = self.root / 'batches.sqlite3'
+        if initialize and not database.exists():
+            # First installation only. Sidecars, manifests and even old lock
+            # files are evidence of prior use, never a license to recreate DB.
+            try:
+                if self.root.exists() and any(self.root.iterdir()):
+                    raise DispatchBlocked('initialization_evidence')
+                self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+                descriptor = os.open(database, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(descriptor)
+            except DispatchBlocked:
+                raise
+            except OSError:
+                raise DispatchBlocked('unreadable_ledger') from None
+        else:
+            claimed_entries([self.root])
+        self.required_roots = list(dict.fromkeys([self.root, *month_roots(self.root), *(required_roots or [])]))
         self.owner = owner
         self.kaggle_python = str(kaggle_python or sys.executable)
         self.client = client or self._cli
@@ -75,11 +93,18 @@ class Controller:
 
     @contextmanager
     def db(self):
-        db = sqlite3.connect(self.root/'batches.sqlite3', timeout=15)
+        try:
+            db = sqlite3.connect((self.root/'batches.sqlite3').as_uri()+'?mode=rw', uri=True, timeout=15)
+        except sqlite3.Error:
+            raise DispatchBlocked('unreadable_ledger') from None
         db.row_factory = sqlite3.Row
         try:
             with db:
                 yield db
+        except sqlite3.OperationalError:
+            raise DispatchBlocked('unreadable_ledger') from None
+        except sqlite3.Error:
+            raise DispatchBlocked('invalid_ledger') from None
         finally:
             db.close()
 
@@ -142,6 +167,7 @@ class Controller:
         return value
 
     def prepare(self, manifest, template):
+        claimed_entries(self.required_roots)
         if not manifest.get('items'):
             return None  # Empty queue must not allocate a GPU.
         ids = [item['id'] for item in manifest['items']]
@@ -168,6 +194,7 @@ class Controller:
                 if previous['state']=='retired':
                     raise RetiredManifest(batch_id)
                 return batch_id
+            claimed_entries(self.required_roots)
             runtime_manifest = {**manifest, 'batch_id':batch_id, 'manifest_hash':canonical}
             atomic_json(folder/'manifest.json', runtime_manifest)
             if template.count('MANIFEST = None') != 1:
@@ -203,6 +230,7 @@ class Controller:
             active = db.execute("SELECT id FROM batches WHERE state IN ('submitting','submitted','running','submit_unknown') AND id<>?",(batch_id,)).fetchone()
             if active:
                 raise RuntimeError('Another batch is active: '+active['id'])
+            claimed_entries(self.required_roots)
             quota_gate = query_client(self.client)
             if not quota_gate['allowed']:
                 return {**self.row(batch_id), 'submission_blocked':True, 'quota_gate':quota_gate}
@@ -458,12 +486,20 @@ def main():
     parser.add_argument('--root',required=True)
     parser.add_argument('--owner',required=True)
     parser.add_argument('--kaggle-python',help='Isolated Kaggle CLI Python, separate from Inbox dependencies')
-    parser.add_argument('action',choices=['prepare','submit','status','download','wait','retry','retire'])
-    parser.add_argument('value')
+    parser.add_argument('action',choices=['init','prepare','submit','status','download','wait','retry','retire'])
+    parser.add_argument('value',nargs='?')
     parser.add_argument('--template',default=str(Path(__file__).with_name('batch_runner.py')))
     parser.add_argument('--reason',help='Required when retiring a never-submitted batch')
     args = parser.parse_args()
-    control = Controller(args.root,args.owner,kaggle_python=args.kaggle_python)
+    global CONTROL_CONTEXT
+    CONTROL_CONTEXT={'root':args.root}
+    control = Controller(args.root,args.owner,kaggle_python=args.kaggle_python,
+                         initialize=args.action=='init')
+    if args.action=='init':
+        print(json.dumps({'state':'initialized','gpu_started':False}))
+        return
+    if args.value is None:
+        parser.error('value is required for this action')
     if args.action=='prepare':
         result = control.prepare(json.loads(Path(args.value).read_text(encoding='utf-8')),
                                  Path(args.template).read_text(encoding='utf-8'))
@@ -479,4 +515,9 @@ def main():
     print(json.dumps(result,ensure_ascii=False,indent=2))
 
 if __name__=='__main__':
-    main()
+    try:
+        main()
+    except DispatchBlocked as exc:
+        try:from .queue_dispatch import block_with_backoff
+        except ImportError:from queue_dispatch import block_with_backoff
+        print(json.dumps(block_with_backoff(globals().get('CONTROL_CONTEXT',{}).get('root'),exc)))
