@@ -1,11 +1,11 @@
-import {validateStatus,InvalidStatus} from './status-contract.mjs';
+import {validateStatus,InvalidStatus,statusInstant} from './status-contract.mjs';
 export function createStatusCache(){
   let last=null,failed=false,restricted=null;
   return {
     accept(value,now){
       const next=validateStatus(value,now);
       if(last?.sample&&next.sample){
-        if(next.sample.sequence<last.sample.sequence||next.sample.observed_at<last.sample.observed_at)throw new InvalidStatus('regression');
+        if(next.sample.sequence<last.sample.sequence||statusInstant(next.sample.observed_at)<statusInstant(last.sample.observed_at))throw new InvalidStatus('regression');
         if(next.sample.sequence===last.sample.sequence&&JSON.stringify(next.sample)!==JSON.stringify(last.sample))throw new InvalidStatus('sequence_conflict');
       }
       last=next;failed=false;restricted=null;

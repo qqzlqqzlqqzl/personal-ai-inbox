@@ -8,6 +8,11 @@ function timestamp(value){
   if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value))throw new InvalidStatus('time');
   const time=new Date(value);if(!Number.isFinite(+time)||time.toISOString().slice(0,19)!==value.slice(0,19))throw new InvalidStatus('time');return +time;
 }
+export function statusInstant(value){
+  timestamp(value);
+  const fraction=(value.includes('.')?value.split('.')[1].slice(0,-1):'').padEnd(6,'0');
+  return BigInt(Date.parse(value.slice(0,19)+'Z'))*1000n+BigInt(fraction);
+}
 export function validateStatus(value,now=Date.now()){
   const envelope=['sample','last_successful_pull_at','last_attempt_at','pull_status','freshness','stale_after_seconds','target_interval_seconds'];
   fields(value,Object.hasOwn(value??{},'error_code')?[...envelope,'error_code']:envelope);

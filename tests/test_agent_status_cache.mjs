@@ -15,4 +15,16 @@ const incoming=copy();cache.accept(incoming,now);incoming.sample.tasks[0].name='
 cache.fail({response:{status:403}});assert.equal(cache.get().last,null);cache.accept(copy(),now);assert.equal(cache.get().restricted,null);
 for(const message of ['Invalid auth','Stale auth request','Stale auth response']){cache.accept(copy(),now);cache.fail(new Error(message));assert.equal(cache.get().last,null);}
 assert.equal(validateStatus(copy(),now).sample.statistics.active,2);
-console.log('28 adversarial cache/auth/contract scenarios passed');
+const temporalNow=Date.parse('2026-10-02T09:30:00Z');
+function temporalSample(observed,sequence){const v=copy();v.sample.observed_at=observed;v.sample.sequence=sequence;return v;}
+const temporal=createStatusCache();
+temporal.accept(temporalSample('2026-10-02T09:19:59Z',2),temporalNow);
+temporal.accept(temporalSample('2026-10-02T09:19:59.100Z',3),temporalNow);
+assert.equal(temporal.get().last.sample.sequence,3);
+temporal.accept(temporalSample('2026-10-02T09:19:59.900Z',4),temporalNow);
+assert.throws(()=>temporal.accept(temporalSample('2026-10-02T09:19:59Z',5),temporalNow));
+assert.equal(temporal.get().last.sample.sequence,4);
+temporal.accept(temporalSample('2026-10-02T09:19:59.900001Z',5),temporalNow);
+assert.throws(()=>temporal.accept(temporalSample('2026-10-02T09:19:59.900000Z',6),temporalNow));
+assert.equal(temporal.get().last.sample.sequence,5);
+console.log('31 adversarial cache/auth/contract scenarios passed');
