@@ -3,6 +3,7 @@
 This adapter is intentionally restricted to reviewed publisher body selectors.
 It never follows discussion links, recursively crawls links, or retries analysis.
 """
+from work_admission import check,options,http_client
 import asyncio
 import hashlib
 import os
@@ -125,9 +126,11 @@ def extract_original(raw, url, requested, title, summary):
     return body, text
 
 
-async def _get(client, url):
+async def _get(client, url, *,admission=None):
+    check(admission)
     target = checked_url(url, SELECTORS)
     for redirects in range(4):
+        check(admission)
         async with client.stream('GET', target, follow_redirects=False) as response:
             if response.is_redirect:
                 if redirects == 3:
@@ -150,8 +153,9 @@ async def _get(client, url):
     raise OriginalUnavailable('original_redirect_limit')
 
 
-async def resolve(entry, client=None):
+async def resolve(entry, client=None, *,admission=None):
     """Resolve an existing entry; failures keep its original Adafruit content."""
+    check(admission)
     url = checked_url(entry['url'], {ADAFRUIT})
     summary = entry.get('content') or ''
     if len(summary.encode()) > MAX_BYTES or len(_text(summary)) < 120:
@@ -168,12 +172,13 @@ async def resolve(entry, client=None):
     try:
         async def retrieve():
             if client is not None:
-                return await _get(client, target)
-            async with httpx.AsyncClient(timeout=20, trust_env=False, follow_redirects=False,
+                return await _get(client, target,**options(admission))
+            async with http_client(admission,timeout=20, trust_env=False, follow_redirects=False,
                     proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None,
                     headers={'User-Agent':'Mozilla/5.0 (compatible; PersonalAIInbox/1.0)'}) as external:
-                return await _get(external, target)
+                return await _get(external, target,**options(admission))
         raw, final = await asyncio.wait_for(retrieve(), timeout=45)
+        check(admission)
         body, text = extract_original(raw, final, target, entry.get('title',''), summary)
         receipt.update(url=final, source='adafruit_linked_original', follow_status='selected',
                        page_sha256=hashlib.sha256(raw).hexdigest())

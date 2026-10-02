@@ -29,7 +29,10 @@ recovery counters/cooldowns are not reset. Required-ledger claims and existing
 The obsolete broad `--manual` bypass now exits with
 `manual_authorization_required`, even if present in an old installed unit.
 Explicit `--manual-recovery --batch ID` (bridge action `recover --batch ID`)
-authorizes mutation of that existing ID only. It cannot prepare or submit a
+binds provider/lifecycle/import work to that existing ID. Controller retains
+existing shared-table compatibility setup, but claim backfill is restricted to
+the selected ID; it does not backfill unrelated pending IDs. Legacy valid
+manifests still reserve those unrelated entries. It cannot prepare or submit a
 prepared batch, drain into another batch, produce a replacement, or bypass
 lane/batch/scheduler cooldown. It may status/download/validate/import the same
 submitted batch. Uncertain missing remote IDs are retained without absence
@@ -38,7 +41,12 @@ retirement. Complete valid import still finishes the same batch normally.
 Explicit `--reconcile-readonly` is a local, mode=ro self-ledger snapshot. A
 scheduled `reconcile_only: true` cycle uses the same local observer. Neither
 constructs Controller (which can migrate/backfill), reads credentials, invokes
-status/advance, imports, creates locks/files, nor writes ledgers. The scheduler
+status/advance or imports, creates application locks, migrates schema, nor
+changes logical ledger data. SQLite mode=ro may create/update WAL/SHM coordination sidecars; this is
+a logical read-only observer, not a filesystem no-write promise. A genuinely
+read-only filesystem may cause it to fail closed if SQLite cannot coordinate.
+We deliberately do not use immutable=1, which can omit current live WAL state.
+The report exposes logical_readonly and sqlite_sidecars_may_change. The scheduler
 never starts services merely for this local observer. Disabled configuration
 alone never authorizes the observer: use its explicit CLI flag. The observer
 validates its self ledger, and does not claim that all peers admit new dispatch.
@@ -60,12 +68,19 @@ The scheduler lock remains shared with month-control pause, so its pause API
 waits for scheduler admission before recording stop. Raw external config edits
 are not a distributed transaction: a previously admitted service can already be
 queued via systemctl --no-block. Its worker rechecks before work. An in-flight
-provider request authorized before stop cannot be cancelled by these checks; a
+request or transaction admitted before stop may finish; the next request or
+transaction rechecks. HTTP admission also covers nested source clients and
+redirect hops, browser request routes, per-article writes and card enqueue.
+Business and exception imports check before each item transaction; the first
+committed item/receipt is preserved if stop prevents the next item. Failure
+handlers recheck before any audit/backoff mutation. Lease cleanup skips a new
+transaction after stop; the existing 660-second lease expiry bounds that hold. A
 660-second observer sleep checks again before the next provider request. No
 remote job cancellation or global atomic stop acknowledgement is claimed.
 
 Watchdog snapshot retention intentionally still runs before tick. Zero-provider/
-service/ledger-write claims apply to stopped dispatch and the read-only observer,
+service/logical-ledger-write claims apply to stopped dispatch and the observer,
+with the observer WAL/SHM coordination exception above,
 not the entire watchdog (retention may prune its separately managed snapshots).
 No authentication, permissions, SQL schema or production setting was changed.
 
@@ -85,3 +100,27 @@ AST and git diff --check are required. Local lefthook is unavailable and is not
 bypassed. Hosted Reader CI supplies full Python/JavaScript/build/browser checks.
 The source commit/tree must be independently reviewed before paired CODE pin
 promotion; strict paired guards must stay unchanged. No merge/deploy/issue close.
+
+
+Independent review of d092e452 rejected six concrete counterexamples despite
+its green CI. The regression source was verified Library
+`libfile_0543ff6774dc8191a4e6126fb5ae0ada` v0,
+`Reader_PR95_d092e452_Independent_Counterexamples.zip` (18,622 bytes), SHA256
+`d2080948bb78ce949cc4feee23b4d6e1b107ed363c2612bfb970ddc3d15a8459`.
+The corrected source retains those extraction/import/failure/manual/WAL cases
+as behavioral tests, plus typed true→1/1.0 and false→0/0.0 config races,
+redirect/fallback stop checks and exception per-item audit/transaction checks.
+Guard callbacks are optional for existing source helpers; the paid-provider
+branch stays unchanged. No new tables, credentials or permission changes were
+introduced by this follow-up. This remains pending independent source approval.
+
+
+The revised local targeted run uses the complete Kaggle + month/watchdog suite
+and affected source-helper tests. An exploratory whole-Python invocation in the
+archive-only temporary directory lacked the pinned ReactFlux checkout and Git
+history fixtures; those frontend fixture checks are deferred to hosted Reader
+CI, which supplies both. This is not treated as a successful whole-suite run.
+
+Revised targeted verification: **455 passed + 59 subtests, no skip**, covering
+all six reviewed cases and affected source helpers. Evidence:
+`/tmp/scheduler-stop-admission-evidence/revision-targeted-final.{log,xml}`.

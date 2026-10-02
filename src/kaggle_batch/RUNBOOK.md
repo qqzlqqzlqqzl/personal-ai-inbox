@@ -62,7 +62,7 @@ CLI 操作前应在同一进程环境中设置 KAGGLE_API_TOKEN 为私有 token 
 
 ## 6h / 12h 调度（保持关闭）
 
-配置支持 `interval_hours=6` 或 `12`。`schedule_enabled=false`、缺失或非布尔 true 时，自动入口在 provider/service admission 前退出，包括旧批次恢复。长周期、子进程和 provider 边界重新核验 exact config 与 pause；停止返回不重置 recovery。明确 `--manual-recovery --batch ID` 只能恢复已有非 prepared ID，并保留 cooldown。`--reconcile-readonly` 只读自身账本，无 Controller、凭据、provider 或导入。模板位于 `ai-news-kaggle.service.example`；下列命令仅输出 timer 文本，不安装或启用：
+配置支持 `interval_hours=6` 或 `12`。`schedule_enabled=false`、缺失或非布尔 true 时，自动入口在 provider/service admission 前退出，包括旧批次恢复。长周期、子进程和 provider 边界重新核验 exact config 与 pause；停止返回不重置 recovery。明确 `--manual-recovery --batch ID` 只恢复已有非 prepared ID，并保留 cooldown；共享旧表兼容初始化仍可执行，但只补齐目标 ID 的 claims，不补其他 pending ID。`--reconcile-readonly` 观察自身账本，无 Controller、凭据、provider、schema migration 或逻辑数据写入；SQLite 的 mode=ro 仍可能创建/更新 WAL/SHM 协调 sidecar，真实只读文件系统可能 fail closed，不使用可能漏读 live WAL 的 immutable 模式。模板位于 `ai-news-kaggle.service.example`；下列命令仅输出 timer 文本，不安装或启用：
 
 ```sh
 timeout 20 runtime/venv/bin/python src/kaggle_batch/cloud_cycle.py --config src/kaggle_batch/cloud-config.json --render-timer

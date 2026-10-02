@@ -9,6 +9,11 @@ import math
 from pathlib import Path
 import re
 import sqlite3
+import sys
+if __package__ in (None,''):
+    # Direct CLI invocation has kaggle_batch, rather than src, on sys.path.
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from work_admission import AdmissionStopped
 try:
     from .queue_dispatch import DispatchBlocked, claimed_entries
     from .recovery_policy import effective_retry_at
@@ -19,7 +24,7 @@ except ImportError:
 PAUSE_FILE=Path(__file__).resolve().parents[2]/'runtime/qwen-month-20260925/paused.json'
 FINISHED={'imported','retired','resolved'}
 
-class DispatchStopped(Exception):
+class DispatchStopped(AdmissionStopped):
     STATES={'schedule_disabled','paused','reconcile_only','configuration_unavailable',
             'configuration_changed','manual_authorization_required',
             'manual_recovery_requires_existing_batch','manual_recovery_cannot_submit',
@@ -133,5 +138,5 @@ def manual_target(root,batch_id,now):
 def readonly_reconcile(config,batch_id=None):
     rows,next_try=local_rows(config['state_root'],batch_id)
     return {'state':'readonly_reconciliation','scope':'self_ledger',
-            'gpu_started':False,'batches':rows,
+            'gpu_started':False,'logical_readonly':True,'sqlite_sidecars_may_change':True,'batches':rows,
             'retry_at':max(next_try,recovery_retry(config['state_root']))}

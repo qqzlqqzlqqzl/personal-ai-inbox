@@ -40,18 +40,26 @@ def _parse_quota_rows(rows):
 
 
 def _quota_for_lane(key):
-    config=json.loads((ROOT/f'src/kaggle_batch/cloud-config-month-{key}.json').read_text())
-    if key not in effective_enabled_lanes():return {'state':'error','error':'schedule_disabled'}
-    if json.loads((ROOT/f'src/kaggle_batch/cloud-config-month-{key}.json').read_text())!=config:
-        return {'state':'error','error':'configuration_changed'}
-    env={**os.environ,'KAGGLE_API_TOKEN':config['token_file']}
+    from kaggle_batch.dispatch_policy import (load_config,config_fingerprint,
+        require_automatic,DispatchStopped)
+    path=ROOT/f'src/kaggle_batch/cloud-config-month-{key}.json'
     try:
+        config=load_config(path)
+        if key not in effective_enabled_lanes():return {'state':'error','error':'schedule_disabled'}
+        current=load_config(path)
+        # Python dict equality aliases True/1 and False/0; typed JSON does not.
+        if config_fingerprint(current)!=config_fingerprint(config):
+            return {'state':'error','error':'configuration_changed'}
+        require_automatic(current,STAGE/'paused.json')
+        env={**os.environ,'KAGGLE_API_TOKEN':current['token_file']}
         result=subprocess.run(
-            [config['kaggle_python'],'-m','kaggle','quota','--format','json'],
+            [current['kaggle_python'],'-m','kaggle','quota','--format','json'],
             capture_output=True,text=True,encoding='utf-8',timeout=20,env=env,
         )
         if result.returncode:raise RuntimeError('quota command failed')
         return {'state':'ok',**_parse_quota_rows(json.loads(result.stdout or '[]'))}
+    except DispatchStopped as exc:
+        return {'state':'error','error':exc.state}
     except (OSError,subprocess.SubprocessError,RuntimeError,ValueError,KeyError,json.JSONDecodeError):
         return {'state':'error','error':'quota_unavailable'}
 

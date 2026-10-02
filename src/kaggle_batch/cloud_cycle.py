@@ -204,10 +204,11 @@ def main():
     modes=parser.add_mutually_exclusive_group()
     modes.add_argument('--manual',action='store_true',help='Retired broad bypass; returns manual_authorization_required')
     modes.add_argument('--manual-recovery',action='store_true',help='Explicit mutating recovery of one existing --batch; never prepare or submit')
-    modes.add_argument('--reconcile-readonly',action='store_true',help='Local self-ledger snapshot only; no Controller/provider/import/write')
+    modes.add_argument('--reconcile-readonly',action='store_true',help='Local self-ledger snapshot only; no Controller/provider/import/logical write; SQLite WAL coordination sidecars may change')
     parser.add_argument('--batch')
     args=parser.parse_args()
     root=None
+    guard=None
     from queue_dispatch import required_roots,DispatchBlocked,block_with_backoff
     try:
         config=load_config(args.config)
@@ -234,7 +235,8 @@ def main():
         from batch_control import Controller
         os.umask(0o077)
         control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],
-                           required_roots=required_roots(config),admission=guard)
+                           required_roots=required_roots(config),admission=guard,
+                           recovery_batch=args.batch if args.manual_recovery else None)
         with (root/'cycle.lock').open('a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             guard()
@@ -247,6 +249,11 @@ def main():
     except DispatchStopped as exc:
         print(json.dumps(exc.report()))
     except DispatchBlocked as exc:
+        try:
+            if guard is not None:guard()
+        except DispatchStopped as stopped:
+            print(json.dumps(stopped.report()))
+            return
         print(json.dumps(block_with_backoff(root,exc)))
 
 

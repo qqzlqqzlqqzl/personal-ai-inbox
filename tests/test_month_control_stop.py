@@ -58,15 +58,32 @@ def test_enabled_mixed_ui_refresh_queries_only_enabled_lane(tmp_path,monkeypatch
     provider.assert_called_once_with('secondary')
 
 
-def test_quota_revalidates_disable_before_subprocess(tmp_path,monkeypatch):
+@pytest.mark.parametrize('field,value',[
+    ('schedule_enabled',False),('schedule_enabled',1),('schedule_enabled',1.0),
+    ('reconcile_only',0),('reconcile_only',0.0)])
+def test_quota_revalidates_typed_change_before_subprocess(tmp_path,monkeypatch,field,value):
     stage,folder=setup(tmp_path,monkeypatch,True)
+    p=folder/'cloud-config-month-primary.json'
+    original=json.loads(p.read_text());original['reconcile_only']=False;p.write_text(json.dumps(original))
     def flags():
-        p=folder/'cloud-config-month-primary.json';cfg=json.loads(p.read_text());cfg['schedule_enabled']=False;p.write_text(json.dumps(cfg))
+        cfg=json.loads(p.read_text());cfg[field]=value;p.write_text(json.dumps(cfg))
+        # Reproduce a stale pre-seam admission result, without external calls.
         return ['primary']
     monkeypatch.setattr(month_control,'effective_enabled_lanes',flags)
-    process=Mock(side_effect=AssertionError('config changed before provider'))
+    process=Mock(side_effect=AssertionError('typed config changed before provider'))
     monkeypatch.setattr(month_control.subprocess,'run',process)
-    assert month_control._quota_for_lane('primary')['error']=='configuration_changed'
+    assert month_control._quota_for_lane('primary')=={'state':'error','error':'configuration_changed'}
+    process.assert_not_called()
+
+
+def test_quota_revalidates_pause_after_enabled_snapshot(tmp_path,monkeypatch):
+    stage,folder=setup(tmp_path,monkeypatch,True)
+    def flags():
+        (stage/'paused.json').write_text('{}');return ['primary']
+    monkeypatch.setattr(month_control,'effective_enabled_lanes',flags)
+    process=Mock(side_effect=AssertionError('pause appeared before provider'))
+    monkeypatch.setattr(month_control.subprocess,'run',process)
+    assert month_control._quota_for_lane('primary')=={'state':'error','error':'paused'}
     process.assert_not_called()
 
 

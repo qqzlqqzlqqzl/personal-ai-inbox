@@ -1,4 +1,5 @@
 """Recover lazy-loaded body images from the same original page, not other articles."""
+from work_admission import check,options,http_client
 import os
 from collections import defaultdict
 from pathlib import Path
@@ -41,10 +42,11 @@ def repair_html(extracted, raw, base):
         changed += 1
     return (str(body) if changed else extracted), changed
 
-async def fetch_original(url):
+async def fetch_original(url, *,admission=None):
+    check(admission)
     if not _safe_image_url(url):
         raise ValueError('invalid_original_url')
-    async with httpx.AsyncClient(proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None,
+    async with http_client(admission,proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None,
                                  timeout=15, trust_env=False, follow_redirects=True, max_redirects=3) as c:
         async with c.stream('GET', url) as r:
             r.raise_for_status()
@@ -55,28 +57,32 @@ async def fetch_original(url):
                     raise ValueError('original_page_too_large')
             return bytes(data), str(r.url)
 
-async def repair_entry(client, entry, backend_url, headers, raw=None):
+async def repair_entry(client, entry, backend_url, headers, raw=None, *,admission=None):
+    check(admission)
     original = entry.get('content') or ''
     if not needs_repair(original):
         return {'content': original, 'repaired': 0}
-    fetched, base = (raw, entry['url']) if raw is not None else await fetch_original(entry['url'])
+    fetched, base = (raw, entry['url']) if raw is not None else await fetch_original(entry['url'],**options(admission))
     html, count = repair_html(original, fetched, base)
     if not count:
         return {'content': original, 'repaired': 0}
     # Keep a private source snapshot; restoring images must never discard original text.
     from core import ROOT
     import json, hashlib
+    check(admission)
     folder = ROOT / '.private/media-before'
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     snapshot = folder / (str(entry['id'])+'-'+hashlib.sha256(original.encode()).hexdigest()[:16]+'.json')
     if not snapshot.exists():
         snapshot.write_text(json.dumps({'id': entry['id'], 'content': original},ensure_ascii=False))
         snapshot.chmod(0o600)
+    check(admission)
     r = await client.put(backend_url+f"/v1/entries/{entry['id']}", headers=headers, json={'content': html}, timeout=15)
     r.raise_for_status()
+    check(admission)
     r = await client.get(backend_url+f"/v1/entries/{entry['id']}", headers=headers, timeout=15)
     r.raise_for_status()
     content = r.json().get('content') or html
     from prepared_content import remember
-    remember(entry, content, 'body_images_repaired')
+    remember(entry, content, 'body_images_repaired',**options(admission))
     return {'content': content, 'repaired': count}

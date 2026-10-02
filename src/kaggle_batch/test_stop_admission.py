@@ -373,11 +373,11 @@ def test_advance_stop_at_import_seams_does_not_defer_resolve_or_release(tmp_path
     def validate(*args):
         if phase=='validation':change(path,schedule_enabled=False)
         return {'valid':[],'invalid':[item]}
-    async def upstream(*args):
+    async def upstream(*args,**kwargs):
         if phase=='upstream':change(path,schedule_enabled=False)
         return set()
     imports=[]
-    def apply(*args):
+    def apply(*args,**kwargs):
         imports.append(1)
         if phase=='import':change(path,schedule_enabled=False)
         return {'items':[{'id':item,'state':'invalid'}]}

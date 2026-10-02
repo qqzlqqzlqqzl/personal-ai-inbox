@@ -55,7 +55,7 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 class Controller:
-    def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None, admission=None):
+    def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None, admission=None, recovery_batch=None):
         if not re.fullmatch(r'[a-zA-Z0-9_-]+', owner):
             raise ValueError('Invalid Kaggle owner')
         self.admission = admission
@@ -95,7 +95,10 @@ class Controller:
             db.execute('CREATE TABLE IF NOT EXISTS batch_progress (batch_id TEXT PRIMARY KEY, next_try REAL NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0, error TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS batch_claims (batch_id TEXT NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(batch_id,entry_id))')
         with self.db() as db:
-            pending=[row['id'] for row in db.execute("SELECT id FROM batches WHERE state NOT IN ('imported','retired','resolved')")]
+            sql="SELECT id FROM batches WHERE state NOT IN ('imported','retired','resolved')"
+            # Explicit recovery must not backfill claims for other pending IDs.
+            pending=[row['id'] for row in db.execute(sql+" AND id=?" if recovery_batch else sql,
+                     (recovery_batch,) if recovery_batch else ())]
         for batch in pending:
             with self.db() as db:
                 if db.execute('SELECT 1 FROM batch_claims WHERE batch_id=? LIMIT 1',(batch,)).fetchone():continue
