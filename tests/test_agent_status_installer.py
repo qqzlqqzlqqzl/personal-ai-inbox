@@ -16,9 +16,11 @@ def test_reviewed_route_overlay_is_idempotent_and_gated(tmp_path,monkeypatch):
     (web/'UPSTREAM_REVISION').write_text(installer.PIN)
     before='RouterProtect\n'+installer.ANCHOR+'AuthenticatedApp\n'
     (web/'src/routes.jsx').write_text(before);monkeypatch.setattr(installer,'ROUTES_BEFORE',hashlib.sha256(before.encode()).hexdigest())
-    toolbar=web/'src/components/Ai/AiToolbar.jsx';toolbar.parent.mkdir(parents=True);toolbar.write_text(installer.TOOLBAR_ANCHOR);monkeypatch.setattr(installer,'TOOLBAR_BEFORE',hashlib.sha256(installer.TOOLBAR_ANCHOR.encode()).hexdigest())
+    toolbar=web/'src/components/Ai/AiToolbar.jsx';toolbar.parent.mkdir(parents=True);toolbar.write_text('reviewed toolbar');monkeypatch.setattr(installer,'TOOLBAR_BEFORE',hashlib.sha256(b'reviewed toolbar').hexdigest())
+    panel=toolbar.parent/'AiPanel.jsx';panel.write_text(installer.PANEL_ANCHOR);monkeypatch.setattr(installer,'PANEL_BEFORE',hashlib.sha256(installer.PANEL_ANCHOR.encode()).hexdigest())
     source=Path(__file__).parents[1]/'patches/agent-status';shutil.copytree(source,tmp_path/'patches/agent-status')
     installer.install(tmp_path);first=(web/'src/routes.jsx').read_text();installer.install(tmp_path)
     assert first==(web/'src/routes.jsx').read_text() and first.count('path: "agent-status"')==1
     assert not (web/'src/components/AgentStatus/mock-state.json').exists()
-    assert toolbar.read_text().count('to="/agent-status"')==1
+    assert panel.read_text().count('to="/agent-status"')==1
+    assert toolbar.read_text()=='reviewed toolbar'

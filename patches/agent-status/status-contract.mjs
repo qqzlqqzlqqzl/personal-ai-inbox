@@ -21,7 +21,7 @@ export function validateStatus(value,now=Date.now()){
     fields(input.statistics,Object.keys(statistics));if(!integer(statistics.capacity)||statistics.capacity<input.tasks.length||statistics.capacity>128)throw new InvalidStatus('capacity');
     const seen=new Set(),states={running:'active',waiting:'waiting',done:'completed',failed:'failed',unknown:'unknown'};
     const tasks=input.tasks.map(task=>{
-      fields(task,['name','state','model']);if(!label(task.name)||!label(task.model)||seen.has(task.name)||!Object.hasOwn(states,task.state))throw new InvalidStatus('task');
+      fields(task,['name','state','model']);if(!label(task.name)||!label(task.model)||seen.has(task.name)||typeof task.state!=='string'||!Object.hasOwn(states,task.state))throw new InvalidStatus('task');
       seen.add(task.name);statistics[states[task.state]]++;if(task.state==='waiting')statistics.active++;
       return Object.freeze({name:task.name,state:task.state,model:task.model});
     });
