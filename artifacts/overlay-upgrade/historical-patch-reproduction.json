@@ -1,0 +1,21 @@
+{
+  "provenance": {
+    "application_baseline": "da5a6222779517b92782bf19e2a2166801676fb4",
+    "recorded_patch": "patches/reactflux.patch",
+    "reactflux_pin": "534eeb97723ac11025de4ec1ac56335072e3be52",
+    "target_before_fix": "15e0c8d5236dc006ff97a3846c03feaf710dc13b",
+    "source": "Reconstructed from committed repository patch and pinned ReactFlux, then old formal stages. No captured files included."
+  },
+  "before_fix": {
+    "baseline_sha256": "65a3e7ce6a2c75b31994a5442054267beea9d8e7a602d371cd9787d7a9e18977",
+    "pre_final_sha256": "e1945240023db0ad4efb6ef59be6b314f1ca22ea4ae129f6f38b29ae940de22d",
+    "result": "Unreviewed source drift, refusing overwrite: src/components/Article/SearchAndSortBar.jsx"
+  },
+  "after_fix": {
+    "pre_final_sha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36",
+    "final_sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a",
+    "repeat_equal": true
+  },
+  "negative_test_before_fix": "recorded-patch regression failed; script baseline passed",
+  "targeted_tests_after_fix": "10 passed; includes five unknown nearby selector variants, whole-file drift rejection and zero final-installer writes"
+}

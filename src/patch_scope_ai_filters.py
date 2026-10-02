@@ -222,6 +222,15 @@ if '  const scoreOrder =' in (WEB / search_path).read_text():
     patch(search_path, '  IconSortAscending,\n', '')
     patch(search_path, '  IconSortDescending,\n', '')
 
+# da5's recorded aggregate patch retained this earlier selector spelling. An
+# existing selector skips the creation branch above, so normalize its exact
+# reviewed opening tag too. The final installer still verifies the whole file.
+normalize(
+    search_path,
+    ['<select className="article-sort-select" aria-label="文章排序" value={sortValue} onChange={changeSort}>'],
+    '<select className="ai-sort-select" aria-label="排序方式" value={sortValue} onChange={changeSort}>',
+)
+
 # Search/sort is the single sorting surface; the AI toolbar no longer owns a second sorter.
 patch(
     "src/components/Article/SearchAndSortBar.jsx",

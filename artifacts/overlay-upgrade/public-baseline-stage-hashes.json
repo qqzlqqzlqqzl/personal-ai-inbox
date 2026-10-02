@@ -1,0 +1,205 @@
+{
+  "baseline": "da5a6222779517b92782bf19e2a2166801676fb4",
+  "target": "15e0c8d5236dc006ff97a3846c03feaf710dc13b",
+  "pin": "534eeb97723ac11025de4ec1ac56335072e3be52",
+  "records": [
+    {
+      "case": "baseline-da5",
+      "events": [
+        {
+          "stage": "patch_frontend.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "polish_frontend.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "specialize_login.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "patch_reading_session.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "patch_ui_review.py",
+          "sha256": "83c0a305c9b31ced5075bed5ec80ac590c79f0d222e11685ed4e0bddbbda2c20"
+        },
+        {
+          "stage": "patch_article_notes.py",
+          "sha256": "83c0a305c9b31ced5075bed5ec80ac590c79f0d222e11685ed4e0bddbbda2c20"
+        },
+        {
+          "stage": "patch_reading_telemetry.py",
+          "sha256": "83c0a305c9b31ced5075bed5ec80ac590c79f0d222e11685ed4e0bddbbda2c20"
+        },
+        {
+          "stage": "patch_scope_ai_filters.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_reader_detail_quality.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_reader_entry_defaults.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_interaction_review.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        }
+      ]
+    },
+    {
+      "case": "baseline-to-target",
+      "events": [
+        {
+          "stage": "patch_frontend.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "polish_frontend.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "specialize_login.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_reading_session.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_ui_review.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_article_notes.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_reading_telemetry.py",
+          "sha256": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734"
+        },
+        {
+          "stage": "patch_scope_ai_filters.py",
+          "sha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36"
+        },
+        {
+          "stage": "patch_reader_detail_quality.py",
+          "sha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36"
+        },
+        {
+          "stage": "patch_reader_entry_defaults.py",
+          "sha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36"
+        },
+        {
+          "stage": "patch_interaction_review.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        }
+      ]
+    },
+    {
+      "case": "pristine-target",
+      "events": [
+        {
+          "stage": "patch_frontend.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "polish_frontend.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "specialize_login.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "patch_reading_session.py",
+          "sha256": "22979406b3a5464959fd18b59cf9d28a9a434b9a9d28329b71abd8409108ff5c"
+        },
+        {
+          "stage": "patch_ui_review.py",
+          "sha256": "83c0a305c9b31ced5075bed5ec80ac590c79f0d222e11685ed4e0bddbbda2c20"
+        },
+        {
+          "stage": "patch_article_notes.py",
+          "sha256": "83c0a305c9b31ced5075bed5ec80ac590c79f0d222e11685ed4e0bddbbda2c20"
+        },
+        {
+          "stage": "patch_reading_telemetry.py",
+          "sha256": "83c0a305c9b31ced5075bed5ec80ac590c79f0d222e11685ed4e0bddbbda2c20"
+        },
+        {
+          "stage": "patch_scope_ai_filters.py",
+          "sha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36"
+        },
+        {
+          "stage": "patch_reader_detail_quality.py",
+          "sha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36"
+        },
+        {
+          "stage": "patch_reader_entry_defaults.py",
+          "sha256": "59cccf7ed8134de914ee7688a7fa80f87a2fa428f29b0ad255010445c40d1d36"
+        },
+        {
+          "stage": "patch_interaction_review.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        }
+      ]
+    },
+    {
+      "case": "target-repeat",
+      "events": [
+        {
+          "stage": "patch_frontend.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "polish_frontend.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "specialize_login.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_reading_session.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_ui_review.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_article_notes.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_reading_telemetry.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_scope_ai_filters.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_reader_detail_quality.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_reader_entry_defaults.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        },
+        {
+          "stage": "patch_interaction_review.py",
+          "sha256": "25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a"
+        }
+      ]
+    }
+  ],
+  "provenance": "Reconstructed only from immutable public git archives in an isolated checkout; not captured production input.",
+  "production_failure_reproduced": false
+}
