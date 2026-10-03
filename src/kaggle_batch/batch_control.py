@@ -55,10 +55,12 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 class Controller:
-    def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None, admission=None, recovery_batch=None):
+    def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None, admission=None, recovery_batch=None, diagnostic_observer=None):
         if not re.fullmatch(r'[a-zA-Z0-9_-]+', owner):
             raise ValueError('Invalid Kaggle owner')
         self.admission = admission
+        self.diagnostic_observer = diagnostic_observer
+        self.last_diagnostic_retained = None
         self._admit()
         self.root = Path(root).resolve()
         database = self.root / 'batches.sqlite3'
@@ -159,12 +161,30 @@ class Controller:
         try:
             result = subprocess.run([self.kaggle_python, '-m', 'kaggle', *args], timeout=timeout,
                                     capture_output=True, text=True, encoding='utf-8')
-        except (subprocess.TimeoutExpired, OSError):
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            self._observe_cli_failure(args, error=exc)
             raise ProviderError('network') from None
         # Never propagate raw client errors: they can include signed URLs.
         if result.returncode:
-            raise classify_failure(str(result.stderr or '') + '\n' + str(result.stdout or '')) from None
+            output = str(result.stderr or '') + '\n' + str(result.stdout or '')
+            self._observe_cli_failure(args, output=output)
+            raise classify_failure(output) from None
         return result.stdout
+
+    def _observe_cli_failure(self, args, **fields):
+        # Telemetry is best effort, never a retry input or another provider call.
+        self.last_diagnostic_retained = False
+        if getattr(self, 'diagnostic_observer', None) is None:
+            return
+        try:
+            try:
+                from .provider_diagnostics import failure
+            except ImportError:
+                from provider_diagnostics import failure
+            self.last_diagnostic_retained = self.diagnostic_observer(failure(args, **fields)) is True
+        except Exception:
+            # No raw fallback and no change to the original failure or claims.
+            pass
 
     def row(self, batch_id):
         with self.db() as db:

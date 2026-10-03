@@ -376,7 +376,10 @@ def main():
         manual_target(root,args.batch,time.time())
         config={**config,'drain_queue':False}
     roots=required_roots(config)
-    control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],required_roots=roots,admission=guard,recovery_batch=args.batch if recovery_only else None)
+    from provider_diagnostics import private_observer
+    observer = (private_observer(config['exception_audit_root'], authorize=guard)
+                if config.get('exception_audit_root') else None)
+    control=Controller(root,config['owner'],kaggle_python=config['kaggle_python'],required_roots=roots,admission=guard,recovery_batch=args.batch if recovery_only else None,diagnostic_observer=observer)
     if args.action=='prepare':
         pending=control.next_pending()
         if not pending or control.row(pending)['state']=='prepared':
