@@ -68,7 +68,8 @@ def failure(args, *, output='', error=None):
         matches = list(HTTP_ERROR.finditer(output))
         statuses = {int(match[1]) for match in matches
                     if (match[1][0], match[2]) in {('4', 'Client'), ('5', 'Server')}}
-        if len(statuses) != len({match[1] for match in matches}):
+        if any((match[1][0], match[2]) not in {('4', 'Client'), ('5', 'Server')}
+               for match in matches):
             statuses = set()  # A contradictory wrapper cannot prove a status.
         if len(statuses) > 1:
             category = 'ambiguous_http_status'
@@ -102,7 +103,11 @@ def safe_event(record):
     if not isinstance(record, dict) or record.get('event') != 'provider_call_failure':
         return None
     at = record.get('at')
-    if type(at) not in (int, float) or not math.isfinite(at) or at < 0:
+    try:
+        valid_time = type(at) in (int, float) and math.isfinite(at) and at >= 0
+    except OverflowError:
+        valid_time = False
+    if not valid_time:
         return None
     result = {'event': 'provider_call_failure', 'at': at,
               'diagnostic': project(record.get('diagnostic'))}

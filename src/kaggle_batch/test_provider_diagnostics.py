@@ -77,6 +77,7 @@ def test_cases_05_06_unknown_and_incidental_numbers(tmp_path,monkeypatch,text,le
     ('True Client Error: no for url: https://example.invalid','unclassified'),
     ('600 Client Error: no for url: https://example.invalid','unclassified'),
     ('503 Client Error: no for url: https://example.invalid','unclassified'),
+    (wrapper(403)+'\n403 Server Error: no for url: https://example.invalid','unclassified'),
     ('{"status":403}', 'unclassified'), ('HTTP 403 unknown wrapper','unclassified')])
 def test_case_07_ambiguous_and_malformed(text,category):
     result=failure(['kernels','status'],output=text)
@@ -213,6 +214,7 @@ def test_case_18_safe_export_projects_only_fixed_schema(tmp_path,monkeypatch):
     export=safe_event(record)
     assert set(export)=={'event','at','lane','diagnostic'} and 'CANARY' not in json.dumps(export)
     assert safe_event({'event':'bridge_failure','at':1}) is None
+    assert safe_event({'event':'provider_call_failure','at':10**1000}) is None
     for path in (tmp_path/'audit').glob('events-*.jsonl'):
         assert path.stat().st_mode & 0o777==0o600
 
