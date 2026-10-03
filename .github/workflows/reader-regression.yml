@@ -66,6 +66,10 @@ jobs:
       - name: Install hosted Chromium headless shell
         # The browser tests launch headless Chromium without a channel override.
         run: python -m playwright install --only-shell chromium
+      - name: Browser fulltext request, redirect and popup admission
+        env:
+          PYTHONPATH: src:src/kaggle_batch
+        run: python tests/fulltext_browser_admission.py
       - name: Resolve CJK font from refreshed APT indices
         id: cjk-package
         # install-deps above refreshes signed APT indices; never cache this manifest.
@@ -110,6 +114,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: python tests/sort_browser_acceptance.py
+      - name: Panel opener waits for responsive media commit
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: python tests/reader_panel_transition_browser.py
       - name: Mobile reading area, touch, status and full-text regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -151,6 +159,8 @@ jobs:
             runtime/sort-component.json
             runtime/mobile-reading-*/
             runtime/mobile-reading-metrics.json
+            runtime/reader-panel-transition/
+            artifacts/browser-admission.json
             runtime/calendar-*/
             runtime/browser-build/
           retention-days: 7

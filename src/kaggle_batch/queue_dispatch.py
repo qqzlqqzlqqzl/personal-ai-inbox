@@ -189,7 +189,7 @@ def claimed_entries(roots):
     return claimed
 
 
-def defer_unresolved(database, manifest, outcome, delay=21600, infrastructure_ids=()):
+def defer_unresolved(database, manifest, outcome, delay=21600, infrastructure_ids=(), *,admission=None):
     """Keep good imports. Cap quality retries; infrastructure interruptions wait separately.
 
     The batch receipt makes replay idempotent even across a process crash.
@@ -197,12 +197,15 @@ def defer_unresolved(database, manifest, outcome, delay=21600, infrastructure_id
     """
     if manifest.get('diagnostic',{}).get('must_not_import'):
         raise ValueError('Diagnostic batch cannot change the queue')
+    from work_admission import check
+    check(admission)
     states={item['id']:item['state'] for item in outcome['items']}
     infrastructure_ids=set(infrastructure_ids)
     db=sqlite3.connect(Path(database).resolve().as_uri()+'?mode=rw',uri=True,timeout=15)
     db.row_factory=sqlite3.Row
     actions=[]
     try:
+        check(admission)
         with db:
             db.execute('BEGIN IMMEDIATE')
             db.execute('''CREATE TABLE IF NOT EXISTS kaggle_deferred (

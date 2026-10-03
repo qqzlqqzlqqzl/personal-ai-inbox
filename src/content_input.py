@@ -1,4 +1,5 @@
 """Determine the actual input source; never treat a blog RSS summary as full text."""
+from work_admission import check,options,http_client,AdmissionStopped
 
 import os
 from urllib.parse import urlsplit
@@ -127,15 +128,16 @@ def select_cover_from_page(raw_html, final_url, title="", prefer_social=False):
     return None, None
 
 
-async def _discover_original_cover(entry_url, title="", strict=False):
+async def _discover_original_cover(entry_url, title="", strict=False, *,admission=None):
     """Fetch the article page and choose its hero image; OG/Twitter is fallback."""
+    check(admission)
     import httpx
 
     url = urlsplit(entry_url)
     if url.scheme not in ("http", "https") or not url.hostname or url.username:
         return None, None
     try:
-        async with httpx.AsyncClient(
+        async with http_client(admission,
             timeout=12,
             follow_redirects=True,
             max_redirects=3,
@@ -176,16 +178,19 @@ async def _discover_original_cover(entry_url, title="", strict=False):
             if strict:
                 raise ValueError("cover_image_unavailable")
             return None, None
+    except AdmissionStopped:
+        raise
     except Exception:
         if strict:
             raise
         return None, None
 
 
-async def discover_original_cover(entry_url, title="", strict=False):
+async def discover_original_cover(entry_url, title="", strict=False, *,admission=None):
+    check(admission)
     import asyncio
     try:
-        return await asyncio.wait_for(_discover_original_cover(entry_url, title, strict), timeout=18)
+        return await asyncio.wait_for(_discover_original_cover(entry_url, title, strict,**options(admission)), timeout=18)
     except asyncio.TimeoutError:
         if strict:
             raise
@@ -209,8 +214,9 @@ def model_payload(entry, text, source, config):
     return used, message
 
 
-async def add_original_cover(client, entry, html, backend_url, headers):
+async def add_original_cover(client, entry, html, backend_url, headers, *,admission=None):
     """Use the original page's declared cover only when extracted content has no image."""
+    check(admission)
     from html import escape
     from urllib.parse import urljoin
 
@@ -222,7 +228,7 @@ async def add_original_cover(client, entry, html, backend_url, headers):
     try:
         import httpx
 
-        async with httpx.AsyncClient(
+        async with http_client(admission,
             timeout=10, follow_redirects=True, max_redirects=3, trust_env=False,
             proxy=os.environ.get("AI_NEWS_OUTBOUND_PROXY") or None,
         ) as external:
@@ -248,6 +254,7 @@ async def add_original_cover(client, entry, html, backend_url, headers):
         if parsed.scheme not in ("http", "https") or parsed.username:
             return html
         enriched = '<img src="' + escape(cover, quote=True) + '" alt="">' + html
+        check(admission)
         saved = await client.put(
             backend_url + f"/v1/entries/{entry['id']}",
             headers=headers,
@@ -256,10 +263,13 @@ async def add_original_cover(client, entry, html, backend_url, headers):
         )
         if saved.status_code != 200:
             return html
+        check(admission)
         fresh = await client.get(
             backend_url + f"/v1/entries/{entry['id']}", headers=headers, timeout=15
         )
         return fresh.json().get("content", html) if fresh.status_code == 200 else html
+    except AdmissionStopped:
+        raise
     except Exception:
         return (
             html  # Cover fetching is optional; it cannot invalidate the original text.

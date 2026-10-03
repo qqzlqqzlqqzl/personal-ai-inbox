@@ -55,7 +55,7 @@ def test_query_errors_do_not_leak_credential_output():
 
 
 def lane(state=None,allowed=False,active=False):
-    return {'active':active,'ready':True,'outstanding':{'state':state} if state else None,
+    return {'schedule_enabled':True,'active':active,'ready':True,'outstanding':{'state':state} if state else None,
             'quota_gate':{'allowed':allowed}}
 
 
@@ -138,7 +138,7 @@ def test_drain_finishes_existing_batch_then_stops_before_new_prepare(tmp_path):
         if calls.count('prepare')==1:
             return {'existing_batch':'b'}
         return {'state':'quota_reserved','quota_gate':{'allowed':False,'state':'quota_reserved'},'gpu_started':False}
-    result=drain('config',{'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},control,
+    result=drain('config',{'schedule_enabled':True,'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},control,
                  call=bridge,sleep=lambda _:None,clock=lambda:0)
     assert calls==['prepare','advance','prepare']
     assert result['state']=='quota_reserved' and result['completed_batches']==1
@@ -151,7 +151,7 @@ def test_drain_returns_when_quota_drops_after_preparation(tmp_path):
         calls.append(action)
         return ({'batch_id':'b'} if action=='prepare' else
                 {'submission_blocked':True,'quota_gate':{'allowed':False,'state':'quota_unknown'}})
-    result=drain('config',{'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},control,
+    result=drain('config',{'schedule_enabled':True,'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},control,
                  call=bridge,sleep=lambda _:None,clock=lambda:0)
     assert calls==['prepare','advance']
     assert result['state']=='quota_unknown' and result['gpu_started'] is False
@@ -170,7 +170,7 @@ def test_bridge_prepare_blocks_before_backup_but_returns_existing_recovery(tmp_p
     control._set(batch,'running' if outstanding else 'imported')
     config=tmp_path/'config.json'
     # No versions/database fields: blocked new work must return before touching either.
-    config.write_text(json.dumps({'source':str(Path(initialize_secrets.__file__).parent),
+    config.write_text(json.dumps({'schedule_enabled':True,'source':str(Path(initialize_secrets.__file__).parent),
         'token_file':'/synthetic/unused-token-file','state_root':str(control.root),
         'owner':'testowner','kaggle_python':'/synthetic/python'}))
     monkeypatch.setattr(sys,'argv',['cloud_bridge','--config',str(config),'prepare'])

@@ -12,7 +12,7 @@ import lane_scheduler as scheduler
 
 
 def lane(active=False,outstanding=None,ready=True,retry_at=0,cycle='empty'):
-    return {'active':active,'outstanding':outstanding,'ready':ready,'retry_at':retry_at,
+    return {'schedule_enabled':True,'active':active,'outstanding':outstanding,'ready':ready,'retry_at':retry_at,
             'cycle':{'state':cycle},'recovery':{},'service_state':'active' if active else 'inactive',
             'quota_gate':{'allowed':True,'state':'available','remaining_hours':20}}
 

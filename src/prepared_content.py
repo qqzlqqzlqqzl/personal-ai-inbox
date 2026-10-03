@@ -4,11 +4,13 @@ import json
 import time
 from bs4 import BeautifulSoup
 import core
+from work_admission import check
 
 PRODUCT_LABEL = '产品介绍（Product Hunt）'
 
 
-def migrate():
+def migrate(*,admission=None):
+    check(admission)
     with core.connect() as db:
         db.execute('''CREATE TABLE IF NOT EXISTS prepared_articles (
           entry_id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,url TEXT NOT NULL,
@@ -32,11 +34,12 @@ def input_hash(html, kind):
     return text_hash(html)
 
 
-def remember(entry, content, kind, receipt=None):
+def remember(entry, content, kind, receipt=None, *,admission=None):
     if kind not in ('product_page', 'body_images_repaired', 'adafruit_linked_original'):
         raise ValueError('unsupported_prepared_content_kind')
     if not content or len(content.encode()) > 2 * 1024 * 1024:
         raise ValueError('prepared_content_invalid_size')
+    check(admission)
     with core.connect() as db:
         db.execute('''INSERT OR REPLACE INTO prepared_articles
                    (entry_id,user_id,url,title,content,kind,input_text_hash,prepared_at,source_receipt)
@@ -46,9 +49,10 @@ def remember(entry, content, kind, receipt=None):
                     json.dumps(receipt) if receipt else None))
 
 
-def apply(entry):
+def apply(entry, *,admission=None):
     if entry.get('content_deferred') or 'user_id' not in entry:
         return entry
+    check(admission)
     with core.connect() as db:
         row = db.execute('''SELECT * FROM prepared_articles WHERE entry_id=?
           AND user_id=? AND url=? AND title=?''',

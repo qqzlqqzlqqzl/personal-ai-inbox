@@ -75,7 +75,13 @@ class Harness:
         self.page.goto(self.base+path,wait_until='domcontentloaded')
         self.page.get_by_role('button',name='AI 精选',exact=True).wait_for()
     def panel(self):
-        if self.page.locator('.ai-status-trigger').count():self.page.locator('.ai-status-trigger').click()
+        # Viewport changes return before the matchMedia listener/React commit.
+        # Wait for the expected responsive opener instead of branching on count.
+        compact=self.page.evaluate("matchMedia('(max-width: 768px), (pointer: coarse) and (max-height: 500px)').matches")
+        if compact:
+            trigger=self.page.locator('.ai-toolbar > .ai-status-trigger')
+            expect(trigger).to_be_visible();trigger.click()
+        else:expect(self.page.locator('.ai-toolbar > .ai-settings-button')).to_be_visible()
         self.page.get_by_role('button',name='AI 设置 · 来源',exact=True).click();expect(self.page.locator('.ai-dialog')).to_be_visible()
     def check(self,name,value=True):
         self.checks[name]=bool(value);print('PASS' if value else 'FAIL',name,flush=True)

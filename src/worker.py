@@ -1,4 +1,5 @@
 """Background original-content extraction and structured AI evaluation."""
+from work_admission import check,options,async_call,AdmissionStopped
 
 import asyncio, os, json, time, re, logging
 import httpx
@@ -91,17 +92,21 @@ async def discover_pending(client):
     return count
 
 
-async def process_one(client, row, cfg):
+async def process_one(client, row, cfg, *,admission=None):
+    check(admission)
+    def mutate(function,*args,**kwargs):
+        check(admission)
+        return function(*args,**kwargs)
     entry_id = row["entry_id"]
     started = time.perf_counter()
     phase = "fetch_error"
     try:
-        entry = await mf_get(client, f"/v1/entries/{entry_id}")
+        entry = await async_call(admission,mf_get,client, f"/v1/entries/{entry_id}")
         from urllib.parse import urlsplit
 
         original = urlsplit(entry["url"])
         if original.hostname in {"arxiv.org", "www.arxiv.org", "export.arxiv.org"}:
-            update(
+            mutate(update,
                 entry_id,
                 state="requires_fulltext_adapter",
                 error="论文原文适配尚未接入，不把摘要页当成论文全文",
@@ -117,38 +122,38 @@ async def process_one(client, row, cfg):
         cover_url = row["cover_url"] if "cover_url" in row.keys() else None
         cover_source = row["cover_source"] if "cover_source" in row.keys() else None
         if adafruit:
-            fulltext = await resolve_adafruit(entry)
+            fulltext = await resolve_adafruit(entry,**options(admission))
             current = fulltext['html']
             source = fulltext['receipt']['source']
             if source == 'adafruit_linked_original':
                 from prepared_content import remember
-                remember(entry,current,source,fulltext['receipt'])
+                remember(entry,current,source,fulltext['receipt'],**options(admission))
         if product:
-            prepared = await enrich_product_entry(client, entry, MF, worker_headers())
+            prepared = await enrich_product_entry(client, entry, MF, worker_headers(),**options(admission))
             current = prepared["content"]
             source = prepared.get("content_source") or "product_page"
             cover_url = prepared.get("cover_url") or cover_url
             cover_source = prepared.get("cover_source") or cover_source
             if cover_url:
-                update(entry_id, cover_url=cover_url, cover_source=cover_source)
+                mutate(update,entry_id, cover_url=cover_url, cover_source=cover_source)
         if not social and not product and not cover_url:
             cover_url, cover_source = await discover_original_cover(
-                entry["url"], entry.get("title", "")
+                entry["url"], entry.get("title", ""),**options(admission)
             )
             if cover_url:
-                update(entry_id, cover_url=cover_url, cover_source=cover_source)
+                mutate(update,entry_id, cover_url=cover_url, cover_source=cover_source)
         if not social and not product and not adafruit and (
             not row["extracted_at"] or hash_text(current) != row["content_hash"]
         ):
-            update(entry_id, state="fetching")
-            fetched = await mf_get(
+            mutate(update,entry_id, state="fetching")
+            fetched = await async_call(admission,mf_get,
                 client, f"/v1/entries/{entry_id}/fetch-content", update_content="true"
             )
             current = fetched.get("content", "")
             from media_repair import repair_entry, needs_repair
             if needs_repair(current):
                 try:
-                    fixed = await repair_entry(client, {**entry, "content": current}, MF, worker_headers())
+                    fixed = await repair_entry(client, {**entry, "content": current}, MF, worker_headers(),**options(admission))
                     current = fixed["content"]
                 except (httpx.HTTPError, ValueError):
                     log.warning("ai-news body_image_repair deferred entry_id=%s", entry_id)
@@ -156,7 +161,7 @@ async def process_one(client, row, cfg):
                 raise ValueError("Original extraction returned no content")
         if not social and not product and not adafruit:
             current = await add_original_cover(
-                client, entry, current, MF, worker_headers()
+                client, entry, current, MF, worker_headers(),**options(admission)
             )
         if not cover_url:
             cover_url = first_image_src(current)
@@ -171,7 +176,7 @@ async def process_one(client, row, cfg):
                     break
         text, images = content_text(current)
         if len(text) < (8 if social else 120):
-            update(
+            mutate(update,
                 entry_id,
                 state="insufficient_content",
                 error="原文信息过少，不生成价值评分",
@@ -184,7 +189,7 @@ async def process_one(client, row, cfg):
             return
         used, message = model_payload(entry, text, source, cfg)
         prompt_hash = hash_text(cfg["prompt"] + cfg["model"] + cfg["base_url"])
-        update(
+        mutate(update,
             entry_id,
             content_hash=hash_text(current),
             source_chars=len(text),
@@ -199,7 +204,7 @@ async def process_one(client, row, cfg):
             error=None,
         )
         if not os.environ.get("ARK_API_KEY"):
-            update(entry_id, state="waiting_model")
+            mutate(update,entry_id, state="waiting_model")
             return
         phase = "ai_error"
         with connect() as c:
@@ -280,6 +285,8 @@ async def process_one(client, row, cfg):
             tokens,
             len(text),
         )
+    except AdmissionStopped:
+        raise
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -290,18 +297,18 @@ async def process_one(client, row, cfg):
             if exc.response.status_code == 404 and "/v1/entries/" in str(
                 exc.request.url
             ):
-                update(entry_id, state="removed", error="条目已从阅读器移除")
+                mutate(update,entry_id, state="removed", error="条目已从阅读器移除")
                 return
         elif isinstance(exc, ValueError):
             detail += ": validation failed"
-        update(
+        mutate(update,
             entry_id,
             state=phase,
             attempts=attempts,
             next_try=time.time() + min(86400, 300 * 2 ** min(attempts, 8)),
             error=detail,
         )
-        event(phase, entry_id, detail)
+        mutate(event,phase, entry_id, detail)
         log.warning(
             "ai-news analysis_failed entry_id=%s phase=%s attempts=%s duration_ms=%.1f detail=%s",
             entry_id,

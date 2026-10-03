@@ -1,4 +1,5 @@
 """Non-AI Product Hunt previews from the product's own structured page data."""
+from work_admission import check,options,http_client
 import json
 import os
 from html import escape
@@ -71,9 +72,10 @@ def parse_product_page(raw, final_url):
     return {'description': description[:10000], 'images': images[:4], 'website': website}
 
 
-async def enrich_product_entry(client, entry, backend_url, headers):
+async def enrich_product_entry(client, entry, backend_url, headers, *,admission=None):
+    check(admission)
     from prepared_content import apply as apply_prepared, remember
-    entry = apply_prepared(entry)
+    entry = apply_prepared(entry,**options(admission))
     original = entry.get('content') or ''
     if not is_product_entry(entry):
         raise ValueError('unsupported_product_source')
@@ -94,7 +96,7 @@ async def enrich_product_entry(client, entry, backend_url, headers):
         if cover:
             return {'content': original, 'cover_url': cover, 'cover_source': 'product_screenshot', 'content_source': 'product_page', 'updated': False}
         rss_original = ''.join(str(node) for node in marker.next_siblings)
-    async with product_client() as external:
+    async with product_client(**options(admission)) as external:
         async with external.stream('GET', entry['url']) as response:
             response.raise_for_status()
             if not is_product_entry({'url': str(response.url)}):
@@ -125,14 +127,16 @@ async def enrich_product_entry(client, entry, backend_url, headers):
     html += '<p><a href="' + escape(entry['url'], quote=True) + '">查看 Product Hunt 产品页面</a></p><hr><h3>原始 RSS 简介</h3>' + rss_original
     if html == original:
         return {'content': original, 'cover_url': None, 'cover_source': None, 'content_source': 'product_page', 'updated': False}
+    check(admission)
     saved = await client.put(backend_url + '/v1/entries/' + str(entry['id']), headers=headers, json={'content': html}, timeout=15)
     saved.raise_for_status()
+    check(admission)
     fresh = await client.get(backend_url + '/v1/entries/' + str(entry['id']), headers=headers, timeout=15)
     fresh.raise_for_status()
     content = fresh.json().get('content') or html
-    remember(entry, content, 'product_page')
+    remember(entry, content, 'product_page',**options(admission))
     return {'content': content, 'cover_url': first_image_src(content) if images else None, 'cover_source': 'product_screenshot' if images else None, 'content_source': 'product_page', 'updated': True}
 
 
-def product_client():
-    return httpx.AsyncClient(proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None, trust_env=False, timeout=12, follow_redirects=True, max_redirects=3)
+def product_client(*,admission=None):
+    return http_client(admission,proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None, trust_env=False, timeout=12, follow_redirects=True, max_redirects=3)
