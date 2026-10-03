@@ -2,7 +2,7 @@
 
 if __name__ == '__main__':
     import argparse
-    argparse.ArgumentParser(description='Finalize the project runtime and install its services.').parse_args()
+    argparse.ArgumentParser(allow_abbrev=False, description='Finalize the project runtime and install its services.').parse_args()
 
 from pathlib import Path
 import hashlib, json, os, shutil, subprocess

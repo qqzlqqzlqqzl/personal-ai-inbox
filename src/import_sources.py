@@ -2,7 +2,7 @@
 
 if __name__ == '__main__':
     import argparse
-    argparse.ArgumentParser(description='Import the configured feed catalog.').parse_args()
+    argparse.ArgumentParser(allow_abbrev=False, description='Import the configured feed catalog.').parse_args()
 
 import json, time, concurrent.futures
 from pathlib import Path

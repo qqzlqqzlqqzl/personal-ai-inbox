@@ -18,7 +18,7 @@ ENTRIES = ('backup.py', 'finalize_runtime.py', 'import_sources.py', 'x_feed_pref
 
 
 @pytest.mark.parametrize('entry', ENTRIES)
-@pytest.mark.parametrize('arguments,exit_code', [(['--help'],0),(['--slot6-unknown'],2),(['--dry-run'],2)])
+@pytest.mark.parametrize('arguments,exit_code', [(['--help'],0),(['--slot6-unknown'],2),(['--dry-run'],2),(['--verify-l'],2)])
 def test_parameter_gate_exits_before_application_imports(entry,arguments,exit_code,monkeypatch,capsys):
     original=builtins.__import__
     imported=[]
