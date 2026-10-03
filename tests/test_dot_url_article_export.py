@@ -51,13 +51,13 @@ class URLExportTests(unittest.TestCase):
         root = self.f.f.root / name
         root.mkdir()
         with sqlite3.connect(root / 'batches.sqlite3') as db:
-            db.executescript('CREATE TABLE batches(id TEXT,state TEXT); CREATE TABLE batch_claims(batch_id TEXT,entry_id INTEGER);')
+            db.executescript('CREATE TABLE batches ( id TEXT PRIMARY KEY, manifest_hash TEXT NOT NULL, state TEXT NOT NULL, remote_status TEXT, error TEXT, updated REAL NOT NULL); CREATE TABLE batch_claims (batch_id TEXT NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(batch_id,entry_id));')
         self.config['peer_state_roots'].append(str(root))
         return root
 
     def claim(self, root, eid, state='running'):
         with sqlite3.connect(root / 'batches.sqlite3') as db:
-            db.execute('INSERT INTO batches VALUES (?,?)', ('batch-' + str(eid), state))
+            db.execute("INSERT INTO batches (id,state,manifest_hash,updated) VALUES (?,?,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',0)", ('batch-' + str(eid), state))
             db.execute('INSERT INTO batch_claims VALUES (?,?)', ('batch-' + str(eid), eid))
 
     def test_roundtrip_twelve_through_real_importer_dry_run(self):
@@ -238,10 +238,12 @@ class URLExportTests(unittest.TestCase):
 
     def test_old_manifest_claims_and_second_lane_scan(self):
         root = self.f.f.peer
+        manifest = {'items': [{'id': 'legacy-item', 'source_refs': [{'entry_id': 12}]}]}
+        fingerprint = exporter.digest(manifest)
         with sqlite3.connect(root / 'batches.sqlite3') as db:
-            db.execute("INSERT INTO batches VALUES ('old','running')")
+            db.execute('INSERT INTO batches VALUES (?,?,?,NULL,NULL,0)', ('old', fingerprint, 'running'))
         (root / 'old').mkdir()
-        (root / 'old/manifest.json').write_text(json.dumps({'items': [{'source_refs': [{'entry_id': 12}]}]}))
+        (root / 'old/manifest.json').write_text(json.dumps({**manifest, 'batch_id': 'old', 'manifest_hash': fingerprint}))
         original = exporter.lane_claims
         calls = []
         def changed(config):
@@ -266,12 +268,12 @@ class URLExportTests(unittest.TestCase):
             self.export()
         with sqlite3.connect(self.f.f.peer / 'batches.sqlite3') as db:
             db.execute('DELETE FROM batch_claims')
-            db.execute("INSERT INTO batches VALUES ('../escape','running')")
+            db.execute("INSERT INTO batches VALUES ('../escape','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','running',NULL,NULL,0)")
         with self.assertRaisesRegex(ValueError, 'invalid_lane_state'):
             self.export()
         with sqlite3.connect(self.f.f.peer / 'batches.sqlite3') as db:
             db.execute('DELETE FROM batches')
-            db.execute("INSERT INTO batches VALUES ('incomplete','running')")
+            db.execute("INSERT INTO batches VALUES ('incomplete','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','running',NULL,NULL,0)")
         with self.assertRaises(FileNotFoundError):
             self.export()
         with sqlite3.connect(self.f.f.peer / 'batches.sqlite3') as db:

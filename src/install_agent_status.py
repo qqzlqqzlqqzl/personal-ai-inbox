@@ -6,7 +6,7 @@ from pathlib import Path
 
 PIN='534eeb97723ac11025de4ec1ac56335072e3be52'
 ROUTES_BEFORE='90eb803fcf6feeaa32038dce6e8e8e6a14c09db6d37d51a930e3d348e39a2a34'
-PANEL_BEFORE='88344d306911a0fe15dd9a47987f8e58d7dc2cb5501999f342f8ec8d31cc040b'
+PANEL_BEFORE='06d5e523f593193302f73573f3ef37d068c73f93ec93e4e443084d91a64b9039'
 TOOLBAR_BEFORE='f4f433120afe9fce94f1ca816b8bc49211b53cb4db1aca1aa32e20e6efe89e62'
 LINK_IMPORT='import { Link } from "react-router";\n'
 PANEL_ANCHOR='    <section className="review-resource-freshness" aria-label="各资源读取状态">'

@@ -9,7 +9,7 @@ import fcntl
 import sys
 from pathlib import Path
 
-FINISHED = {'imported', 'retired', 'resolved'}
+from dot_import_coordination import FINISHED, exclusions
 ELIGIBLE = {'pending', 'waiting_model', 'budget_paused', 'fetch_error', 'ai_error'}
 CARD_ELIGIBLE = {'pending', 'error', 'budget_paused', 'waiting_model'}
 STORED_SOURCES = {'original_url_site_rule', 'adafruit_linked_original', 'social_adapter_post', 'product_page'}
@@ -37,30 +37,6 @@ def constants(path, names):
         elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name) and node.target.id in names and isinstance(node.op, ast.Add):
             values[node.target.id] += ast.literal_eval(node.value)
     return values
-
-
-def exclusions(config):
-    claimed = set()
-    peers = config['peer_state_roots']
-    if not isinstance(peers,list) or not peers or not config.get('state_root'):
-        raise ValueError('Complete lane roots are required')
-    roots = list(dict.fromkeys([config['state_root'], *peers]))
-    for root in roots:
-        root = Path(root)
-        with ro(root / 'batches.sqlite3') as db:
-            batches = db.execute("SELECT id FROM batches WHERE state NOT IN ('imported','retired','resolved')").fetchall()
-            table = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='batch_claims'").fetchone()
-            for batch in batches:
-                rows = db.execute('SELECT entry_id FROM batch_claims WHERE batch_id=?', (batch['id'],)).fetchall() if table else []
-                if rows:
-                    claimed.update(int(row[0]) for row in rows)
-                else:
-                    manifest = json.loads((root / batch['id'] / 'manifest.json').read_text())
-                    claimed.update(int(ref['entry_id']) for item in manifest['items'] for ref in item['source_refs'])
-    with ro(config['database']) as db:
-        exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kaggle_prepare_leases'").fetchone()
-        leased = {int(row[0]) for row in db.execute('SELECT entry_id FROM kaggle_prepare_leases WHERE expires>?', (time.time(),))} if exists else set()
-    return claimed, leased
 
 
 def export(config, limit=3, enabled_feed_ids=None):

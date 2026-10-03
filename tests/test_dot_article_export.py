@@ -17,7 +17,7 @@ class ReadOnlyExportTests(unittest.TestCase):
           text='' if i==7 else 'Complete stored body '+str(i)
           c.execute('INSERT INTO analyses VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(i,1,2 if i==9 else 1,'t','https://example.com/'+str(i),'2026-10-01T00:00:00Z','done' if i==8 else 'waiting_model',0,0,'hash'+str(i),text,0,'original_url_site_rule',len(text),100.0))
          c.execute('INSERT INTO kaggle_prepare_leases VALUES (?,?,?)',(6,'other',time.time()+660));c.commit();c.close()
-         lane=p/'lane';lane.mkdir();c=sqlite3.connect(lane/'batches.sqlite3');c.executescript('CREATE TABLE batches(id,state);CREATE TABLE batch_claims(batch_id,entry_id);');c.execute('INSERT INTO batches VALUES (?,?)',('unknown','submit_unknown'));c.execute('INSERT INTO batch_claims VALUES (?,?)',('unknown',5));c.commit();c.close()
+         lane=p/'lane';lane.mkdir();c=sqlite3.connect(lane/'batches.sqlite3');c.executescript('CREATE TABLE batches ( id TEXT PRIMARY KEY, manifest_hash TEXT NOT NULL, state TEXT NOT NULL, remote_status TEXT, error TEXT, updated REAL NOT NULL);CREATE TABLE batch_claims (batch_id TEXT NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(batch_id,entry_id));');c.execute("INSERT INTO batches (id,state,manifest_hash,updated) VALUES (?,?,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',0)",('unknown','submit_unknown'));c.execute('INSERT INTO batch_claims VALUES (?,?)',('unknown',5));c.commit();c.close()
          cfg={'source':str(src),'database':str(dbpath),'peer_state_roots':[str(lane)],'state_root':str(lane),'scope_user_id':1}
          before=hashlib.sha256(dbpath.read_bytes()).hexdigest();out=m.export(cfg,enabled_feed_ids={1});encoded=json.dumps(out)
          assert [r['entry_id'] for r in out['articles']]==[4,3,2],out

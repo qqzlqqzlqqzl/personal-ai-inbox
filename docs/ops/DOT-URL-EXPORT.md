@@ -94,6 +94,26 @@ batch without claim rows must have a complete readable legacy manifest. Orphan
 claims, malformed IDs and missing state fail closed. Leases block while
 `expires > cutoff`; exact expiry at cutoff is not live.
 
+Both exporters and both importer preflights use the dependency-neutral
+`dot_import_coordination.py` validator. Every lane must have the production
+batch-ledger columns and pass SQLite integrity checking. Every batch, including
+finished batches and batches with transactional claims, must carry a lowercase
+64-character hexadecimal ledger manifest hash.
+
+A fallback manifest must identify the exact ledger batch and bind its complete
+canonical contents to both its own `manifest_hash` and the ledger hash. The
+canonical hash excludes only `batch_id` and `manifest_hash` and uses the digest
+specified below. Items require unique nonempty string IDs and nonempty lists of
+source-reference objects containing positive integer entry IDs. Correctly signed
+historical manifests remain valid when the claims table is absent. Existing
+transactional claims remain authoritative if a parked manifest is missing or
+corrupt; finished batches do not need their old manifest.
+
+Importer checks run before backup and again inside the write transaction after
+the fresh upstream read. Historical receipt replay preserves prior receipt
+counts and does not reconcile current rows. These checks do not establish full
+Controller topology, lifecycle or recovery parity.
+
 Cards are optional: only the matching user's eligible, due, attempt-bounded card
 with a valid update timestamp and no preserved translation version is included.
 An absent/ineligible card is `null`, with an aggregate omission reason; the analysis

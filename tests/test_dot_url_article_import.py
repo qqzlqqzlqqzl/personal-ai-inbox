@@ -110,7 +110,7 @@ class URLImportTests(unittest.TestCase):
         self.f.change('DELETE FROM kaggle_prepare_leases');self.f.change("UPDATE analyses SET state='done' WHERE entry_id=12")
         with self.assertRaisesRegex(ValueError,'existing_result_preserved'):self.run_import(apply=True)
         self.f.change("UPDATE analyses SET state='pending' WHERE entry_id=12")
-        with sqlite3.connect(self.f.peer/'batches.sqlite3') as c:c.executescript("INSERT INTO batches VALUES ('unknown','submit_unknown');INSERT INTO batch_claims VALUES ('unknown',12);")
+        with sqlite3.connect(self.f.peer/'batches.sqlite3') as c:c.executescript("INSERT INTO batches VALUES ('unknown','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','submit_unknown',NULL,NULL,0);INSERT INTO batch_claims VALUES ('unknown',12);")
         with self.assertRaisesRegex(ValueError,'entry_claimed_or_leased'):self.run_import(apply=True)
         self.clean()
     def test_last_article_failure_rolls_back_every_table(self):
@@ -158,7 +158,7 @@ class URLImportTests(unittest.TestCase):
     def test_claim_during_backup_aborts_all_writes(self):
         def backup(*args):
             with sqlite3.connect(self.f.peer/'batches.sqlite3') as db:
-                db.executescript("INSERT INTO batches VALUES ('late','submit_unknown');INSERT INTO batch_claims VALUES ('late',12);")
+                db.executescript("INSERT INTO batches VALUES ('late','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','submit_unknown',NULL,NULL,0);INSERT INTO batch_claims VALUES ('late',12);")
             return 'b'*64
         with self.assertRaisesRegex(ValueError,'entry_claimed_or_leased'):
             urlimp.import_batch(self.config,self.packet,self.results,lambda:copy.deepcopy(self.upstream),apply=True,batch_limit=12,backup=backup)

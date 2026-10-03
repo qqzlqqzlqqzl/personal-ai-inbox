@@ -11,7 +11,9 @@ import sys
 import time
 from pathlib import Path
 
-from export_dot_articles_readonly import constants, digest, exclusions, ro, ELIGIBLE, CARD_ELIGIBLE, STORED_SOURCES
+from export_dot_articles_readonly import constants, digest, ro, ELIGIBLE, CARD_ELIGIBLE, STORED_SOURCES
+
+from dot_import_coordination import exclusions
 
 PRODUCER = {'provider': 'dot', 'model': 'gpt-6-astra', 'reasoning': 'xhigh'}
 MODEL = 'dot/gpt-6-astra'

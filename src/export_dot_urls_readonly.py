@@ -17,13 +17,15 @@ from urllib.parse import parse_qsl, urlsplit
 
 import dot_article_import as legacy
 import dot_url_article_import as contract
-from export_dot_articles_readonly import CARD_ELIGIBLE, ELIGIBLE, FINISHED, digest, ro
+from export_dot_articles_readonly import CARD_ELIGIBLE, ELIGIBLE, digest, ro
+from dot_import_coordination import positive_id, lane_claims, live_leases
 
 EXPORTER_VERSION = 'dot-url-exporter-v1'
 SAFE_ERROR_CODES = frozenset({
     'invalid_exclusion_ids', 'duplicate_exclusion_ids', 'invalid_live_feed_catalog',
     'invalid_source_url', 'sensitive_source_url', 'complete_lane_roots_required',
-    'invalid_lane_state', 'orphan_lane_claim', 'incomplete_lane_manifest',
+    'invalid_lane_state', 'invalid_lane_ledger', 'invalid_lane_manifest',
+    'orphan_lane_claim', 'incomplete_lane_manifest',
     'invalid_lane_claim', 'invalid_prepare_lease', 'explicit_scope_user_mismatch',
     'invalid_batch_limit', 'existing_paid_workers_enabled', 'invalid_analysis_prompt',
     'invalid_output_token_policy',
@@ -36,10 +38,6 @@ HASH_SPEC = {
     'text': 'sha256(text.encode("utf-8")); no trimming or Unicode normalization',
     'null': 'JSON null is preserved; absent fields are not substituted',
 }
-
-
-def positive_id(value):
-    return type(value) is int and 0 < value <= 2**63 - 1
 
 
 def exclusion_ids(values):
@@ -95,59 +93,6 @@ def safe_url(value):
         if not address.is_global or str(address) != host:
             raise ValueError('invalid_source_url')
     return value
-
-
-def lane_claims(config):
-    """Read every declared lane; missing/incomplete state is never an empty lane."""
-    peers, own = config.get('peer_state_roots'), config.get('state_root')
-    if (not isinstance(peers, list) or not peers or not isinstance(own, str) or not own
-            or any(not isinstance(p, str) or not p for p in peers)):
-        raise ValueError('complete_lane_roots_required')
-    roots = list(dict.fromkeys(Path(p).resolve() for p in [own, *peers]))
-    claimed = set()
-    for root in roots:
-        with closing(ro(root / 'batches.sqlite3')) as db:
-            db.execute('BEGIN')
-            batches = db.execute('SELECT id,state FROM batches').fetchall()
-            has_claims = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='batch_claims'").fetchone()
-            if len({row['id'] for row in batches}) != len(batches):
-                raise ValueError('invalid_lane_state')
-            if has_claims and db.execute('SELECT 1 FROM batch_claims c LEFT JOIN batches b ON b.id=c.batch_id WHERE b.id IS NULL LIMIT 1').fetchone():
-                raise ValueError('orphan_lane_claim')
-            for batch in batches:
-                bid, state = batch['id'], batch['state']
-                if (not isinstance(bid, str) or not re.fullmatch(r'[a-zA-Z0-9_-]+', bid)
-                        or not isinstance(state, str) or not state):
-                    raise ValueError('invalid_lane_state')
-                if state in FINISHED:
-                    continue
-                refs = db.execute('SELECT entry_id FROM batch_claims WHERE batch_id=?', (bid,)).fetchall() if has_claims else []
-                if refs:
-                    ids = [row['entry_id'] for row in refs]
-                else:
-                    # The existing controller also supports pre-claims manifests.
-                    manifest = json.loads((root / bid / 'manifest.json').read_text(encoding='utf-8'))
-                    items = manifest.get('items') if isinstance(manifest, dict) else None
-                    if not isinstance(items, list) or not items:
-                        raise ValueError('incomplete_lane_manifest')
-                    ids = []
-                    for item in items:
-                        sources = item.get('source_refs') if isinstance(item, dict) else None
-                        if not isinstance(sources, list) or not sources:
-                            raise ValueError('incomplete_lane_manifest')
-                        ids.extend(ref.get('entry_id') if isinstance(ref, dict) else None for ref in sources)
-                if any(not positive_id(eid) for eid in ids):
-                    raise ValueError('invalid_lane_claim')
-                claimed.update(ids)
-    return claimed
-
-
-def live_leases(db, cutoff):
-    # Require the table. Do not silently treat an uninitialized store as safe.
-    leases = db.execute('SELECT entry_id,expires FROM kaggle_prepare_leases').fetchall()
-    if any(not positive_id(row['entry_id']) or not contract.finite_number(row['expires']) for row in leases):
-        raise ValueError('invalid_prepare_lease')
-    return {row['entry_id'] for row in leases if row['expires'] > cutoff}
 
 
 def analysis_reason(row, cutoff):

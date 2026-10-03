@@ -17,7 +17,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import dot_article_import as legacy
-from export_dot_articles_readonly import digest, ro, exclusions, ELIGIBLE, CARD_ELIGIBLE
+from export_dot_articles_readonly import digest, ro, ELIGIBLE, CARD_ELIGIBLE
+
+from dot_import_coordination import exclusions
 
 ANALYSIS_FIELDS = ('entry_id','user_id','feed_id','title','url','published_at','state','attempts','next_try','updated_at',
                    'content_hash','content_source','source_chars','truncated','extracted_at','analyzed_at')
