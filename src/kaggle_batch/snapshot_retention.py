@@ -3,6 +3,10 @@
 Normal batch manifests/results remain untouched. Only complete copies of the
 analysis SQLite database are candidates for pruning.
 """
+
+if __name__ == '__main__':
+    import argparse
+    argparse.ArgumentParser(description='Prune eligible historical rollback snapshots.').parse_args()
 import json
 import os
 from pathlib import Path
