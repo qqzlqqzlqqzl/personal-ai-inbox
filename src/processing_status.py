@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 import sqlite3
 import time
+from feed_consumption import restricted_analysis_reason
 
 LANES = ('primary', 'secondary', 'third', 'fourth', 'fifth')
 MESSAGES = {
@@ -21,6 +22,8 @@ MESSAGES = {
     'awaiting_import': '已缓存结果等待校验与入库',
     'extraction_failed': '正文提取失败，等待重试；这不代表文章价值低',
     'source_review_required': '正文来源或完整性需要核实，暂不生成可靠评价',
+    'rss_summary_only': '仅有RSS摘要，项目全文分析尚未接入，未生成价值评分',
+    'rss_feed_identity_unverified': '订阅源身份待核实，未扩展抓取或分析',
     'unknown': '后台状态尚未确认，请稍后查看状态更新时间',
 }
 
@@ -189,6 +192,14 @@ def for_entry(row, evidence, *, now=None):
     result = project(entry_state=row.get('state', 'pending'), now=time.time() if now is None else now,
         evidence={**evidence, 'entry_claim_submission_unknown': row.get('entry_id') in evidence.get('entry_claim_unknown_ids', set()),
                   'analyzed_at': row.get('analyzed_at')})
+    policy_reason = restricted_analysis_reason(row.get('error'))
+    expected_state = {'rss_summary_only': 'requires_fulltext_adapter',
+                      'rss_feed_identity_unverified': 'requires_source_review'}.get(policy_reason)
+    if policy_reason and row.get('state') == expected_state and result['reason_code'] == 'source_review_required':
+        result['reason_code'] = policy_reason
+        result['reason_codes'] = [policy_reason if code == 'source_review_required' else code
+                                  for code in result['reason_codes']]
+        result['message'] = MESSAGES[policy_reason]
     if row.get('state') != 'done' and evidence.get('ledgers_complete') is False:
         result['reason_codes'].append('ledger_unavailable')
     return result

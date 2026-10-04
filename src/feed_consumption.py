@@ -12,6 +12,19 @@ SUMMARY_FEEDS = frozenset({
 })
 UNVERIFIED_SELF_FEEDS = frozenset(url.replace("https://", "http://", 1) for url in SUMMARY_FEEDS)
 PREVIEW_IMAGE_SOURCE = "cached_entry_image"
+RSS_SUMMARY_ERROR = "rss_summary_only:" + POLICY_VERSION
+UNVERIFIED_FEED_ERROR = "rss_feed_identity_unverified:" + POLICY_VERSION
+RESTRICTED_ERRORS = (RSS_SUMMARY_ERROR, UNVERIFIED_FEED_ERROR)
+
+
+def restricted_analysis_reason(error):
+    # Exact persisted restriction markers only. Natural-language errors, URL
+    # mentions and unknown versions must not classify other sources as these feeds.
+    if error == RSS_SUMMARY_ERROR:
+        return "rss_summary_only"
+    if error == UNVERIFIED_FEED_ERROR:
+        return "rss_feed_identity_unverified"
+    return None
 
 
 def summary_feed_policy(entry):
@@ -33,8 +46,8 @@ def is_summary_only_feed(entry):
 def restricted_analysis_fields(policy):
     if policy == "summary_only":
         return {"state": "requires_fulltext_adapter",
-                "error": "Kicktraq RSS 摘要；未接入项目全文，不生成全文价值评分"}
+                "error": RSS_SUMMARY_ERROR}
     if policy == "identity_unverified":
         return {"state": "requires_source_review",
-                "error": "Kicktraq RSS HTTP self 身份待核实；禁止扩展抓取"}
+                "error": UNVERIFIED_FEED_ERROR}
     raise ValueError("Unknown feed restriction")

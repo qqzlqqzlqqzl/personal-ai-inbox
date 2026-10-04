@@ -62,6 +62,7 @@ class ClaimTests(unittest.TestCase):
             db.execute('CREATE TABLE card_translations(entry_id INTEGER,user_id INTEGER,status TEXT,next_try REAL,attempts INTEGER)')
             db.executemany('INSERT INTO analyses VALUES (?,?,?,?,?)',[(1,1,'waiting_model',0,0),(2,1,'waiting_model',0,0),(3,1,'done',0,0),(4,1,'requires_fulltext_adapter',0,0)])
             db.execute("INSERT INTO card_translations VALUES (3,1,'pending',0,0)")
+            db.execute('ALTER TABLE analyses ADD COLUMN error TEXT')
         self.allow.write_text(json.dumps({'entry_ids':[1,2,3,4]}))
         value={'items':[{'id':'a','source_refs':[{'entry_id':2}]}]}
         with sqlite3.connect(self.peer/'batches.sqlite3') as db:
