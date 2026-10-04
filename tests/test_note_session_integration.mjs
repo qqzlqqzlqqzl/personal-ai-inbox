@@ -1,7 +1,8 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Actual owned session, API boundary and explicit logout helper; synthetic stores/network only.
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {mkdtemp,rm} from 'node:fs/promises'
+import {mkdtemp} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import test from 'node:test'
@@ -107,4 +108,4 @@ await test('actual removeItem denial warns on forced owner replacement, data res
  }finally{dom.window.Storage.prototype.removeItem=original}
 })
 
-noteSession.dispose();await rm(directory,{recursive:true,force:true});dom.window.close()
+noteSession.dispose();await retainTestDirectory(directory);dom.window.close()

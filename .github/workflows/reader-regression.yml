@@ -16,7 +16,10 @@ concurrency:
 jobs:
   offline-and-browser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,9 +28,12 @@ jobs:
           # later unauthenticated git fetch cannot access this private repository.
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prepare fresh evidence paths while retaining old output
+        id: prepare_evidence
+        run: timeout --signal=TERM --kill-after=10s 60s python3 tests/ci_prepare_evidence.py --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.12.14'
           cache: pip
           cache-dependency-path: requirements.dev.lock.txt
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -35,21 +41,23 @@ jobs:
           node-version: '24.21.0'
       - name: Install locked test dependencies
         run: |
-          python -m pip install -r requirements.dev.lock.txt
-          npm install --global --ignore-scripts pnpm@11.21.0
+          timeout --signal=TERM --kill-after=10s 600s python -m pip install -r requirements.dev.lock.txt
+          timeout --signal=TERM --kill-after=10s 600s npm install --global --ignore-scripts pnpm@11.21.0
       - name: Fetch exact public reader source
         run: |
-          git clone --filter=blob:none https://github.com/electh/ReactFlux.git upstream/reactflux
-          git -C upstream/reactflux checkout 534eeb97723ac11025de4ec1ac56335072e3be52
-          python tests/build_ci_reader.py --prepare-only
-          pnpm --dir upstream/reactflux install --frozen-lockfile --ignore-scripts
-          npm install --prefix runtime/history-test-tools --ignore-scripts jsdom@26.1.0
+          timeout --signal=TERM --kill-after=10s 600s git clone --filter=blob:none https://github.com/electh/ReactFlux.git upstream/reactflux
+          timeout --signal=TERM --kill-after=10s 600s git -C upstream/reactflux checkout 534eeb97723ac11025de4ec1ac56335072e3be52
+          timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py --prepare-only
+          timeout --signal=TERM --kill-after=10s 600s pnpm --dir upstream/reactflux install --frozen-lockfile --ignore-scripts
+          timeout --signal=TERM --kill-after=10s 600s npm install --prefix runtime/history-test-tools --ignore-scripts jsdom@26.1.0
+      - name: Verify immutable CI source and toolchain identity
+        run: timeout --signal=TERM --kill-after=10s 120s python tests/ci_reader_contract.py --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Full isolated Python regression
         env:
           PYTHONPATH: src:src/kaggle_batch
         run: |
           mkdir -p artifacts
-          python - <<'PY'
+          timeout --signal=TERM --kill-after=10s 600s python - <<'PY'
           from pathlib import Path
           import initialize_secrets, pytest
           initialize_secrets.ROOT = Path.cwd()
@@ -57,23 +65,23 @@ jobs:
           PY
       - name: JavaScript and component lifecycle regression
         run: |
-          for test in tests/test_*.mjs; do node "$test"; done
-          node tests/source_history_component_acceptance.mjs
+          for test in tests/test_*.mjs; do timeout --signal=TERM --kill-after=10s 90s node "$test"; done
+          timeout --signal=TERM --kill-after=10s 600s node tests/source_history_component_acceptance.mjs
       - name: Build isolated reader
-        run: python tests/build_ci_reader.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py
       - name: Install Chromium system dependencies
-        run: python -m playwright install-deps chromium
+        run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
       - name: Install hosted Chromium headless shell
         # The browser tests launch headless Chromium without a channel override.
-        run: python -m playwright install --only-shell chromium
+        run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install --only-shell chromium
       - name: Browser fulltext request, redirect and popup admission
         env:
           PYTHONPATH: src:src/kaggle_batch
-        run: python tests/fulltext_browser_admission.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/fulltext_browser_admission.py
       - name: Resolve CJK font from refreshed APT indices
         id: cjk-package
         # install-deps above refreshes signed APT indices; never cache this manifest.
-        run: python tests/ci_cjk_font.py prepare --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/ci_cjk_font.py prepare --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
       - name: Restore exact CJK font archive
         id: cjk-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -84,52 +92,52 @@ jobs:
           key: ${{ steps.cjk-package.outputs.key }}
       - name: Install CJK fonts for browser evidence
         # Cache hits are untrusted: check every entry, size and SHA256 before sudo.
-        run: python tests/ci_cjk_font.py install --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/ci_cjk_font.py install --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
       - name: Verify rendered Chinese glyph fonts
-        run: python tests/cjk_font_browser_acceptance.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/cjk_font_browser_acceptance.py
       - name: Desktop and mobile viewport UI regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/history_browser_acceptance.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/history_browser_acceptance.py
       - name: Reviewed control workflows in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/review_console_browser.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/review_console_browser.py
       - name: Reading recovery and navigation in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/review_reading_browser.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/review_reading_browser.py
       - name: Session-owned note privacy and explicit logout regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: |
-          python tests/note_session_browser_acceptance.py
-          python tests/note_request_recovery_browser.py
-          python tests/note_legacy_browser_acceptance.py
+          timeout --signal=TERM --kill-after=10s 600s python tests/note_session_browser_acceptance.py
+          timeout --signal=TERM --kill-after=10s 600s python tests/note_request_recovery_browser.py
+          timeout --signal=TERM --kill-after=10s 600s python tests/note_legacy_browser_acceptance.py
       - name: Search IME and cancel regression in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/search_ime_browser_audit.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/search_ime_browser_audit.py
       - name: Sort order and persistence in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/sort_browser_acceptance.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/sort_browser_acceptance.py
       - name: Panel opener waits for responsive media commit
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/reader_panel_transition_browser.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/reader_panel_transition_browser.py
       - name: Mobile reading area, touch, status and full-text regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/mobile_reading_browser.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/mobile_reading_browser.py
       - name: Account calendar consistency across three browser timezones
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/calendar_browser_acceptance.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/calendar_browser_acceptance.py
       - name: Invalid and failed account timezone recovery in Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
-        run: python tests/calendar_identity_browser.py
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/calendar_identity_browser.py
       - name: Save verified CJK font archive after full regression
         if: steps.cjk-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -137,12 +145,15 @@ jobs:
           path: ${{ runner.temp }}/reader-cjk-deb
           key: ${{ steps.cjk-package.outputs.key }}
       - name: Retain synthetic test evidence
-        if: always()
+        if: always() && steps.prepare_evidence.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reader-regression-${{ github.run_id }}
           path: |
+            artifacts/ci-tested-source.json
             artifacts/ci-python.xml
+            artifacts/ci-reader-identity.json
+            runtime/retained-browser-builds/
             artifacts/review-overlay-input/
             runtime/browser-acceptance.json
             runtime/history-*.png

@@ -156,7 +156,7 @@ def test_public_production_baseline_upgrade_and_unknown_drift(tmp_path, monkeypa
     assert hashlib.sha256((web / SORTER).read_bytes()).hexdigest() == baseline_hashes[baseline_kind]
     backups = _source_bytes(isolated / "runtime/reactflux-original")
     for name in ("src", "patches", "frontend-review"):
-        shutil.rmtree(isolated / name)
+        (isolated / name).rename(tmp_path / ('retained-authoring-' + name))
         shutil.copytree(ROOT / name, isolated / name)
     _apply_authoring(isolated, STAGES[:-1])
     before = (isolated / "frontend-review/before" / SORTER).read_bytes()
@@ -249,7 +249,7 @@ def test_known_closed_draft_baseline_upgrade_preserves_backups_and_equals_pristi
     assert hashlib.sha256((web / "src/components/Ai/note-drafts.js").read_bytes()).hexdigest() == expected_helper[baseline]
     backups = _source_bytes(isolated / "runtime/reactflux-original")
     for name in ("src", "patches", "frontend-review"):
-        shutil.rmtree(isolated / name)
+        (isolated / name).rename(tmp_path / ('retained-authoring-' + name))
         shutil.copytree(ROOT / name, isolated / name)
     _apply_authoring(isolated)
     for name, value in backups.items():

@@ -1,7 +1,8 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Frozen-clock regression against generated reader modules. No live APIs or data.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const web = new URL("../upstream/reactflux/", import.meta.url).pathname;
@@ -70,4 +71,4 @@ try {
   await assert.rejects(app.markStarredEntriesAsRead());assert.equal(idsFetched,0,"invalid zone cannot start ID collection");
   console.log("PASS starred collection/write cancellation for day, zone, account; successful frozen IDs; invalid identity");
  }
-}finally{globalThis.Date=NativeDate;await rm(dir,{recursive:true,force:true})}
+}finally{globalThis.Date=NativeDate;await retainTestDirectory(dir)}

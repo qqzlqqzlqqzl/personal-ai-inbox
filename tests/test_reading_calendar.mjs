@@ -1,7 +1,8 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Frozen-clock regression against generated reader modules. No live APIs or data.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const web = new URL("../upstream/reactflux/", import.meta.url).pathname;
@@ -116,4 +117,4 @@ try {
   assert.equal(app.dataState.get().unreadTodayCount,4);
   coordinator.dispose();
   console.log("PASS strict/inclusive/fractional bounds, YYYY-MM-DD, 23/25h DST, UTC, invalid/late identity, Shanghai midnight and batch cancellation");
-} finally {globalThis.Date=NativeDate;await rm(dir,{recursive:true,force:true})}
+} finally {globalThis.Date=NativeDate;await retainTestDirectory(dir)}

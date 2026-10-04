@@ -1,10 +1,11 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Real generated sorter, stores, request hook and URL construction. API transport,
 // translations, SidebarTrigger and surrounding navigation-provider values are
 // fixtures. A simple output observes list state; jsdom has no layout. The hosted
 // Chromium test separately checks the actual rendered article rows.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 const web = new URL("../upstream/reactflux/", import.meta.url).pathname;
@@ -266,5 +267,5 @@ try {
 } finally {
   await React.act(async () => root.unmount());
   dom.window.close();
-  await rm(directory, { recursive: true, force: true });
+  await retainTestDirectory(directory);
 }

@@ -1,8 +1,9 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Real owned components with synthetic deferred APIs and clock/visibility events.
 // Unlike a network abort mock, these promises can complete after abort to test isolation.
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {mkdtemp, rm} from 'node:fs/promises'
+import {mkdtemp} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import test from 'node:test'
@@ -55,4 +56,4 @@ await test('preflight 503 then Cancel retires all pending progress',async()=>{
 await test('counts preserve authoritative zero rather than older fallback statistics',async()=>{
  const root=setup();await act(async()=>root.render(React.createElement(AiPanel,{onClose:()=>root.render(null)})));for(const r of fixture.requests.filter(r=>!r.done))await complete(r,nameOf(r)==='status'?{counts:{done:3},coverage:{reader_total:0,total_articles:7,ai_done:0},kaggle:{enabled:false}}:samples[nameOf(r)]);await click('资源看板');const cards=[...document.querySelectorAll('.ai-dashboard-grid>div')].map(x=>({name:x.querySelector('span').textContent,value:x.querySelector('strong').textContent}));console.log(JSON.stringify({case:'counts_explicit_zero',cards}));await act(async()=>root.unmount());assert.equal(cards[0].value,'0');assert.equal(cards[2].value,'0')
 })
-fixture.noteManager.dispose();await rm(directory,{recursive:true,force:true});dom.window.close()
+fixture.noteManager.dispose();await retainTestDirectory(directory);dom.window.close()

@@ -1,8 +1,9 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Real owned components with synthetic deferred APIs and clock/visibility events.
 // Unlike a network abort mock, these promises can complete after abort to test isolation.
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {mkdtemp, rm} from 'node:fs/promises'
+import {mkdtemp} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import test from 'node:test'
@@ -220,4 +221,4 @@ await test('deadline hung GET terminates loading, allows reload and never accept
  }finally{await act(async()=>{fixture.noteManager.end();root.unmount()});globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear}
 })
 
-await rm(directory,{recursive:true,force:true});dom.window.close()
+await retainTestDirectory(directory);dom.window.close()

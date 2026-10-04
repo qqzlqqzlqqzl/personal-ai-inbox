@@ -1,10 +1,11 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Real generated sorter, stores, request hook and URL construction. API transport,
 // translations, SidebarTrigger and surrounding navigation-provider values are
 // fixtures. A simple output observes list state; jsdom has no layout. The hosted
 // Chromium test separately checks the actual rendered article rows.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 const web = new URL("../upstream/reactflux/", import.meta.url).pathname;
@@ -196,4 +197,4 @@ try{
  await React.act(async()=>root.render(React.createElement(app.MemoryRouter,{initialEntries:['/today']},React.createElement(View))));await settle();assert.equal(app.contentState.get().total,3);const countBefore=requests.length,old=app.aiState.get(),next={...old,minimum:9};
  await React.act(async()=>{localStorage.setItem('ai-view-state',JSON.stringify(next));window.dispatchEvent(new window.StorageEvent('storage',{key:'ai-view-state',oldValue:JSON.stringify(old),newValue:JSON.stringify(next),storageArea:localStorage,url:window.location.href}));});await settle();
  const result={case:'storage_event_threshold_and_counts',minimum:app.aiState.get().minimum,newRequests:requests.slice(countBefore),ids:app.contentState.get().entries.map(e=>e.id),listTotal:app.contentState.get().total,activeCount:app.dynamicCountState.get(),expectedIds:[101],expectedTotal:1};console.log(JSON.stringify(result,null,2));await writeFile(new URL('../runtime/storage-event-result.json',import.meta.url),JSON.stringify(result,null,2));assert.equal(result.minimum,9);assert.equal(result.newRequests.length,1);assert.deepEqual(result.ids,[101]);assert.equal(result.listTotal,1);assert.equal(result.activeCount,1)
-}finally{await React.act(async()=>root.unmount());dom.window.close();await rm(directory,{recursive:true,force:true})}
+}finally{await React.act(async()=>root.unmount());dom.window.close();await retainTestDirectory(directory)}
