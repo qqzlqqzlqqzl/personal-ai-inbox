@@ -12,6 +12,7 @@ from pathlib import Path
 
 from playwright.sync_api import expect
 from review_reader_harness import Harness
+from console_link_contrast import verify_console_links
 
 ROOT = Path(__file__).resolve().parents[1]
 OLD = ROOT / 'tests/fixtures/console-header-F110255.css'
@@ -110,6 +111,8 @@ def run_case(width, height, theme, legacy_css):
                     h.check(key + '_footer_reachable', current['footer']['y'] >= current['header']['bottom'] and
                             current['footer']['bottom'] <= current['dialog']['bottom'] + 1)
                 p.screenshot(path=str(h.out / f'{key}-{name}.png'))
+            if width in (1440, 390):
+                verify_console_links(h, key, theme)
         # Actual click closes the unmodified product dialog and restores its opener.
         p.locator('.ai-dialog>header').get_by_role('button', name='关闭', exact=True).click()
         expect(p.locator('.ai-dialog')).to_have_count(0)
