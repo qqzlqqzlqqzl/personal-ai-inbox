@@ -6,7 +6,7 @@ deviceScaleFactor or page-scale emulation substitutes for tabs.setZoom/getZoom.
 import json,os,struct,zlib,subprocess,hashlib
 from urllib.parse import urlsplit
 from review_reader_harness import Harness
-from playwright.sync_api import expect
+from playwright.sync_api import expect, Error as PlaywrightError
 
 def rendered_chinese_fonts(fonts,text):
     points=[ord(c) for c in text if '\u4e00'<=c<='\u9fff'];proof=[]
@@ -55,8 +55,17 @@ try:
     h.check('no_css_zoom_substitute',metrics['cssZoom']=='')
     h.check('native_200_document_no_horizontal_overflow',metrics['documentWidth']<=metrics['width'])
     close=p.get_by_role('button',name='关闭文章',exact=True)
+    detached_retries=0
     for control in (close,note):
-        control.scroll_into_view_if_needed();control.click(trial=True);control.focus();expect(control).to_be_focused()
+        for attempt in range(3):
+            try:
+                control.scroll_into_view_if_needed();control.click(trial=True);control.focus();expect(control).to_be_focused()
+                break
+            except PlaywrightError as error:
+                # Native zoom can remount responsive controls between resolution
+                # and scroll. Retry only this precise detach, never failed checks.
+                if 'Element is not attached to the DOM' not in str(error) or attempt==2:raise
+                detached_retries+=1;p.wait_for_timeout(100)
         h.check('native_200_'+('close' if control==close else 'note')+'_intersects_viewport',control.evaluate('e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.left<innerWidth&&r.right>0&&r.top<innerHeight&&r.bottom>0}'))
     expect(note).to_be_enabled();expect(note).to_have_value(h.notes['101'])
     h.check('native_200_close_and_note_reachable')
@@ -66,7 +75,7 @@ try:
     root=session.send('DOM.getDocument')['root']['nodeId']
     node=session.send('DOM.querySelector',{'nodeId':root,'selector':'.article-content h2'})['nodeId']
     fonts=session.send('CSS.getPlatformFontsForNode',{'nodeId':node})['fonts']
-    (h.out/'native-metrics.json').write_text(json.dumps({'native_zoom':zoom,'baseline':baseline,'observed':metrics,'rendered_fonts':fonts,'heading':heading.evaluate('e=>({html:e.outerHTML,rect:e.getBoundingClientRect().toJSON(),font:getComputedStyle(e).fontFamily})'),'method':'chrome.tabs.setZoom/getZoom in headed Chromium/Xvfb','physical_android_ios':False},ensure_ascii=False,indent=2))
+    (h.out/'native-metrics.json').write_text(json.dumps({'native_zoom':zoom,'baseline':baseline,'observed':metrics,'detached_control_retries':detached_retries,'rendered_fonts':fonts,'heading':heading.evaluate('e=>({html:e.outerHTML,rect:e.getBoundingClientRect().toJSON(),font:getComputedStyle(e).fontFamily})'),'method':'chrome.tabs.setZoom/getZoom in headed Chromium/Xvfb','physical_android_ios':False},ensure_ascii=False,indent=2))
     shot=p.screenshot(path=str(h.out/'native-200.png'))
     print('Rendered fonts:',json.dumps(fonts,ensure_ascii=False),flush=True)
     chinese_ok,font_proof=rendered_chinese_fonts(fonts,title)
