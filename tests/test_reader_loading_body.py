@@ -1,6 +1,6 @@
 import copy
 import unittest
-from reader_loading_body import BODY_CONTRACT, PROSE_TEXT, validate_ready
+from reader_loading_body import BODY_CONTRACT, PROSE_TEXT, validate_ready, validate_open_observation
 
 
 def ready_snapshot():
@@ -11,7 +11,29 @@ def ready_snapshot():
                       'clip':{'left':0,'top':0,'right':100,'bottom':100},'intersection':{'width':100,'height':100}}]}
 
 
+def open_observation(duration):
+    first=ready_snapshot();first['at']=1000+duration
+    current=ready_snapshot();current['at']=2000
+    return {'contract':BODY_CONTRACT,'before':{'at':999,'ready':False,'detail':{'input':'keyboard','entry':1}},'activation':{'at':1000,'kind':'user-keydown',
+            'detail':{'entryId':'1','isTrusted':True,'key':'Enter'}},'first_prose':first,'prose_ready':current,
+            'container_ready_ms':900,'legacy_driver_wait_ms':1000,'prose_dom_ready_ms':duration}
+
+
 class ProseAdmission(unittest.TestCase):
+    def test_first_passive_clock_is_independent_of_late_container_await(self):
+        row=open_observation(320)
+        self.assertEqual(validate_open_observation(row),320)
+        self.assertEqual(row['container_ready_ms'],900)
+        for kind in ('untrusted','wrong-entry','reverse','late-poll-time','preexisting','wrong-input'):
+            with self.subTest(kind=kind),self.assertRaises(ValueError):
+                value=copy.deepcopy(row)
+                if kind=='untrusted':value['activation']['detail']['isTrusted']=False
+                if kind=='wrong-entry':value['activation']['detail']['entryId']='2'
+                if kind=='reverse':value['first_prose']['at']=999
+                if kind=='late-poll-time':value['prose_dom_ready_ms']=900
+                if kind=='preexisting':value['before']['ready']=True
+                if kind=='wrong-input':value['before']['detail']['input']='touch'
+                validate_open_observation(value)
     def test_exact_fixture_paragraph_is_the_required_original_text(self):
         from reader_loading_fixture import Fixture
         fixture=Fixture.__new__(Fixture);fixture.base='http://127.0.0.1:43210'

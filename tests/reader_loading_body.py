@@ -7,7 +7,7 @@ import math
 from reader_loading_fixture import require
 
 PROSE_TEXT = '合成性能正文，只用于测量阅读时序与滚动。' * 12
-BODY_CONTRACT = 'exact-fixture-prose-visible-dom-v1'
+BODY_CONTRACT = 'exact-fixture-prose-first-dom-v2'
 SCROLL_ROOT = '.article-content .scroll-container[data-native-scroll="true"], .article-content .scroll-container .simplebar-content-wrapper'
 
 SNAPSHOT_FUNCTION = r'''() => {
@@ -34,7 +34,7 @@ SNAPSHOT_FUNCTION = r'''() => {
     return {exactText:true,rect,computed:style,clip,clips,intersection,
       visible:Boolean(root&&root.contains(p)&&style.visible&&intersection.width>0&&intersection.height>0)};});
   const heading=article?.querySelector('.article-title')?.textContent?.trim()||null;
-  return {contract:'exact-fixture-prose-visible-dom-v1',at:performance.timeOrigin+performance.now(),
+  return {contract:'exact-fixture-prose-first-dom-v2',at:performance.timeOrigin+performance.now(),
     url:location.href,pathname:location.pathname,heading,bodyPresent:Boolean(body),
     ariaBusy:body?.getAttribute('aria-busy')??null,containerTextLength:body?.innerText.length??0,
     rootCount:roots.length,scrollRoot:root?{className:root.className,rect:rootBox,scrollTop:root.scrollTop,
@@ -48,30 +48,54 @@ SNAPSHOT_FUNCTION = r'''() => {
 
 BODY_OBSERVER = r'''(() => {
   const snapshot=__SNAPSHOT__;
-  const record={contract:'exact-fixture-prose-visible-dom-v1',samples:[],truncated:false,paint_observed:false};
+  const record={contract:'exact-fixture-prose-first-dom-v2',samples:[],opens:[],truncated:false,paint_observed:false,
+    animationFramesObserved:0,lastNonreadyFrame:null};
+  let active=null,frame=null;
   window.__readerBodyObservation=record;
   window.__readerBodySnapshot=snapshot;
-  window.__readerBodyMark=(kind,detail=null)=>{const value={kind,detail,...snapshot()};
-    if(record.samples.length>=512){record.truncated=true;return value;}
-    record.samples.push(value);return value;};
-  const mark=window.__readerBodyMark;
-  const observer=new MutationObserver(()=>mark('mutation'));
+  function observe(kind,detail=null){
+    const value={kind,detail,...snapshot()};
+    if(kind==='driver-before-open'){
+      active={sequence:record.opens.length+1,entryId:String(detail.entry),input:detail.input,
+        driver_start:value,activation:null,first_prose:null};record.opens.push(active);
+    }
+    if(active&&!active.activation&&detail&&detail.entryId===active.entryId&&detail.isTrusted===true&&
+       ((active.input==='touch'&&kind==='user-click')||(active.input==='keyboard'&&kind==='user-keydown'&&detail.key==='Enter'))){
+      active.activation=value;
+      frame=requestAnimationFrame(poll);
+    }
+    if(active?.activation&&!active.first_prose&&value.ready&&value.at>=active.activation.at){
+      active.first_prose=value;
+    }
+    if(kind==='animation-frame-dom-observation')record.animationFramesObserved++;
+    if(kind==='animation-frame-dom-observation'&&!value.ready)record.lastNonreadyFrame=value;
+    else if(record.samples.length>=512)record.truncated=true;else record.samples.push(value);
+    return {...value,openSequence:active?.sequence??null};
+  }
+  function poll(){
+    if(!active?.activation||active.first_prose||record.truncated)return;
+    observe('animation-frame-dom-observation');
+    if(!active.first_prose&&!record.truncated)frame=requestAnimationFrame(poll);
+  }
+  window.__readerBodyMark=observe;
+  window.__readerBodyOpenResult=sequence=>record.opens.find(x=>x.sequence===sequence)??null;
+  const observer=new MutationObserver(()=>observe('mutation'));
   observer.observe(document,{subtree:true,childList:true,characterData:true,
     attributes:true,attributeFilter:['class','style','aria-busy','hidden']});
-  window.__readerBodyStop=()=>observer.disconnect();
+  window.__readerBodyStop=()=>{observer.disconnect();if(frame!==null)cancelAnimationFrame(frame)};
   addEventListener('pagehide',window.__readerBodyStop,{once:true});
   for(const type of ['pointerdown','click','keydown'])addEventListener(type,event=>{
     const target=event.target instanceof Element?event.target.closest('[data-entry-id],button'):null;
     if(!target)return;if(type==='keydown'&&!['Enter','Escape',' '].includes(event.key))return;
-    mark('user-'+type,{entryId:target.getAttribute('data-entry-id'),button:target.getAttribute('aria-label')||target.textContent?.trim().slice(0,80),
+    observe('user-'+type,{entryId:event.target.closest('[data-entry-id]')?.getAttribute('data-entry-id')??null,button:target.getAttribute('aria-label')||target.textContent?.trim().slice(0,80),
       key:type==='keydown'?event.key:null,isTrusted:event.isTrusted});
   },true);
-  mark('installed');
+  observe('installed');
 })()'''.replace('__SNAPSHOT__', SNAPSHOT_FUNCTION)
 
 
-def mark(page, kind):
-    return page.evaluate('(kind)=>window.__readerBodyMark(kind)', kind)
+def mark(page, kind, detail=None):
+    return page.evaluate('([kind,detail])=>window.__readerBodyMark(kind,detail)', [kind,detail])
 
 
 def collect(page):
@@ -108,3 +132,22 @@ def validate_ready(snapshot):
                 'prose has no positive clipped visibility')
         visible.append(row)
     require(len(visible)==snapshot['visibleParagraphs']>0,'visible prose set differs')
+
+
+def validate_open_observation(observation):
+    require(observation.get('contract')==BODY_CONTRACT,'different original-prose timing contract')
+    current=observation['prose_ready'];first=observation['first_prose'];activation=observation['activation']
+    validate_ready(current);validate_ready(first)
+    require(observation['before'].get('ready') is False,'original prose was already visible before activation')
+    expected_kind={'touch':'user-click','keyboard':'user-keydown'}.get(observation['before']['detail']['input'])
+    require(activation['kind'] in ('user-click','user-keydown') and activation['detail']['isTrusted'] is True and
+            activation['kind']==expected_kind and activation['detail']['entryId']=='1',
+            'timing lacks the actual requested user activation')
+    require(activation['kind']!='user-keydown' or activation['detail']['key']=='Enter','wrong activation key')
+    times=[observation['before']['at'],activation['at'],first['at'],current['at']]
+    require(all(type(value) in (int,float) and math.isfinite(value) and value>=0 for value in times) and times==sorted(times),
+            'body action and DOM clocks are missing, reversed or nonfinite')
+    duration=first['at']-activation['at']
+    require(observation['prose_dom_ready_ms']==duration and type(observation['prose_dom_ready_ms']) in (int,float),
+            'reported prose time is not first passive DOM observation minus activation')
+    return duration

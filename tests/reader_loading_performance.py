@@ -24,7 +24,7 @@ import zipfile
 from reader_loading_fixture import Fixture, TOKEN, SCENARIO, admit_build, bound_read, checked_directory, require
 from reader_loading_navigation import NavigationObservation
 from reader_loading_transport import IDENTITY, PROFILES, profile_identity
-from reader_loading_body import BODY_CONTRACT, BODY_OBSERVER, mark as body_mark, collect as collect_body, validate_ready
+from reader_loading_body import BODY_CONTRACT, BODY_OBSERVER, mark as body_mark, collect as collect_body, validate_ready, validate_open_observation
 
 PLAYWRIGHT = '1.63.0'
 CHROMIUM = '153.0.8010.12'
@@ -188,7 +188,7 @@ def wait_for_observation(page, locator, predicate, timeout_ms=15000):
 def open_article(page, input_kind, number=1, observation=None):
     observation = observation if observation is not None else {}
     before = time.monotonic()
-    observation.update(contract=BODY_CONTRACT, before=body_mark(page,'driver-before-open'))
+    observation.update(contract=BODY_CONTRACT, before=body_mark(page,'driver-before-open',{'entry':number,'input':input_kind}))
     activate(page.locator(f'.entry-list [data-entry-id="{number}"]').first, input_kind)
     page.locator('.article-body').wait_for(state='visible')
     wait_for_observation(page,page.locator('.article-body'),"e=>(e.innerText.length>100 && !e.getAttribute('aria-busy'))")
@@ -197,7 +197,12 @@ def open_article(page, input_kind, number=1, observation=None):
     wait_for_observation(page,page.locator('.article-body'),"e=>window.__readerBodySnapshot().ready")
     observation['prose_ready']=body_mark(page,'prose-dom-ready')
     validate_ready(observation['prose_ready'])
-    observation['prose_dom_ready_ms']=(time.monotonic()-before)*1000
+    opening=page.evaluate('(sequence)=>window.__readerBodyOpenResult(sequence)',observation['before']['openSequence'])
+    require(opening and opening['activation'] and opening['first_prose'],'missing passive activation/prose observation')
+    observation['activation']=opening['activation'];observation['first_prose']=opening['first_prose']
+    observation['legacy_driver_wait_ms']=(time.monotonic()-before)*1000
+    observation['prose_dom_ready_ms']=opening['first_prose']['at']-opening['activation']['at']
+    validate_open_observation(observation)
     return observation['prose_dom_ready_ms']
 
 

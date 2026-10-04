@@ -7,7 +7,7 @@ from reader_loading_performance import (save_new, finite_nonnegative, MEASUREMEN
     decoded_reopen_observation, require_new_page_same_cache, warm_image_proof)
 from reader_loading_fixture import bound_read, require
 from reader_loading_transport import validate_profile
-from reader_loading_body import BODY_CONTRACT, validate_ready
+from reader_loading_body import BODY_CONTRACT, validate_ready, validate_open_observation
 
 
 def compare(before, after):
@@ -48,16 +48,12 @@ def compare(before, after):
             for key, value in [('cold_body_observation', row['cold_click_to_body_ms']),
                                ('warm_body_observation', row['warm_click_to_body_ms'])]:
                 observation=row[key]
-                require(observation.get('contract')==BODY_CONTRACT,'body contract differs')
-                validate_ready(observation['prose_ready'])
-                require(finite_nonnegative(observation['container_ready_ms'],'container readiness')<=
-                        finite_nonnegative(observation['prose_dom_ready_ms'],'prose readiness')==value,
+                finite_nonnegative(observation['container_ready_ms'],'container readiness')
+                require(validate_open_observation(observation)==value,
                         'published body time does not match actual prose observation')
             observation=cache['body_observation']
-            require(observation.get('contract')==BODY_CONTRACT,'cache body contract differs')
-            validate_ready(observation['prose_ready'])
-            require(finite_nonnegative(observation['container_ready_ms'],'cache container readiness')<=
-                    finite_nonnegative(observation['prose_dom_ready_ms'],'cache prose readiness')==cache['click_to_body_ms'],
+            finite_nonnegative(observation['container_ready_ms'],'cache container readiness')
+            require(validate_open_observation(observation)==cache['click_to_body_ms'],
                     'cache body time does not match prose observation')
             for phase in ('cold_images','warm_images'):
                 require([image.get('image') for image in row[phase]]==list(range(1,7)) and

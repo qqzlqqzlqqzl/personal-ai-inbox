@@ -10,7 +10,8 @@ remain evidence; the value established only container text, not body readiness.
 The reviewed app's `.article-body` also contains notes and a source footer.
 Version 2's `innerText.length > 100` could therefore accept those children. The
 new contract retains that predicate and records its measured value separately as
-`container_ready_ms`. The reported click-to-body values now require the complete
+`container_ready_ms`. That legacy Python/driver elapsed value remains separate
+from the new page-clock metric. The reported click-to-body values now require the complete
 synthetic original paragraph, an exact 001 heading, a nonbusy body, exactly one
 actual article scroll root, computed visibility and positive intersection with
 both the viewport and all clipping ancestors including that root. Notes, source
@@ -31,7 +32,16 @@ page's `performance.timeOrigin + performance.now()` clock. It stores URL/path,
 article title, busy flag, exact matching/visible prose counts, clipping geometry
 and image node/decode state. These are labeled DOM observations, not painted
 frames; `painted` remains null. No history/navigation API is replaced and no URL
-stability wait is added. The original fast close/reopen sequence can still expose
+stability wait is added. Only while an actual opening is pending, passive rAF
+checks capture the first qualifying DOM snapshot independently of Playwright's
+visibility-poll return time. The new duration is that first snapshot's page-clock
+timestamp minus the matching trusted Enter/click event's page-clock timestamp.
+It never subtracts an assumed polling delay. `legacy_driver_wait_ms` and the
+container time are retained for comparison. Preexisting visible prose, missing
+activation, reversed clocks and mismatched timings fail admission. Nonready rAF
+checks keep only a count/latest snapshot; actions, mutations and the first ready
+snapshot remain in the bounded trace. These callbacks still do not prove paint.
+The original fast close/reopen sequence can still expose
 the current baseline's empty-body race. At most 512 samples per page are retained;
 missing/truncated observations fail the candidate instead of silently passing.
 The full action/mutation trace stays in each immutable pair JSON. Summary/result

@@ -307,12 +307,11 @@ class SamplingContract(unittest.TestCase):
                           'warm_images':[{'image':j,'scroll_to_visible_ms':1,'at':1300,'visible':True,'naturalWidth':960,'naturalHeight':640} for j in range(1,7)],
                           'next_pages':[{'loaded':48,'fast_scroll_bottom_wait_ms':2},{'loaded':72,'fast_scroll_bottom_wait_ms':2}]} for i in range(1,6)]}
         from reader_loading_body import BODY_CONTRACT
-        from test_reader_loading_body import ready_snapshot
+        from test_reader_loading_body import open_observation
         for row in value['pairs']:
             for key,metric in [('cold_body_observation','cold_click_to_body_ms'),('warm_body_observation','warm_click_to_body_ms')]:
-                row[key]={'contract':BODY_CONTRACT,'container_ready_ms':0,'prose_dom_ready_ms':row[metric],'prose_ready':ready_snapshot()}
-            row['http_cache_page']['body_observation']={'contract':BODY_CONTRACT,'container_ready_ms':0,
-                'prose_dom_ready_ms':row['http_cache_page']['click_to_body_ms'],'prose_ready':ready_snapshot()}
+                row[key]=open_observation(row[metric])
+            row['http_cache_page']['body_observation']=open_observation(row['http_cache_page']['click_to_body_ms'])
         return value
     def test_five_pairs_compare(self): self.assertEqual(len(compare(self.row('baseline'),self.row('candidate'))['pairs']),5)
     def test_not_run_never_compares(self):

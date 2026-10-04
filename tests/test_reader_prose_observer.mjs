@@ -10,7 +10,7 @@ const {script,snapshot,text}=JSON.parse(execFileSync(process.env.PYTHON||'python
  ['-B','-c',"import json;from reader_loading_body import BODY_OBSERVER,SNAPSHOT_FUNCTION,PROSE_TEXT;print(json.dumps({'script':BODY_OBSERVER,'snapshot':SNAPSHOT_FUNCTION,'text':PROSE_TEXT}))"],
  {cwd:tests,encoding:'utf8',timeout:10000}))
 function setup(content, options={}) {
- const dom=new JSDOM(`<style>*{opacity:1;visibility:visible;overflow:visible}</style><article class="article-content"><div class="scroll-container" data-native-scroll="true" style="overflow-y:auto"><h1 class="article-title">${options.title||'性能样本 001'}</h1><div class="article-body"${options.busy?' aria-busy="true"':''}>${content}</div></div></article>`,{url:'http://127.0.0.1:43210/inbox/all/1',runScripts:'outside-only'})
+ const dom=new JSDOM(`<style>*{opacity:1;visibility:visible;overflow:visible}</style><article class="article-content"><div class="scroll-container" data-native-scroll="true" style="overflow-y:auto"><h1 class="article-title">${options.title||'性能样本 001'}</h1><div class="article-body"${options.busy?' aria-busy="true"':''}>${content}</div></div></article>`,{url:'http://127.0.0.1:43210/inbox/all/1',runScripts:'outside-only',pretendToBeVisual:true})
  const w=dom.window
  Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent}})
  w.HTMLElement.prototype.getBoundingClientRect=function(){
@@ -57,5 +57,28 @@ check(`<div style="opacity:0"><p>${text}</p></div>`,{},false)
   assert.equal(w.__readerBodyObservation.samples.length,512);assert.equal(w.__readerBodyObservation.truncated,true)
   controls++
  }finally{dom.window.__readerBodyStop?.();dom.window.close()}
+}
+{
+ const dom=setup('<p>not the original prose</p>')
+ try {
+  const w=dom.window;w.eval(script)
+  const begun=w.__readerBodyMark('driver-before-open',{entry:1,input:'keyboard'})
+  // Synthetic event-boundary control. This is not a trusted browser event claim.
+  w.__readerBodyMark('user-keydown',{entryId:'1',key:'Enter',isTrusted:false})
+  assert.equal(w.__readerBodyOpenResult(begun.openSequence).activation,null)
+  w.__readerBodyMark('user-keydown',{entryId:'1',key:'Enter',isTrusted:true})
+  w.document.querySelector('.article-body p').textContent=text
+  await new Promise(resolve=>w.setTimeout(resolve,25))
+  const opening=w.__readerBodyOpenResult(begun.openSequence)
+  assert.ok(opening.first_prose.ready)
+  assert.ok(opening.first_prose.at>=opening.activation.at)
+  const first=opening.first_prose.at
+  await new Promise(resolve=>w.setTimeout(resolve,30))
+  const late=w.__readerBodyMark('container-ready-not-prose-proof')
+  assert.ok(late.at>first)
+  assert.equal(w.__readerBodyOpenResult(begun.openSequence).first_prose.at,first)
+  assert.equal(opening.first_prose.painted,null)
+  controls++
+ } finally {dom.window.__readerBodyStop?.();dom.window.close()}
 }
 console.log(JSON.stringify({synthetic_observer_controls:controls,real_jsdom:true,actual_browser:false,paint_claim:false}))
