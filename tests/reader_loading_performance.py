@@ -9,6 +9,7 @@ import hashlib
 import importlib.metadata
 import io
 import json
+import math
 import os
 from pathlib import Path
 import statistics
@@ -36,6 +37,14 @@ PROBE = """(() => {
 
 
 class NotRun(RuntimeError): pass
+
+
+def finite_nonnegative(value, label):
+    valid=type(value) in (int,float)
+    try: valid=valid and math.isfinite(value) and value>=0
+    except (OverflowError,TypeError): valid=False
+    require(valid, 'invalid finite nonnegative metric: '+label)
+    return value
 
 
 def save_new(path, value):
@@ -102,6 +111,7 @@ def install_network_observer(context, page, events, base):
         if kind == 'request':
             request = row['request']; parsed = urlsplit(request['url'])
             out.update(path=parsed.path if request['url'].startswith(base+'/') else '[blocked-origin]',
+                       url=request['url'] if request['url'].startswith(base+'/') else '[blocked-origin]',
                        method=request['method'], type=row.get('type'), wall_time=row.get('wallTime'),
                        priority=request.get('initialPriority'))
         elif kind == 'response':
@@ -172,6 +182,63 @@ def join_image_network(rows, events):
     return rows
 
 
+def warm_image_proof(events, rows, base, start_ms, end_ms):
+    """Every displayed image needs its own completed, warm-window cache request."""
+    finite_nonnegative(start_ms,'warm start');finite_nonnegative(end_ms,'warm end')
+    require(end_ms>=start_ms,'reversed warm window')
+    require([row.get('image') for row in rows]==list(range(1,7)) and
+            all(type(row.get('image')) is int for row in rows),'wrong six-image identity set')
+    proof=[];used_ids=set()
+    for row in rows:
+        number=row['image'];expected=f'{base}/fixture-images/{number}.png'
+        visible_ms=finite_nonnegative(row['at'],'image visible time')
+        require(start_ms<=visible_ms<=end_ms and row.get('visible') is True and
+                finite_nonnegative(row['naturalWidth'],'natural width')>0 and
+                finite_nonnegative(row['naturalHeight'],'natural height')>0,'image visibility or decode not established')
+        requests=[event for event in events if event['kind']=='request' and event.get('url')==expected and event.get('type')=='Image']
+        require(len(requests)==1,'expected one exact warm image request: '+str(number))
+        request=requests[0];request_id=request['request_id']
+        require(isinstance(request_id,str) and request_id and request_id not in used_ids,'image request identity reused')
+        used_ids.add(request_id)
+        require(sum(event['kind']=='request' and event.get('request_id')==request_id for event in events)==1,
+                'request ID was redirected or reused')
+        wall_ms=finite_nonnegative(request['wall_time'],'request wall time')*1000
+        request_time=finite_nonnegative(request['timestamp'],'request monotonic time')
+        require(start_ms<=wall_ms<=visible_ms,'image request predates warm trigger or follows visibility')
+        related=[event for event in events if event.get('request_id')==request_id]
+        responses=[event for event in related if event['kind']=='response']
+        finishes=[event for event in related if event['kind']=='finished']
+        require(len(responses)==len(finishes)==1 and not any(event['kind']=='failed' for event in related),
+                'image lacks a unique successful completed request')
+        response=responses[0];finish=finishes[0]
+        require(response['status']==200 and not response.get('from_service_worker',False),'unexpected warm image response')
+        headers={key.lower():value for key,value in response.get('headers',{}).items()}
+        require(headers.get('content-type','').split(';',1)[0]=='image/png','warm response is not the expected image type')
+        response_time=finite_nonnegative(response['timestamp'],'response time')
+        finish_time=finite_nonnegative(finish['timestamp'],'finish time')
+        require(request_time<=response_time<=finish_time,'image event order is invalid')
+        finish_wall_ms=wall_ms+(finish_time-request_time)*1000
+        require(finish_wall_ms<=visible_ms<=end_ms,'image completion is outside the visible warm window')
+        bytes_received=finite_nonnegative(finish.get('encoded_bytes'),'encoded bytes')
+        cached=any(event['kind']=='cache-hit' for event in related)
+        disk=response.get('from_disk_cache') is True
+        require(cached or disk,'this image has no cache evidence')
+        proof.append({'image':number,'url':expected,'request_id':request_id,'cache_event':cached,
+                      'from_disk_cache':disk,'request_wall_ms':wall_ms,'finished_wall_ms':finish_wall_ms,
+                      'visible_wall_ms':visible_ms,'encoded_bytes':bytes_received})
+    return proof
+
+
+def await_warm_image_proof(page, events, event_start, rows, base, start_ms):
+    deadline=time.monotonic()+2
+    while True:
+        end_ms=page.evaluate('performance.timeOrigin+performance.now()')
+        try: return warm_image_proof(events[event_start:],rows,base,start_ms,end_ms),end_ms
+        except ValueError:
+            if time.monotonic()>=deadline: raise
+            page.wait_for_timeout(10)
+
+
 def one_pair(browser, fixture, output, index, input_kind, weak):
     from playwright.sync_api import expect
     options = {'viewport': {'width':390,'height':844} if input_kind=='touch' else {'width':1440,'height':960},
@@ -203,15 +270,18 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         require(pair['cold_image_http_requests']>=6, 'cold context did not issue all six image requests')
         close_article(page,input_kind)
         warm_start=len(fixture.records);event_start=len(events)
+        pair['warm_start_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
         pair['warm_click_to_body_ms']=open_article(page,input_kind)
         pair['warm_images']=image_sweep(page)
-        join_image_network(pair['warm_images'],events[event_start:])
+        proof,pair['warm_end_wall_ms']=await_warm_image_proof(page,events,event_start,pair['warm_images'],fixture.base,pair['warm_start_wall_ms'])
         pair['warm_image_http_requests']=count_images(fixture.records[warm_start:])
-        pair['warm_cdp_cache_events']=sum(x['kind']=='cache-hit' for x in events[event_start:])
-        pair['warm_cdp_image_disk_hits']=sum(x['kind']=='response' and x.get('from_disk_cache') for x in events[event_start:])
+        join_image_network(pair['warm_images'],events[event_start:])
+        pair['warm_image_cache_proof']=proof
+        pair['warm_cdp_cache_events']=sum(x['cache_event'] for x in proof)
+        pair['warm_cdp_image_disk_hits']=sum(x['from_disk_cache'] for x in proof)
         pair['warm_detail_http_requests']=sum(r['label']=='detail:1' for r in fixture.records[warm_start:])
         require(pair['warm_image_http_requests']==0, 'warm image issued another HTTP GET despite fresh cache')
-        require(pair['warm_cdp_cache_events']+pair['warm_cdp_image_disk_hits']>0, 'no browser cache event corroborates warm phase')
+        require(len(proof)==6, 'six individual image cache proofs are required')
         close_article(page,input_kind)
         pair['next_pages']=[]
         for target, expected in [(7,48),(31,72)]:

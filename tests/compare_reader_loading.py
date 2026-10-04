@@ -2,7 +2,7 @@
 import argparse
 import json
 from pathlib import Path
-from reader_loading_performance import save_new
+from reader_loading_performance import save_new, finite_nonnegative
 from reader_loading_fixture import bound_read, require
 
 
@@ -12,6 +12,22 @@ def compare(before, after):
     for key in ('scenario','input','weak_network','browser_version'):
         require(before[key]==after[key], 'measurement conditions differ: '+key)
     require(len(before['pairs'])==len(after['pairs'])==5,'exactly five complete pairs required')
+    for side in (before,after):
+        require([row.get('pair') for row in side['pairs']]==list(range(1,6)) and
+                all(type(row.get('pair')) is int for row in side['pairs']), 'expected unique pair IDs 1 through 5 in order')
+        for row in side['pairs']:
+            for key in ('list_initial_ms','cold_click_to_body_ms','warm_click_to_body_ms'):
+                finite_nonnegative(row[key],key)
+            for phase in ('cold_images','warm_images'):
+                require([image.get('image') for image in row[phase]]==list(range(1,7)) and
+                        all(type(image.get('image')) is int for image in row[phase]),'wrong image identities')
+                for image in row[phase]:
+                    finite_nonnegative(image['scroll_to_visible_ms'],'scroll_to_visible_ms')
+                    for key in ('request_to_visible_ms','request_to_finished_ms'):
+                        if image.get(key) is not None: finite_nonnegative(image[key],key)
+            require([page.get('loaded') for page in row['next_pages']]==[48,72],'wrong list identities')
+            for page in row['next_pages']:
+                finite_nonnegative(page['fast_scroll_bottom_wait_ms'],'fast_scroll_bottom_wait_ms')
     rows=[]
     for left,right in zip(before['pairs'],after['pairs']):
         require(left['pair']==right['pair'] and left['status']==right['status']=='PASSED','pair identity mismatch')
@@ -24,7 +40,7 @@ def compare(before, after):
                 item={'image':a['image']}
                 for metric in ('scroll_to_visible_ms','request_to_visible_ms','request_to_finished_ms'):
                     item[metric]={'before':a.get(metric),'after':b.get(metric),
-                                  'delta':b[metric]-a[metric] if metric in a and metric in b else None}
+                                  'delta':b[metric]-a[metric] if a.get(metric) is not None and b.get(metric) is not None else None}
                 row[phase].append(item)
         require([p['loaded'] for p in left['next_pages']]==[p['loaded'] for p in right['next_pages']]==[48,72], 'list sample identities differ')
         row['next_pages']=[{'loaded':a['loaded'], 'before_bottom_wait_ms':a['fast_scroll_bottom_wait_ms'],

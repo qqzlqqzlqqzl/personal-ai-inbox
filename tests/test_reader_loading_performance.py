@@ -1,5 +1,6 @@
 """Retained unit/real-loopback contracts; this suite never claims a Chromium run."""
 import ast
+import copy
 import hashlib
 import http.client
 import json
@@ -11,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import reader_loading_fixture as f
-from reader_loading_performance import browser_env, save_new, join_image_network
+from reader_loading_performance import browser_env, save_new, join_image_network, warm_image_proof, await_warm_image_proof
 from compare_reader_loading import compare
 
 ROOT = Path(tempfile.mkdtemp(prefix='perf-contract-retained-', dir=Path(__file__).parent))
@@ -188,6 +189,28 @@ class SamplingContract(unittest.TestCase):
     def test_different_conditions_never_compare(self):
         other=self.row('candidate');other['input']='touch'
         with self.assertRaises(ValueError): compare(self.row('baseline'),other)
+    def test_duplicate_and_reordered_pair_ids_refused(self):
+        for ids in ([1,1,1,1,1],[2,1,3,4,5],[True,2,3,4,5]):
+            with self.subTest(ids=ids):
+                before,after=self.row('baseline'),self.row('candidate')
+                for side in (before,after):
+                    for row,identity in zip(side['pairs'],ids): row['pair']=identity
+                with self.assertRaises(ValueError): compare(before,after)
+    def test_nonfinite_negative_bool_and_string_timing_refused(self):
+        for value in (True,False,float('nan'),float('inf'),-float('inf'),-1,'1'):
+            for family in ('click','image','optional','list'):
+                with self.subTest(value=value,family=family):
+                    after=self.row('candidate');row=after['pairs'][0]
+                    if family=='click': row['cold_click_to_body_ms']=value
+                    elif family=='image': row['cold_images'][0]['scroll_to_visible_ms']=value
+                    elif family=='optional': row['warm_images'][0]['request_to_finished_ms']=value
+                    else: row['next_pages'][0]['fast_scroll_bottom_wait_ms']=value
+                    with self.assertRaises(ValueError): compare(self.row('baseline'),after)
+    def test_optional_missing_or_null_never_implies_gain(self):
+        before,after=self.row('baseline'),self.row('candidate')
+        after['pairs'][0]['warm_images'][0]['request_to_finished_ms']=None
+        result=compare(before,after)
+        self.assertEqual(result['pairs'][0]['warm_images'][0]['request_to_finished_ms'],{'before':None,'after':None,'delta':None})
     def test_no_routing_or_cache_disable_call(self):
         source=Path(__file__).with_name('reader_loading_performance.py').read_text();tree=ast.parse(source)
         forbidden=[n.func.attr for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr in ('route','route_from_har','route_web_socket')]
@@ -208,6 +231,92 @@ class SamplingContract(unittest.TestCase):
         row=join_image_network([{'image':1,'at':1000}],[])[0]
         self.assertEqual(row['network_timing'],'NO_REQUEST_EVENT_OBSERVED')
         self.assertNotIn('request_to_visible_ms',row)
+
+
+class WarmCacheContract(unittest.TestCase):
+    base='http://127.0.0.1:9999'
+    def fixture(self):
+        rows=[{'image':i,'at':1300,'naturalWidth':960,'naturalHeight':640,'visible':True} for i in range(1,7)]
+        events=[]
+        for i in range(1,7):
+            identity='warm-'+str(i)
+            events.extend([
+                {'kind':'request','request_id':identity,'url':f'{self.base}/fixture-images/{i}.png','type':'Image','wall_time':1,'timestamp':10},
+                {'kind':'response','request_id':identity,'status':200,'timestamp':10.05,'from_disk_cache':False,'from_service_worker':False,'headers':{'Content-Type':'image/png'}},
+                {'kind':'cache-hit','request_id':identity},
+                {'kind':'finished','request_id':identity,'timestamp':10.1,'encoded_bytes':0}])
+        return events,rows
+    def check(self,events,rows): return warm_image_proof(events,rows,self.base,900,1500)
+    def test_six_completed_memory_cached_images_pass(self):
+        events,rows=self.fixture();proof=self.check(events,rows)
+        self.assertEqual(len(proof),6);self.assertTrue(all(x['cache_event'] for x in proof))
+    def test_six_completed_disk_cached_images_pass(self):
+        events,rows=self.fixture();events=[x for x in events if x['kind']!='cache-hit']
+        for event in events:
+            if event['kind']=='response': event['from_disk_cache']=True
+        self.assertTrue(all(x['from_disk_cache'] for x in self.check(events,rows)))
+    def test_unrelated_js_disk_hit_cannot_replace_missing_images(self):
+        _,rows=self.fixture()
+        events=[{'kind':'request','request_id':'js','url':self.base+'/inbox/assets/unrelated.js','type':'Script','wall_time':1,'timestamp':10},
+                {'kind':'response','request_id':'js','status':200,'timestamp':10.1,'from_disk_cache':True}]
+        with self.assertRaises(ValueError): self.check(events,rows)
+    def test_wrong_cache_request_identity_is_refused(self):
+        events,rows=self.fixture()
+        for event in events:
+            if event['kind']=='cache-hit': event['request_id']='unrelated'
+        with self.assertRaises(ValueError): self.check(events,rows)
+    def test_one_cached_image_cannot_cover_all_six(self):
+        events,rows=self.fixture();events=[x for x in events if x['kind']!='cache-hit' or x['request_id']=='warm-1']
+        with self.assertRaises(ValueError): self.check(events,rows)
+    def test_cold_request_delivered_late_is_refused(self):
+        events,rows=self.fixture();events[0]['wall_time']=0.5
+        with self.assertRaises(ValueError): self.check(events,rows)
+    def test_wrong_origin_query_or_type_is_refused(self):
+        for field,value in [('url','http://other.invalid/fixture-images/1.png'),('url',self.base+'/fixture-images/1.png?different=1'),('type','Script')]:
+            with self.subTest(field=field,value=value):
+                events,rows=self.fixture();events[0][field]=value
+                with self.assertRaises(ValueError): self.check(events,rows)
+    def test_missing_completion_or_failed_request_is_refused(self):
+        for variant in ('missing','failed'):
+            with self.subTest(variant=variant):
+                events,rows=self.fixture()
+                if variant=='missing': events=[x for x in events if not (x['kind']=='finished' and x['request_id']=='warm-1')]
+                else: events.append({'kind':'failed','request_id':'warm-1'})
+                with self.assertRaises(ValueError): self.check(events,rows)
+    def test_late_completion_and_response_order_refused(self):
+        for index,value in [(3,10.5),(1,11)]:
+            with self.subTest(index=index):
+                events,rows=self.fixture();events[index]['timestamp']=value
+                with self.assertRaises(ValueError): self.check(events,rows)
+    def test_wrong_mime_and_service_worker_refused(self):
+        for variant in ('mime','sw'):
+            with self.subTest(variant=variant):
+                events,rows=self.fixture()
+                if variant=='mime':events[1]['headers']['Content-Type']='text/html'
+                else:events[1]['from_service_worker']=True
+                with self.assertRaises(ValueError):self.check(events,rows)
+    def test_duplicate_request_identity_is_refused(self):
+        events,rows=self.fixture();events.append(copy.deepcopy(events[0]))
+        with self.assertRaises(ValueError):self.check(events,rows)
+    def test_decode_and_visibility_evidence_required(self):
+        for field,value in [('naturalWidth',0),('visible',False),('at',800)]:
+            with self.subTest(field=field):
+                events,rows=self.fixture();rows[0][field]=value
+                with self.assertRaises(ValueError):self.check(events,rows)
+    def test_five_images_or_boolean_identity_refused(self):
+        for variant in ('missing','bool'):
+            with self.subTest(variant=variant):
+                events,rows=self.fixture()
+                if variant=='missing': rows=rows[:5]
+                else: rows[0]['image']=True
+                with self.assertRaises(ValueError):self.check(events,rows)
+    def test_wait_observes_new_completion_events(self):
+        events,rows=self.fixture();finished=[x for x in events if x['kind']=='finished'];events[:]=[x for x in events if x['kind']!='finished']
+        class Page:
+            def evaluate(self,script):return 1500
+            def wait_for_timeout(self,ms):events.extend(finished)
+        proof,end=await_warm_image_proof(Page(),events,0,rows,self.base,900)
+        self.assertEqual((len(proof),end),(6,1500))
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

@@ -105,9 +105,16 @@ that fact separately from cached JavaScript and images.
 No `context.route`, `page.route`, HAR routing or fetch interception is used:
 [Playwright routing disables HTTP cache](https://playwright.dev/python/docs/api/class-browsercontext#browser-context-route).
 Image warmth requires both zero second-phase image HTTP GETs at the server and
-corroborating real CDP cache events. Server conditional-GET unit tests alone are
-not browser-cache evidence. CDP request wall time and monotonic response timing
-are joined by exact request ID; missing events stay missing, never zero-filled.
+separate proof for each of the six exact image URLs. Each must have one Image
+request ID started inside the warm window, a successful PNG response, a completed
+loading event before decoded visibility, and that same ID's memory/disk cache
+evidence. Other resources, cold requests delivered late, duplicate IDs, incomplete
+requests and service-worker responses cannot count. A bounded two-second event
+drain reads the live event list; if a browser supplies no image cache events,
+the measurement fails instead of inferring a hit from unrelated JavaScript.
+Server conditional-GET unit tests alone are not browser-cache evidence. CDP
+request wall time and monotonic response timing are joined by exact request ID;
+missing events stay missing, never zero-filled.
 Request-to-visible includes deliberate scrolling to that image; download and
 scroll-to-visible durations are retained separately.
 
@@ -128,8 +135,12 @@ timeout 30s "$READER_DEV_PYTHON" -B tests/compare_reader_loading.py \
 
 The output directory must be a new or existing owner-private 0700 evidence
 directory, and comparison.json must not exist. The comparison refuses partial,
-failed, NOT_RUN, differently configured or non-five-pair inputs. It emits each
-paired delta; median/min/max are retained by the runner. Five pairs do not justify
+failed, NOT_RUN, differently configured or non-five-pair inputs. Every side must
+have exact integer IDs 1 through 5 in order. Required click/image/list durations
+must be finite nonnegative numbers; bool, strings, NaN, Infinity and negative
+values are rejected. Missing optional network durations remain null with no
+calculated gain. It emits each paired delta; median/min/max are retained by the
+runner. Five pairs do not justify
 p95/p99 claims, and there is no invented production improvement threshold.
 
 ## Failure retention and current status
@@ -163,3 +174,10 @@ the venv symlink is retained as a version-guard failure, separately from the
 correct-venv missing-browser result. Browser behavior and selectors still require
 the first authorized local/hosted execution. This candidate is not automatically
 added to Reader regression CI and does not authorize a production run.
+
+The first frozen measurement commit `ae6c5ff` was independently blocked: an
+unrelated cached JavaScript response could satisfy the image cache gate, and
+duplicate pair IDs/nonfinite durations were accepted by the comparator. Its
+original source and independent counterexamples are retained. The follow-up
+changes only those evidence gates and adds synthetic positive/negative controls;
+it does not convert missing browser or production measurements into passing data.
