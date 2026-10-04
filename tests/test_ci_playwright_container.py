@@ -229,5 +229,45 @@ class PythonCacheBindingTests(unittest.TestCase):
         self.assertNotIn('PIP_CACHE_DIR:', (workflows / 'reader-regression.yml').read_text())
 
 
+class PipOwnerCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix='reader-pip-owner-retained-'))
+
+    def test_owned_real_directory_is_created_and_existing_bytes_preserved(self):
+        result = trial.prepare_owned_pip_cache(self.root, os.geteuid())
+        cache = Path(result['path'])
+        self.assertEqual(cache.stat().st_uid, os.geteuid())
+        self.assertFalse(cache.is_symlink())
+        marker = cache / 'existing-cache-data'
+        marker.write_bytes(b'retain this existing cache')
+        mode = cache.stat().st_mode
+        again = trial.prepare_owned_pip_cache(self.root, os.geteuid())
+        self.assertEqual(again['created_directories'], [])
+        self.assertEqual(cache.stat().st_mode, mode)
+        self.assertEqual(marker.read_bytes(), b'retain this existing cache')
+
+    def test_symlink_and_nondirectory_are_refused_without_overwrite(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        home = self.root / 'home-link-case'
+        home.mkdir()
+        (home / '.cache').symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            trial.prepare_owned_pip_cache(home, os.geteuid())
+        self.assertEqual(list(outside.iterdir()), [])
+        other = self.root / 'home-file-case'
+        other.mkdir()
+        sentinel = other / '.cache'
+        sentinel.write_bytes(b'keep file')
+        with self.assertRaises(ValueError):
+            trial.prepare_owned_pip_cache(other, os.geteuid())
+        self.assertEqual(sentinel.read_bytes(), b'keep file')
+
+    def test_wrong_owner_is_refused_without_chown_or_creation(self):
+        with self.assertRaises(ValueError):
+            trial.prepare_owned_pip_cache(self.root, os.geteuid() + 1)
+        self.assertFalse((self.root / '.cache').exists())
+
+
 if __name__ == '__main__':
     unittest.main()

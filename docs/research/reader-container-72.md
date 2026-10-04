@@ -114,3 +114,8 @@ pip's ownership validation plus the original setup-python cache restore/save.
 It does not chown, chmod, delete or rewrite the host-mounted cache, and leaves the
 native baseline unchanged. Any initial miss for the different cache path must
 be counted as cold setup cost; cache keys are not churned to manufacture results.
+Before setup-python, the helper requires the actual root UID and verifies that
+the real home/cache components are not symlinks and belong to that UID. It only
+creates missing private directories; conflicting files, links or owners fail
+without changing existing ownership, permissions or contents. A partial setup
+never writes a successful combined receipt.
