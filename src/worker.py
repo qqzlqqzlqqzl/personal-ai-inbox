@@ -1,6 +1,7 @@
 """Background original-content extraction and structured AI evaluation."""
 from work_admission import check,options,async_call,AdmissionStopped
-from feed_consumption import summary_feed_policy, restricted_analysis_fields
+from feed_consumption import (summary_feed_policy, restricted_analysis_fields,
+                              matches_feed_snapshot, POLICY_SNAPSHOT_FIELDS)
 
 import asyncio, os, json, time, re, logging
 import httpx
@@ -101,13 +102,24 @@ async def process_one(client, row, cfg, *,admission=None):
     entry_id = row["entry_id"]
     started = time.perf_counter()
     phase = "fetch_error"
+    policy = None
+    policy_snapshot = dict(row)
     try:
         entry = await async_call(admission,mf_get,client, f"/v1/entries/{entry_id}")
         policy = summary_feed_policy(entry)
         if policy:
             # RSS is a preview input, not evidence of complete project content.
             # Keep existing quality/score evidence untouched; no model or fetch.
-            mutate(update, entry_id, **restricted_analysis_fields(policy))
+            if not matches_feed_snapshot(entry, policy_snapshot) or policy_snapshot['state'] in {'done', 'removed'}:
+                return
+            fields = restricted_analysis_fields(policy)
+            check(admission)
+            with connect() as db:
+                check(admission)
+                db.execute("UPDATE analyses SET state=?,error=?,updated_at=? WHERE "
+                           + " AND ".join(key + " IS ?" for key in POLICY_SNAPSHOT_FIELDS),
+                           (fields['state'], fields['error'], time.time(),
+                            *(policy_snapshot[key] for key in POLICY_SNAPSHOT_FIELDS)))
             return
         from urllib.parse import urlsplit
 
@@ -306,6 +318,10 @@ async def process_one(client, row, cfg, *,admission=None):
     except asyncio.CancelledError:
         raise
     except Exception as exc:
+        if policy:
+            # A failed policy transaction must not fall through to an unbound
+            # error update that could overwrite the current owner's winner.
+            raise
         attempts = row["attempts"] + 1
         detail = type(exc).__name__
         if isinstance(exc, httpx.HTTPStatusError):

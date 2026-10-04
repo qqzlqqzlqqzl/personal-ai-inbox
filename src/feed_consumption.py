@@ -15,6 +15,22 @@ PREVIEW_IMAGE_SOURCE = "cached_entry_image"
 RSS_SUMMARY_ERROR = "rss_summary_only:" + POLICY_VERSION
 UNVERIFIED_FEED_ERROR = "rss_feed_identity_unverified:" + POLICY_VERSION
 RESTRICTED_ERRORS = (RSS_SUMMARY_ERROR, UNVERIFIED_FEED_ERROR)
+POLICY_SNAPSHOT_FIELDS = ('entry_id', 'user_id', 'url', 'title', 'feed_id',
+                          'state', 'content_hash', 'source_text', 'updated_at', 'error')
+
+
+def matches_feed_snapshot(entry, snapshot):
+    """The classified DTO must belong to the exact local source we observed."""
+    if (not isinstance(entry, dict) or not isinstance(entry.get('feed'), dict)
+            or not isinstance(snapshot, dict)
+            or not all(key in snapshot for key in POLICY_SNAPSHOT_FIELDS)):
+        return False
+    return (type(entry.get('id')) is int and type(entry.get('user_id')) is int
+            and type(entry.get('feed_id')) is int
+            and entry['id'] == snapshot['entry_id'] and entry['user_id'] == snapshot['user_id']
+            and isinstance(entry.get('url'), str) and entry['url'] == snapshot['url']
+            and entry.get('title') == snapshot['title'] and entry['feed_id'] == snapshot['feed_id']
+            and type(entry['feed'].get('id')) is int and entry['feed']['id'] == entry['feed_id'])
 
 
 def restricted_analysis_reason(error):
