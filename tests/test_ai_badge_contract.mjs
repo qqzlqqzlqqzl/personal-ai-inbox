@@ -24,6 +24,10 @@ try {
   reason_codes:[],access:'unknown',information:'unknown',...values})
  const render=(ai)=>renderToStaticMarkup(React.createElement(Badge,{entry:{ai},detailed:true}))
  const done={state:'done',score:8.5,technical_score:8,business_score:7,reason:'Synthetic historical analysis',tags:[]}
+ for(const state of ['__proto__','constructor','toString','hasOwnProperty','not_a_state']) {
+  const html=render({state});assert.match(html,/处理状态待确认/);
+  checks.push('prototype/unknown state is safe: '+state)
+ }
  let text=render({...done,content_quality:quality({})})
  assert.match(text,/内容资格待核实/);assert.doesNotMatch(text,/付费|低|暂不推荐/);checks.push('legacy/null is neither paid nor low quality nor excluded')
  text=render({...done,content_quality:quality({recommendation_eligible:false,reason_codes:['publisher_nonfree_pending_review']})})

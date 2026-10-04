@@ -68,7 +68,7 @@ export default function AiBadge({ entry, detailed = false }) {
   const note = ai?.has_note ? <span className="ai-note-chip">📝 有笔记</span> : null
   const quality = qualityLabels(ai?.content_quality)
   const qualityNote = quality.length ? <p className="ai-content-quality">{quality.join("；")}</p> : null
-  if (!ai || ai.state !== "done") {return <div className="ai-pending" title={ai?.error || ""}>{note}{labels[ai?.state || "pending"] || "处理状态待确认"}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && <p>处理详情：{ai.error}</p>}</div>}
+  if (!ai || ai.state !== "done") {return <div className="ai-pending" title={ai?.error || ""}>{note}{Object.hasOwn(labels, ai?.state || "pending") ? labels[ai?.state || "pending"] : "处理状态待确认"}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && <p>处理详情：{ai.error}</p>}</div>}
   const excluded = ai.content_quality?.policy_version === "reader-content-quality-v1" && ai.content_quality.recommendation_eligible === false
   return <div className={detailed ? "ai-verdict ai-verdict-detail" : "ai-verdict"}>
     <div className="ai-scoreline"><strong>{excluded ? "AI 评分" : "推荐"} {ai.score}/10</strong><span>技术 {ai.technical_score}</span><span>商业启发 {ai.business_score}</span>{note}</div>
