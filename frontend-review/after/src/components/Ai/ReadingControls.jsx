@@ -14,7 +14,7 @@ export function captureReadingAnchor(scroll, bar, article) {
  const bottom=scroll.getBoundingClientRect().bottom
  const element=[...body.querySelectorAll('h1,h2,h3,h4,p,pre,ul,ol,blockquote,figure,.article-source-footer')]
   .find(node=>{const rect=node.getBoundingClientRect();return rect.height>0&&rect.bottom>top&&rect.top<bottom})
- return {element:element??body,offset:element?element.getBoundingClientRect().top-top:0}
+ return {element:element??body,offset:(element??body).getBoundingClientRect().top-top}
 }
 
 export function restoreReadingAnchor(scroll, anchor, bar) {

@@ -153,6 +153,34 @@ try {
   await React.act(async()=>root.unmount());
   equal(article.classList.contains('review-reading-focus'),false,kind+': article unmount clears focus class');
  }
+ // No selected semantic block is a normal case: image wrappers, unstructured
+ // divs and gaps between blocks must retain the body's actual offset, not zero.
+ for(const scenario of [
+  {name:'image-only div',markup:'<div class="image-wrapper"><img alt="synthetic"></div>',start:640,point:400},
+  {name:'textless custom div',markup:'<div><span></span></div>',start:640,point:400},
+  {name:'gap between paragraphs',markup:'<p id="above">A</p><p id="below">B</p>',start:640,point:400},
+  {name:'document end without matched blocks',markup:'<div>End of unstructured content</div>',start:1800,point:1700},
+ ]) {
+  document.querySelector('#fixture').innerHTML=`<article class="article-content"><div id="scroller"><main id="mount"></main><div class="article-body">${scenario.markup}</div></div></article>`;
+  const article=document.querySelector('article'),scroll=document.querySelector('#scroller'),body=document.querySelector('.article-body');
+  scroll.scrollTop=scenario.start;scroll.getBoundingClientRect=()=>({top:0,bottom:600,height:600});
+  Object.defineProperties(scroll,{scrollHeight:{get:()=>article.classList.contains('review-reading-focus')?2182:2400},clientHeight:{value:600}});
+  const top=()=>(article.classList.contains('review-reading-focus')?120:360)-scroll.scrollTop;
+  body.getBoundingClientRect=()=>({top:top(),bottom:top()+1900,height:1900});
+  const above=document.querySelector('#above'),below=document.querySelector('#below');
+  if(above)above.getBoundingClientRect=()=>({top:top(),bottom:top()+100,height:100});
+  if(below)below.getBoundingClientRect=()=>({top:top()+1400,bottom:top()+1500,height:100});
+  const root=createRoot(document.querySelector('#mount')),ref={current:{getScrollElement:()=>scroll}};
+  await React.act(async()=>root.render(React.createElement(app.ReadingControls,{scrollContainerRef:ref})));
+  const bar=document.querySelector('.review-reading-bar'),height=()=>bar.querySelector('[role=status]')?74:52;
+  bar.getBoundingClientRect=()=>({top:0,bottom:height(),height:height()});
+  const button=bar.querySelector('button[aria-pressed]'),offset=()=>top()+scenario.point-height(),before=offset();
+  await React.act(async()=>button.dispatchEvent(new window.MouseEvent('click',{bubbles:true})));
+  equal(offset(),before,scenario.name+': entering focus preserves actual fallback offset');
+  await React.act(async()=>button.dispatchEvent(new window.MouseEvent('click',{bubbles:true})));
+  equal(offset(),before,scenario.name+': exit preserves offset and remains within scroll limits');
+  await React.act(async()=>root.unmount());
+ }
  const css=await readFile(sourceWeb+'src/components/Ai/ReviewWorkflows.css','utf8');
  assert.match(css,/\.review-reading-bar>button,\.review-reading-controls>summary\{[^}]*box-sizing:border-box[^}]*font:inherit[^}]*line-height:1.4/);
  assert.match(css,/\.review-reading-bar\{[^}]*position:sticky;top:0/);
