@@ -264,9 +264,12 @@ def _extract_html(raw,url,selector,remove,repeated):
         node.clear()
         node.append(literal)
     text = body.get_text(' ', strip=True)
-    if len(text) < 120:
+    from content_quality import assess
+    quality = assess(url=url, html_body=str(soup), text=text, extraction_state='available')
+    if len(text) < 120 and quality['recommendation_eligible'] is not False:
         raise FulltextUnavailable('body_too_short_requires_review')
     return {'source_text': text, 'html': str(body), 'image_count': len(body.find_all('img')),
+            'content_quality': quality,
             'receipt': {'url': url, 'selector': selector, 'components': len(nodes),
                         'page_sha256': hashlib.sha256(raw if isinstance(raw, bytes) else raw.encode()).hexdigest(),
                         'body_sha256': hashlib.sha256(text.encode()).hexdigest(),
@@ -296,8 +299,11 @@ def extract_reader(raw,url):
         footer=re.search(r'^\[!\[.*?\]\([^\n]+\)\]\(https://arstechnica\.com/author/[^\n]+\)',text,re.M)
         if not footer:raise FulltextUnavailable('reader_author_boundary_missing')
         text=text[:footer.start()].strip()
-    if len(text)<500:raise FulltextUnavailable('reader_body_too_short')
+    from content_quality import assess
+    quality=assess(url=url,text=text,extraction_state='available')
+    if len(text)<500 and quality['recommendation_eligible'] is not False:raise FulltextUnavailable('reader_body_too_short')
     return {'source_text':text,'html':'<article>'+html.escape(text)+'</article>',
+            'content_quality':quality,
             'image_count':len(re.findall(r'!\[',text)),
             'receipt':{'url':url,'requested_url':url,'selector':'reviewed-reader-markdown',
                 'transport':'Jina Reader anonymous API','components':1,'chars':len(text),'rule_version':1,

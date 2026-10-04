@@ -382,11 +382,13 @@ def reader_rows(sql, values):
 
 
 def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False):
+    from processing_status import observe
+    processing_evidence = observe(ROOT, [entry['id'] for entry in entries])
     enqueue_cards(entries, priority=40 if detail else 30)
     result = []
     for entry in entries:
         item = decorate(entry, uid if uid is not None else entry["user_id"],
-                        include_source_fallback=detail)
+                        include_source_fallback=detail, processing_evidence=processing_evidence)
         if recommended:
             ai = item.setdefault("ai", {})
             if not ai.get("cover_url"):
@@ -682,7 +684,7 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
               AND length(trim(n.note))>0
         )"""
     if p.get("ai_view") == "pending":
-        where.append("state NOT IN ('done','removed')")
+        where.append("state NOT IN ('done','removed','content_excluded')")
     elif p.get("ai_view") == "notes":
         where.append(note_exists_sql)
     else:
@@ -742,12 +744,18 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
     sql_direction = direction.upper()
     candidates = await reader_work.run(
         reader_rows,
-        "SELECT entry_id,feed_id FROM analyses WHERE "
+        "SELECT entry_id,feed_id,user_id,url,content_hash,"
+        "CASE WHEN content_quality IS NOT NULL THEN source_text END AS source_text,content_quality FROM analyses WHERE "
         + " AND ".join(where)
         + " ORDER BY " + order
         + f" {sql_direction},entry_id {sql_direction}",
         values,
     )
+    if p.get("ai_view") == "recommended":
+        from content_quality import public_for_row
+        # Preserve legacy null eligibility. Filter explicit exclusions before
+        # total and slicing so badges, counts and every page share one policy.
+        candidates = [row for row in candidates if public_for_row(row)['recommendation_eligible'] is not False]
     feeds_response = await app.state.client.get(
         MF + "/v1/feeds", headers=upstream_headers
     )

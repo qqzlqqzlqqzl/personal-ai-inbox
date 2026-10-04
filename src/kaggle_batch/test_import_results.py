@@ -32,6 +32,8 @@ class ImportTests(unittest.TestCase):
                 CREATE TABLE card_translation_versions(entry_id INTEGER,user_id INTEGER,source_hash TEXT,
                 original_title TEXT,title_zh TEXT,summary_zh TEXT,source_kind TEXT,model TEXT,translated_at REAL,
                 PRIMARY KEY(entry_id,user_id,source_hash));''')
+            db.execute("ALTER TABLE analyses ADD COLUMN url TEXT DEFAULT 'https://example.org/article'")
+            db.execute('ALTER TABLE analyses ADD COLUMN content_quality TEXT')
             db.execute('INSERT INTO settings VALUES (?,?)',('preferences',json.dumps({
                 'prompt':'existing prompt','enabled':False,'translation_enabled':False,'daily_articles':300})))
             db.execute('INSERT INTO analyses(entry_id,user_id,content_hash,source_text,state) VALUES (1,2,?,?,?)',
@@ -88,6 +90,28 @@ class ImportTests(unittest.TestCase):
             db.execute("UPDATE analyses SET state='done',result='previous-result'")
         self.assertEqual('existing_result_preserved',self.apply()['items'][0]['state'])
         self.assertEqual('previous-result',self.read()['result'])
+
+    def test_import_preserves_current_source_bound_exclusion_and_duplicate_receipt(self):
+        from content_quality import assess, serialized, public_for_row
+        row=self.read()
+        record=assess(url=row['url'],html_body='<div class="paywall">This article is for paid subscribers only.</div>',extraction_state='available',observed_at=10)
+        with self.db() as db:
+            db.execute('UPDATE analyses SET content_quality=?',(serialized(record,row),))
+        self.assertEqual('imported',self.apply()['items'][0]['state'])
+        before=self.read()
+        self.assertFalse(public_for_row(before)['recommendation_eligible'])
+        self.assertEqual('already_imported',self.apply()['items'][0]['state'])
+        self.assertEqual(before,self.read())
+
+    def test_quality_receipt_failure_rolls_back_result_and_import_marker(self):
+        with self.db() as db:
+            db.execute("CREATE TRIGGER reject_quality BEFORE UPDATE OF content_quality ON analyses BEGIN SELECT RAISE(ABORT,'synthetic refusal'); END")
+        original=self.read()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.apply()
+        self.assertEqual(original,self.read())
+        with self.db() as db:
+            self.assertEqual(0,db.execute('SELECT COUNT(*) FROM kaggle_imports').fetchone()[0])
 
     def test_prompt_change_rejects_stale_result(self):
         with self.db() as db:
