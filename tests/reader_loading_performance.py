@@ -160,11 +160,32 @@ def activate(locator, input_kind):
     else: locator.focus(); locator.press('Enter')
 
 
+def wait_for_observation(page, locator, predicate, timeout_ms=15000):
+    """Poll a synchronous DOM observation via CDP, without page-side eval timers.
+
+    Keep the prior wait_for_function 15s readiness deadline. The initial list's
+    separate 5s expectation is untouched. Each DOM call shares this one deadline.
+    """
+    require(type(timeout_ms) is int and 0 < timeout_ms <= 15000, 'invalid observation deadline')
+    deadline=time.monotonic()+timeout_ms/1000
+    while True:
+        remaining=deadline-time.monotonic()
+        if remaining<=0: raise TimeoutError('DOM observation readiness deadline exceeded')
+        value=locator.evaluate(predicate,timeout=max(1,math.ceil(remaining*1000)))
+        if time.monotonic()>deadline: raise TimeoutError('DOM observation readiness deadline exceeded')
+        require(type(value) is bool, 'DOM observation did not return a boolean')
+        if value: return
+        remaining=deadline-time.monotonic()
+        if remaining<=0: raise TimeoutError('DOM observation readiness deadline exceeded')
+        # Dispatch real CDP events while waiting; no busy loop or OS sleep.
+        page.wait_for_timeout(min(50,remaining*1000))
+
+
 def open_article(page, input_kind, number=1):
     before = time.monotonic()
     activate(page.locator(f'.entry-list [data-entry-id="{number}"]').first, input_kind)
     page.locator('.article-body').wait_for(state='visible')
-    page.wait_for_function("(document.querySelector('.article-body')?.innerText.length||0)>100 && !document.querySelector('.article-body')?.getAttribute('aria-busy')")
+    wait_for_observation(page,page.locator('.article-body'),"e=>(e.innerText.length>100 && !e.getAttribute('aria-busy'))")
     return (time.monotonic()-before)*1000
 
 
@@ -178,7 +199,7 @@ def image_sweep(page):
     for number in range(1,7):
         item=page.locator(f'.article-body img[src="/fixture-images/{number}.png"]').first
         start=time.monotonic(); item.scroll_into_view_if_needed()
-        page.wait_for_function("src=>{const e=document.querySelector('.article-body img[src=\"'+src+'\"]');return e?.complete&&e.naturalWidth>0}", arg=f'/fixture-images/{number}.png')
+        wait_for_observation(page,item,"e=>Boolean(e.complete && e.naturalWidth>0)")
         detail=item.evaluate("async e=>{await e.decode();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=e.getBoundingClientRect();return {naturalWidth:e.naturalWidth,naturalHeight:e.naturalHeight,width:b.width,height:b.height,top:b.top,visible:b.bottom>0&&b.top<innerHeight,loading:e.loading,fetchPriority:e.fetchPriority,at:performance.timeOrigin+performance.now()}}")
         require(detail['visible'], 'loaded image is not in viewport')
         rows.append({'image':number,'scroll_to_visible_ms':(time.monotonic()-start)*1000,**detail})
