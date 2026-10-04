@@ -76,6 +76,30 @@ class ReaderEvidenceTests(unittest.TestCase):
         self.assertTrue(matches('runtime/note-legacy-migration/result.json', 'runtime/note-legacy-*/'))
         self.assertFalse(matches('artifacts/historical.json', 'artifacts/ci-python.xml'))
 
+    def test_query_and_reading_browser_entries_are_mandatory(self):
+        from ci_reader_contract import BROWSER_TESTS
+        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/reader-regression.yml').read_text()
+        for name in ('query_result_ownership_browser.py', 'reading_focus_browser.py'):
+            self.assertIn(name, BROWSER_TESTS)
+            self.assertEqual(workflow.count('600s python tests/' + name), 1)
+        self.assertNotIn('continue-on-error:', workflow)
+        self.assertNotIn('if: hashFiles', workflow)
+
+    def test_query_and_reading_prior_outputs_are_retained_before_upload(self):
+        folders = ['query-result-ownership'] + [f'reading-focus-{width}-{theme}'
+                    for width in (1440, 390) for theme in ('light', 'dark')]
+        for folder in folders:
+            path = self.root / 'runtime' / folder
+            path.mkdir(parents=True)
+            (path / 'result.json').write_bytes(b'{"old_synthetic":true}')
+        receipt = prepare(self.root, self.retained, self.head)
+        for folder in folders:
+            relative = 'runtime/' + folder
+            self.assertIn(relative, receipt['previous_outputs_retained'])
+            self.assertFalse((self.root / relative).exists())
+            self.assertEqual((Path(receipt['retained_at']) / relative / 'result.json').read_bytes(),
+                             b'{"old_synthetic":true}')
+
 
 if __name__ == '__main__':
     unittest.main()

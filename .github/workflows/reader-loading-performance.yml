@@ -1,0 +1,102 @@
+name: Reader loading baseline measurements
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reader-loading-performance.yml'
+      - 'tests/reader_loading_*.py'
+      - 'tests/test_reader_loading_*.py'
+      - 'tests/compare_reader_loading.py'
+      - 'docs/research/reader-loading-performance-108.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reader-loading-baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    # Narrow authorization: this job reads only the fixed same-repository artifact
+    # using the existing short-lived token. No new secret or write permission.
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [keyboard, touch, weak-network]
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Bind exact source and create fresh private evidence outside checkout
+        id: prepare
+        run: timeout --signal=TERM --kill-after=10s 60s python3 -B tests/reader_loading_ci.py prepare --expected-head "${{ github.event.pull_request.head.sha || github.sha }}" --mode "${{ matrix.mode }}"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.14'
+          cache: pip
+          cache-dependency-path: requirements.dev.lock.txt
+      - name: Install the existing locked test dependencies
+        run: timeout --signal=TERM --kill-after=10s 600s python -m pip install -r requirements.dev.lock.txt
+      - name: Verify Ubuntu Python dependency lock and Chromium descriptors
+        run: timeout --signal=TERM --kill-after=10s 120s python -B tests/reader_loading_ci.py identity --root "${{ steps.prepare.outputs.root }}"
+      - name: Download only the fixed original baseline artifact through gh API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: timeout --signal=TERM --kill-after=10s 120s python -B tests/reader_loading_ci.py download --root "${{ steps.prepare.outputs.root }}"
+      - name: Check exact ZIP bytes SHA CRC source and 125-file manifest before extraction
+        run: timeout --signal=TERM --kill-after=10s 60s python -B tests/reader_loading_ci.py unpack --root "${{ steps.prepare.outputs.root }}"
+      - name: Install Chromium system dependencies from signed APT indices
+        run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
+      - name: Install the locked full Chromium and headless shell
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium
+        run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install chromium
+      - name: Resolve CJK font from refreshed signed APT indices
+        id: cjk-package
+        run: timeout --signal=TERM --kill-after=10s 600s python -B tests/reader_loading_ci.py font-prepare --root "${{ steps.prepare.outputs.root }}"
+      - name: Restore exact untrusted CJK font archive for verification
+        id: cjk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: 1
+        with:
+          path: ${{ steps.prepare.outputs.root }}/work/font-cache
+          key: ${{ steps.cjk-package.outputs.key }}
+      - name: Check font size SHA and signed-index identity before installation
+        run: timeout --signal=TERM --kill-after=10s 600s python -B tests/reader_loading_ci.py font-install --root "${{ steps.prepare.outputs.root }}"
+      - name: Measure five cold and warm pairs with sandbox and actual cache proof
+        id: measure
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium
+        run: timeout --signal=TERM --kill-after=10s 600s python -B tests/reader_loading_ci.py measure --root "${{ steps.prepare.outputs.root }}" --mode "${{ matrix.mode }}"
+      - name: Save only the verified font archive after successful measurement
+        if: steps.cjk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.prepare.outputs.root }}/work/font-cache
+          key: ${{ steps.cjk-package.outputs.key }}
+      - name: Record setup failure or actual measurement outcome
+        if: always() && steps.prepare.outcome == 'success'
+        env:
+          READER_LOADING_JOB_STATUS: ${{ job.status }}
+        run: timeout --signal=TERM --kill-after=10s 60s python3 -B tests/reader_loading_ci.py finish --root "${{ steps.prepare.outputs.root }}"
+      - name: Retain only fresh synthetic measurements and safe failure receipts
+        if: always() && steps.prepare.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-loading-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.mode }}
+          path: ${{ steps.prepare.outputs.evidence }}/
+          if-no-files-found: error
+          retention-days: 7
