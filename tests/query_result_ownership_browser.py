@@ -9,6 +9,8 @@ from review_reader_harness import Harness
 h = Harness("query-result-ownership")
 # This suite holds the initial request; server hydration must retain its query.
 h.settings["minimum_score"] = 8
+# Miniflux feed DTOs include icon even when no icon has been downloaded.
+h.feeds[0]["icon"] = {"feed_id": 7, "icon_id": 0}
 p = h.page
 pending = []
 request_trace = []
