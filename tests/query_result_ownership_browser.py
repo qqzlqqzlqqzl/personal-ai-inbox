@@ -7,8 +7,11 @@ from review_reader_harness import Harness
 
 
 h = Harness("query-result-ownership")
+# This suite holds the initial request; server hydration must retain its query.
+h.settings["minimum_score"] = 8
 p = h.page
 pending = []
+request_trace = []
 fail_requests = False
 p.add_init_script("""localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all'}));
 localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:8,sort:'score',direction:'desc',auxiliary:'none'}));
@@ -37,10 +40,14 @@ def entries(start, count):
 def intercept(route, path, method):
     query = parse_qs(urlsplit(route.request.url).query)
     if method == "GET" and path.endswith("/entries") and query.get("ai_view") == ["recommended"]:
+        scope = "today" if "published_after" in query else "all"
+        request_trace.append({"scope": scope, "ai_min": query.get("ai_min"),
+                              "offset": query.get("offset"), "limit": query.get("limit"),
+                              "response": "503" if fail_requests else "held"})
         if fail_requests:
             route.fulfill(status=503, json={"detail": "synthetic read failure"})
             return True
-        pending.append(("today" if "published_after" in query else "all", route))
+        pending.append((scope, route))
         return True
     return False
 
@@ -109,5 +116,11 @@ except Exception as exc:
     p.screenshot(path=str(h.out / "failure.png"))
     raise
 finally:
+    trace["requests"] = request_trace
+    trace["pending_scopes"] = [scope for scope, _ in pending]
+    try:
+        trace["last_frames"] = p.evaluate("window.queryFrames || []")
+    except Exception as capture_error:
+        trace["frame_capture_error"] = type(capture_error).__name__
     (h.out / "query-frames.json").write_text(json.dumps(trace, ensure_ascii=False, indent=2))
     h.close()
