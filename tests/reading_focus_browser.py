@@ -10,6 +10,7 @@ for width, height in [(1440, 960), (390, 844)]:
         h = Harness(f"reading-focus-{width}-{theme}", viewport={"width": width, "height": height})
         p = h.page
         p.add_init_script("if(!localStorage.getItem('settings'))localStorage.setItem('settings',JSON.stringify({showStatus:'all',themeMode:"+json.dumps(theme)+"}));")
+        h.feeds[0]["icon"] = {"feed_id": 7, "icon_id": 0}
         h.entries = [{"id": 101, "user_id": 1, "feed_id": 7, "title": "Synthetic long reading fixture",
                       "url": "https://example.test/101", "hash": "101", "status": "read", "starred": False,
                       "published_at": "2026-10-04T01:00:00Z", "created_at": "2026-10-04T01:00:00Z",
