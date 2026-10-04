@@ -33,12 +33,36 @@ ADMIN = ('pair_admin', 'synthetic-pair-password')
 SECOND = ('pair_second', 'synthetic-second-password')
 READER = 'http://127.0.0.1:8092'
 MINIFLUX = 'http://127.0.0.1:8093/mf'
-FIELDS = {'id', 'user_id', 'feed_id', 'title', 'published_at'}
+FIELDS = {'id', 'user_id', 'feed_id', 'title', 'published_at', 'url'}
 
 
 def require(value, message):
     if not value:
         raise AssertionError(message)
+
+
+def legacy_url_omission_fault(status, headers, data):
+    """Negative-only old-protocol simulation, applied to a real nonempty reply.
+
+    Preserve the real capability header and status. This does not run an old
+    binary and must never be described as a successful mocked metadata reply.
+    """
+    capability = [value for key, value in headers.items() if key.lower() == 'x-reader-entry-metadata']
+    require(status == 200 and capability == ['1'], 'legacy fault requires actual successful capability 1')
+    payload = json.loads(data)
+    require(isinstance(payload, dict) and set(payload) == {'entries'} and
+            isinstance(payload['entries'], list) and payload['entries'], 'legacy fault requires nonempty actual entries')
+    entries = payload['entries']
+    require(all(isinstance(entry, dict) and set(entry) == FIELDS and
+                isinstance(entry['url'], str) and entry['url'].strip() for entry in entries),
+            'legacy fault requires complete actual six-field URL DTOs')
+    # Construct another envelope without mutating any real source data or headers.
+    fault = {'entries': [{key: value for key, value in entry.items() if key != 'url'} for entry in entries]}
+    return json.dumps(fault, separators=(',', ':')).encode(), {
+        'kind': 'old-five-field-protocol-injection', 'actual_old_binary': False,
+        'upstream_status': status, 'upstream_capability': capability[0],
+        'upstream_fields': sorted(FIELDS), 'returned_fields': sorted(FIELDS - {'url'}),
+        'entry_ids': [entry['id'] for entry in entries]}
 
 
 def command(*args, **kw):
@@ -167,6 +191,8 @@ def proxy_handler(wire):
             if metadata_fault == 'strip-capability':
                 headers = {k: v for k, v in headers.items() if k.lower() != 'x-reader-entry-metadata'}
                 row['stripped_capability'] = True
+            if metadata_fault == 'legacy-five-fields':
+                data, row['legacy_dto_fault'] = legacy_url_omission_fault(status, headers, data)
             row['status'] = status
             with wire.lock:
                 wire.calls.append(row)
@@ -323,6 +349,18 @@ def main():
                         require(direct.headers.get('X-Reader-Entry-Metadata')=='1' and direct.json()=={'entries':[]},
                                 'direct authenticated capability')
                         record('direct_capability',direct)
+                        wire.reset('metadata-url-direct')
+                        direct=client.post(MINIFLUX+'/v1/entries/metadata',auth=ADMIN,json={'entry_ids':[1,1001]})
+                        require(direct.status_code==200 and direct.headers.get('X-Reader-Entry-Metadata')=='1',
+                                'real nonempty metadata must retain capability 1')
+                        native=direct.json()
+                        require(set(native)=={'entries'} and len(native['entries'])==1 and
+                                set(native['entries'][0])==FIELDS and native['entries'][0]['id']==1 and
+                                native['entries'][0]['user_id']==owner and
+                                native['entries'][0]['url']=='https://example.invalid/entry/1',
+                                'real native metadata must return current URL with exact DTO and owner scope')
+                        record('direct_metadata_current_url',direct,actual_native_response=True,
+                               fields=sorted(native['entries'][0]),synthetic_url=native['entries'][0]['url'])
                         wire.reset('capability-reader-proxy')
                         proxied=client.post(READER+'/mf/v1/entries/metadata',auth=ADMIN,json={'entry_ids':[1,1001]})
                         require('X-Reader-Entry-Metadata' not in proxied.headers and proxied.headers.get('cache-control')=='no-store',
@@ -348,10 +386,18 @@ def main():
                         record('reader_admin_403',client.get(READER+'/mf/v1/ai/settings',auth=SECOND),403)
                         wire.reset('invalid-auth')
                         record('invalid_auth_401',listing(auth=(ADMIN[0],'incorrect-synthetic-password')),401)
-                        for fault in ('strip-capability','missing-route','500'):
+                        for fault in ('strip-capability','missing-route','500','legacy-five-fields'):
                             wire.reset('metadata-fault-'+fault,metadata_fault=fault)
                             response=listing(limit=1)
                             require(not wire.bodies and len(wire.metadata)==1,'metadata fault must not fall back to bodies')
+                            if fault=='legacy-five-fields':
+                                proof=wire.metadata[0]
+                                require(proof['forwarded'] and proof['status']==200 and
+                                        proof['legacy_dto_fault']['upstream_capability']=='1' and
+                                        proof['legacy_dto_fault']['entry_ids'],
+                                        'old DTO negative must come from a nonempty actual capability-1 response')
+                                require(isinstance(response.json(),dict) and 'total' not in response.json(),
+                                        'old DTO failure must not publish a zero or partial total')
                             record('metadata_'+fault,response,503,synthetic_proxy_fault=fault)
                         for status in (403,500):
                             wire.reset('selected-body-fault',body_faults={24:status})
@@ -385,6 +431,7 @@ def main():
                                              'postgres_container_port_binding_verified':True},
                         'limitations':['Synthetic loopback HTTP proxy, not production Nginx/TLS or real cardinality.',
                                        '403/500 response and missing-header cases explicitly inject transport faults.',
+                                       'Missing URL case removes only url from actual nonempty capability-1 replies; it simulates the old protocol, not an old binary process.',
                                        'Only selected404 deletes synthetic PG fixture data; notes remain intact.'],
                         'cases':results}
                 (evidence/'paired-result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
