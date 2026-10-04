@@ -1,7 +1,9 @@
 """Offline rejection and workflow coverage for the official image trial."""
 import copy
+import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -83,6 +85,71 @@ class ContainerIdentityTests(unittest.TestCase):
             self.assertNotIn(forbidden, candidate)
         self.assertIn('python -m playwright install-deps chromium', baseline)
         self.assertNotIn('python -m playwright install-deps', candidate)
+
+
+class CheckoutBindingTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix='reader-container-binding-retained-'))
+        self.repo = self.base / 'repository'
+        (self.repo / '.git').mkdir(parents=True)
+        self.temp = self.base / 'runner-temp'
+        self.temp.mkdir()
+        self.output = self.temp / 'job-env'
+        self.output.write_text('')
+        self.head = 'a' * 40
+        self.environ = {'GITHUB_ACTIONS': 'true', 'READER_PLAYWRIGHT_IMAGE': trial.IMAGE,
+                        'GITHUB_WORKSPACE': str(self.repo), 'GITHUB_ENV': str(self.output),
+                        'RUNNER_TEMP': str(self.temp)}
+
+    def test_exact_binding_is_job_scoped_and_checks_head_first(self):
+        result = subprocess.CompletedProcess([], 0, self.head + '\n', '')
+        with patch.object(trial, 'run', return_value=result) as run:
+            receipt = trial.bind_checkout(self.repo, self.head, self.environ)
+        self.assertTrue(receipt['passed'])
+        self.assertEqual(run.call_args.args,
+                         ('git', '-c', 'safe.directory=' + str(self.repo), '-C', str(self.repo), 'rev-parse', 'HEAD'))
+        self.assertEqual(self.output.read_text(),
+                         'GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=safe.directory\nGIT_CONFIG_VALUE_0=' + str(self.repo) + '\n')
+
+    def test_wrong_head_does_not_export_trust(self):
+        with patch.object(trial, 'run', return_value=subprocess.CompletedProcess([], 0, 'b' * 40, '')), \
+                self.assertRaisesRegex(ValueError, 'immutable commit'):
+            trial.bind_checkout(self.repo, self.head, self.environ)
+        self.assertEqual(self.output.read_text(), '')
+
+    def test_path_image_existing_config_and_env_file_fail_before_git(self):
+        changes = [{'GITHUB_WORKSPACE': str(self.base)}, {'READER_PLAYWRIGHT_IMAGE': trial.TAG},
+                   {'GIT_CONFIG_COUNT': '1'}, {'GIT_CONFIG_GLOBAL': '/tmp/not-approved'},
+                   {'GITHUB_ENV': str(self.base / 'outside')}, {'GITHUB_ACTIONS': 'false'}]
+        for change in changes:
+            with self.subTest(change=change), patch.object(trial, 'run') as run, self.assertRaises(ValueError):
+                trial.bind_checkout(self.repo, self.head, {**self.environ, **change})
+            run.assert_not_called()
+            self.assertEqual(self.output.read_text(), '')
+
+    def test_workflow_binds_before_prepare_and_does_not_use_global_or_wildcard(self):
+        text = (Path(__file__).resolve().parents[1] / '.github/workflows/reader-container-trial.yml').read_text()
+        self.assertLess(text.index(' bind-checkout '), text.index('id: prepare_evidence'))
+        self.assertNotIn('safe.directory=*', text)
+        self.assertNotIn('git config --global', text)
+
+    def test_real_git_exact_exception_keeps_another_repository_rejected(self):
+        empty_config = self.base / 'empty-global-config'
+        empty_config.write_text('')
+        clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_CONFIG_')}
+        clean.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=str(empty_config))
+        repos = [self.base / 'trusted-fixture', self.base / 'other-fixture']
+        for repo in repos:
+            subprocess.run(['git', 'init', '--quiet', str(repo)], env=clean, check=True, timeout=10)
+        probe = {**clean, 'GIT_TEST_ASSUME_DIFFERENT_OWNER': '1', 'GIT_CONFIG_COUNT': '1',
+                 'GIT_CONFIG_KEY_0': 'safe.directory', 'GIT_CONFIG_VALUE_0': str(repos[0])}
+        trusted = subprocess.run(['git', '-C', str(repos[0]), 'rev-parse', '--show-toplevel'],
+                                 env=probe, capture_output=True, text=True, timeout=10)
+        other = subprocess.run(['git', '-C', str(repos[1]), 'rev-parse', '--show-toplevel'],
+                               env=probe, capture_output=True, text=True, timeout=10)
+        self.assertEqual(trusted.returncode, 0, trusted.stderr)
+        self.assertEqual(other.returncode, 128)
+        self.assertIn('dubious ownership', other.stderr)
 
 
 if __name__ == '__main__':

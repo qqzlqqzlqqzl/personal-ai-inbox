@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import time
 
@@ -61,6 +62,37 @@ def validate_image_inspection(info):
     require(info.get('Os') == 'linux' and info.get('Architecture') == 'amd64',
             'Docker image platform mismatch')
     require(IMAGE in info.get('RepoDigests', []), 'Docker did not retain the pinned manifest identity')
+
+
+def bind_checkout(root, expected_head, environ):
+    """Bind Git's container-owner exception to this verified job workspace only.
+
+    Checkout v7 uses a temporary HOME for its own Git configuration. Subsequent
+    container shell steps have another HOME and need the exact workspace binding.
+    No global config, ownership, permissions or wildcard exception is changed.
+    """
+    root = Path(root)
+    require(not any(c in str(root) for c in '\r\n*?[]'), 'Unsafe workspace configuration value')
+    require(environ.get('GITHUB_ACTIONS') == 'true' and environ.get('READER_PLAYWRIGHT_IMAGE') == IMAGE,
+            'Checkout binding requires the declared hosted image')
+    require(re.fullmatch(r'[a-f0-9]{40}', expected_head), 'Expected immutable commit SHA')
+    require(root.is_absolute() and str(root) == environ.get('GITHUB_WORKSPACE') and root.resolve() == root,
+            'Checkout must equal the exact canonical job workspace')
+    require(not any(p.is_symlink() for p in (root, *root.parents)), 'Symlink workspace is refused')
+    require((root / '.git').is_dir() and not (root / '.git').is_symlink(), 'Expected real checkout Git directory')
+    require(not any(k.startswith('GIT_CONFIG_') for k in environ), 'Pre-existing Git configuration override is refused')
+    target = Path(environ.get('GITHUB_ENV', ''))
+    temporary = Path(environ.get('RUNNER_TEMP', ''))
+    require(temporary.is_absolute() and target.is_absolute() and target.is_relative_to(temporary)
+            and target.is_file() and not target.is_symlink()
+            and not any(p.is_symlink() for p in target.parents), 'Expected runner-owned job environment file')
+    actual = run('git', '-c', 'safe.directory=' + str(root), '-C', str(root),
+                 'rev-parse', 'HEAD', seconds=10).stdout.strip()
+    require(actual == expected_head, 'Checkout differs from the requested immutable commit')
+    with target.open('a') as stream:
+        stream.write('GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=safe.directory\nGIT_CONFIG_VALUE_0=' + str(root) + '\n')
+    return {'passed': True, 'head': actual, 'exact_safe_directory': str(root),
+            'scope': 'subsequent steps of this one disposable job; no persistent/global Git configuration'}
 
 
 def verify_browser(path):
@@ -131,9 +163,12 @@ def measure_pulls():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('verify', 'pull-cost'))
+    parser.add_argument('action', choices=('verify', 'pull-cost', 'bind-checkout'))
     parser.add_argument('--expected-head', required=True)
     args = parser.parse_args()
+    if args.action == 'bind-checkout':
+        print(json.dumps(bind_checkout(ROOT, args.expected_head, os.environ), indent=2))
+        return
     head = run('git', 'rev-parse', 'HEAD', seconds=10).stdout.strip()
     require(head == args.expected_head, 'Wrong immutable checkout')
     require(not run('git', 'diff', '--name-only', 'HEAD', seconds=10).stdout.strip(),

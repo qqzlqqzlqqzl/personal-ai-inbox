@@ -61,3 +61,22 @@ No container performance or browser result has been asserted from local static
 tests. The cloud workspace has no Docker daemon; real container execution is a
 hosted gate. Keep failures and reject ordinary-case regressions rather than
 raising timeouts or removing verification.
+
+First hosted trial (`e990d20`, run `37183957265`) failed before evidence
+preparation: the official container's checkout mount had a different owner, and
+checkout v7's temporary Git HOME did not make its safe-directory binding visible
+to subsequent shell steps. Git rejected the repository; no functional/browser
+tests ran. The upload guard correctly withheld stale regression artifacts.
+
+The follow-up binds only that exact, canonical, non-symlink GITHUB_WORKSPACE to
+Git for the remainder of the disposable job. It verifies the requested commit
+with a one-command exact-directory option before exporting the same exception
+through GITHUB_ENV. It rejects existing Git config overrides, different paths,
+wildcards and incorrect commits. It changes no global config, file ownership or
+permissions; the original HEAD/tree/source and evidence guards still execute.
+A real Git negative control confirms another repository remains refused.
+
+The independent image-pull job succeeded: the image was initially absent; first
+pull 29.035926 seconds, same-runner second pull 0.296657 seconds. Container job
+initialization took 31 seconds. These are setup observations, not full-suite
+performance acceptance; the failure and original logs are retained.

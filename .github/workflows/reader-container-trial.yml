@@ -37,6 +37,8 @@ jobs:
           # later unauthenticated git fetch cannot access this private repository.
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Bind Git ownership trust to the verified container checkout only
+        run: timeout --signal=TERM --kill-after=10s 60s python3 tests/ci_playwright_container.py bind-checkout --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Prepare fresh evidence paths while retaining old output
         id: prepare_evidence
         run: timeout --signal=TERM --kill-after=10s 60s python3 tests/ci_prepare_evidence.py --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
