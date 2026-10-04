@@ -21,6 +21,10 @@ CACHED_FILE = PACKAGE + ".deb"
 
 
 def command(*args, **kwargs):
+    # The official job container already runs as root and does not ship sudo.
+    # Preserve the same command after all archive validation; non-root stays unchanged.
+    if args and args[0] == "sudo" and os.geteuid() == 0:
+        args = args[1:]
     return subprocess.run(args, check=True, text=True, env={**os.environ, "LC_ALL": "C"}, **kwargs)
 
 

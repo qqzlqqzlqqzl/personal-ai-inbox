@@ -1,4 +1,4 @@
-name: Reader regression
+name: Reader official container trial
 
 on:
   pull_request:
@@ -10,16 +10,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: reader-regression-${{ github.ref }}
+  group: reader-container-trial-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   offline-and-browser:
     runs-on: ubuntu-24.04
+    container:
+      # Official Playwright Python 1.63.0 Noble, verified Linux/amd64 manifest.
+      image: mcr.microsoft.com/playwright/python@sha256:96b39581c89131729a7ecb8d532314af54c7f9bcc7a61fe15c7a9e77602acf59
+      options: --init --shm-size=1g
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 30
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      READER_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright/python@sha256:96b39581c89131729a7ecb8d532314af54c7f9bcc7a61fe15c7a9e77602acf59
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,18 +78,17 @@ jobs:
           timeout --signal=TERM --kill-after=10s 600s node tests/source_history_component_acceptance.mjs
       - name: Build isolated reader
         run: timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py
-      - name: Install Chromium system dependencies
-        run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
-      - name: Install hosted Chromium and headless shell
-        # Native zoom additionally launches headed Chromium under Xvfb.
-        run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install chromium
+      - name: Verify preinstalled Chromium and OS dependency identity
+        run: timeout --signal=TERM --kill-after=10s 120s python tests/ci_playwright_container.py verify --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Refresh signed official APT indices for exact font verification
+        run: timeout --signal=TERM --kill-after=10s 600s apt-get -o APT::Get::AllowUnauthenticated=false -o Acquire::AllowInsecureRepositories=false -o Acquire::AllowDowngradeToInsecureRepositories=false -o Acquire::Check-Valid-Until=true -o APT::Update::Error-Mode=any update
       - name: Browser fulltext request, redirect and popup admission
         env:
           PYTHONPATH: src:src/kaggle_batch
         run: timeout --signal=TERM --kill-after=10s 600s python tests/fulltext_browser_admission.py
       - name: Resolve CJK font from refreshed APT indices
         id: cjk-package
-        # install-deps above refreshes signed APT indices; never cache this manifest.
+        # The signed index refresh above stays outside cache; never cache this manifest.
         run: timeout --signal=TERM --kill-after=10s 600s python tests/ci_cjk_font.py prepare --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
       - name: Restore exact CJK font archive
         id: cjk-cache
@@ -152,7 +160,7 @@ jobs:
         if: always() && steps.prepare_evidence.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: reader-regression-${{ github.run_id }}
+          name: reader-container-trial-${{ github.run_id }}
           path: |
             artifacts/ci-tested-source.json
             artifacts/ci-python.xml
@@ -184,5 +192,29 @@ jobs:
             artifacts/browser-admission.json
             runtime/calendar-*/
             runtime/browser-build/
+            runtime/playwright-container/
+          retention-days: 7
+
+  image-pull-cost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prepare fresh evidence while retaining old output
+        id: prepare_evidence
+        run: timeout --signal=TERM --kill-after=10s 60s python3 tests/ci_prepare_evidence.py --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Measure official image first and same-runner warm pulls
+        run: timeout --signal=TERM --kill-after=10s 800s python3 tests/ci_playwright_container.py pull-cost --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Retain image measurement even when it fails
+        if: always() && steps.prepare_evidence.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-image-pull-${{ github.run_id }}
+          path: |
+            artifacts/ci-tested-source.json
             runtime/playwright-container/
           retention-days: 7
