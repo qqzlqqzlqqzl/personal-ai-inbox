@@ -3,6 +3,12 @@
 It never submits a Kaggle job itself. It only starts the existing bounded lane
 services. Lane services keep immutable manifests and perform remote reconciliation.
 """
+# Reject help/unknown arguments before importing application code or touching
+# scheduler state. This command accepts no operational arguments.
+if __name__ == '__main__':
+    import argparse
+    argparse.ArgumentParser(description='Run one bounded scheduler tick.').parse_args()
+
 import json
 from pathlib import Path
 import sqlite3
@@ -24,6 +30,11 @@ except ImportError:  # direct script/test execution
     from recovery_policy import effective_retry_at
     from quota_guard import query_config, plan_lanes
 
+try:
+    from .dispatch_policy import automatic_allowed,require_automatic,DispatchStopped,config_fingerprint
+except ImportError:
+    from dispatch_policy import automatic_allowed,require_automatic,DispatchStopped,config_fingerprint
+
 ROOT=Path('/home/ubuntu/ai-news')
 STAGE=ROOT/'runtime/qwen-month-20260925'
 KEYS=('primary','secondary','third','fourth','fifth')
@@ -33,6 +44,8 @@ CARD_STATES=('pending','error','budget_paused','waiting_model')
 MAX_ACTIVE=len(KEYS)
 BATCH_LIMIT=20
 
+
+from work_admission import check,options
 
 def read_json(path,default=None):
     path=Path(path)
@@ -65,15 +78,24 @@ def outstanding(root):
     return dict(row) if row else None
 
 
-def snapshot_lanes(now,states):
+def snapshot_lanes(now,states,configs=None):
     lanes={}
     quota_configs={}
     for key in KEYS:
         lane={'active':states.get(key) in ('active','activating','deactivating','reloading'),
               'service_state':states.get(key,'unknown'),'outstanding':None,'recovery':{},'cycle':{},
-              'retry_at':0,'ready':False,'pending_local':0}
+              'retry_at':0,'ready':False,'pending_local':0,'schedule_enabled':False}
         try:
-            cfg=lane_config(key);root=Path(cfg['state_root'])
+            cfg=lane_config(key) if configs is None else configs[key]
+            lane['quota_gate']={'allowed':False,'state':'schedule_disabled'}
+            if not automatic_allowed(cfg):
+                if isinstance(cfg,dict) and cfg.get('reconcile_only') is True:
+                    lane['quota_gate']['state']='reconcile_only'
+                lanes[key]=lane
+                continue
+            require_automatic(lane_config(key),STAGE/'paused.json')
+            lane['schedule_enabled']=True
+            root=Path(cfg['state_root'])
             # A manually launched observer holds the same lock as the service.
             # Detect it rather than trying to start a second observer for this lane.
             import fcntl
@@ -105,23 +127,38 @@ def snapshot_lanes(now,states):
                 lane['ready']=False
             # Only fresh read-only quota permits new work. Recovery stays eligible.
             lane['quota_gate']={'allowed':False,'state':'not_checked_active' if lane['active'] else 'quota_unknown'}
-            if not lane['active']:
-                quota_configs[key]=cfg
-        except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
+            if not lane['active'] and lane['ready']:
+                if lane['outstanding'] and lane['outstanding']['state']!='prepared':
+                    lane['quota_gate']={'allowed':False,'state':'existing_id_recovery'}
+                else:
+                    quota_configs[key]=cfg
+        except (OSError,ValueError,TypeError,KeyError,sqlite3.Error,DispatchStopped) as exc:
             lane['state_error']=type(exc).__name__;lane['ready']=False
         lanes[key]=lane
+    def quota(key,cfg):
+        def authorize():
+            current=lane_config(key)
+            require_automatic(current,STAGE/'paused.json')
+            if config_fingerprint(current)!=config_fingerprint(cfg):raise DispatchStopped('configuration_changed')
+        try:
+            authorize()
+            return query_config(cfg,authorize=authorize)
+        except DispatchStopped as exc:
+            return {'allowed':False,'state':exc.state}
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=len(KEYS)) as pool:
-        futures={key:pool.submit(query_config,cfg) for key,cfg in quota_configs.items()}
+        futures={key:pool.submit(quota,key,cfg) for key,cfg in quota_configs.items()}
         for key,future in futures.items():
             lanes[key]['quota_gate']=future.result()
     return lanes
 
 
-def due_entries(now,config):
+def due_entries(now,config, *,admission=None):
+    check(admission)
     claimed=claimed_entries(required_roots(config))
-    allow=set(resolve_entry_ids(config) or [])
+    allow=set(resolve_entry_ids(config,**options(admission)) or [])
     if not allow:return set(),set()
+    check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         rows=db.execute("""SELECT DISTINCT a.entry_id FROM analyses a
             LEFT JOIN card_translations c ON c.entry_id=a.entry_id AND c.user_id=a.user_id
@@ -132,6 +169,7 @@ def due_entries(now,config):
                     AND c.next_try<=? AND c.attempts<3))""",(now,now)).fetchall()
     due={int(row[0]) for row in rows}&allow
     if config.get('qwen_exception_review'):
+        check(admission)
         with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
             has_reviews=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='qwen_exception_reviews'").fetchone()
             if has_reviews:
@@ -145,6 +183,7 @@ def due_entries(now,config):
                     WHERE state IN ('requires_fulltext_adapter','insufficient_content')
                        OR (state='fetch_error' AND attempts>=3)""").fetchall()
         due|={int(row[0]) for row in rows}&allow
+    check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kaggle_prepare_leases'").fetchone()
         leased={r[0] for r in db.execute('SELECT entry_id FROM kaggle_prepare_leases WHERE expires>?',(now,))} if exists else set()
@@ -152,10 +191,12 @@ def due_entries(now,config):
     return due-claimed,due&claimed
 
 
-def queue_summary(now,config):
-    ids=resolve_entry_ids(config) or []
+def queue_summary(now,config, *,admission=None):
+    check(admission)
+    ids=resolve_entry_ids(config,**options(admission)) or []
     if not ids:return {'analyses':{},'cards':{},'next_item_retry':0,'total':0}
     marks=','.join('?' for _ in ids)
+    check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         analyses=dict(db.execute(f'SELECT state,count(*) FROM analyses WHERE entry_id IN ({marks}) GROUP BY state',ids))
         cards=dict(db.execute(f'SELECT status,count(*) FROM card_translations WHERE entry_id IN ({marks}) GROUP BY status',ids))
@@ -184,9 +225,9 @@ def start_lane(key,run=subprocess.run):
         timeout=20,check=True)
 
 
-def dispatch_topology():
+def dispatch_topology(configs=None):
     try:
-        configs = {key: lane_config(key) for key in KEYS}
+        configs = {key: lane_config(key) for key in KEYS} if configs is None else configs
         roots = [Path(configs[key]['state_root']).resolve() for key in KEYS]
         if len(set(roots)) != len(KEYS):
             raise DispatchBlocked('invalid_topology')
@@ -200,15 +241,65 @@ def dispatch_topology():
         raise DispatchBlocked('invalid_topology') from None
 
 
+def schedule_snapshot():
+    try:
+        return {key:lane_config(key) for key in KEYS}
+    except (OSError,ValueError,TypeError,RecursionError):
+        raise DispatchStopped('configuration_unavailable') from None
+
+
+def schedule_admission(configs):
+    # Missing or malformed lane configuration is never authority for a launch.
+    if any(not isinstance(configs.get(key),dict) for key in KEYS):
+        raise DispatchBlocked('invalid_topology')
+    from_dispatch=[cfg for cfg in configs.values() if automatic_allowed(cfg)]
+    if not from_dispatch:
+        raise DispatchStopped('schedule_disabled')
+    require_automatic(from_dispatch[0],STAGE/'paused.json')
+
+
+def revalidate_schedule(configs):
+    current=schedule_snapshot()
+    schedule_admission(current)
+    if config_fingerprint(current)!=config_fingerprint(configs):raise DispatchStopped('configuration_changed')
+
+
 def _tick(run=subprocess.run,starter=start_lane,now=None):
     now=float(time.time() if now is None else now)
     if (STAGE/'paused.json').exists():
         return {'state':'paused','started':[],'at':now}
     state_path=ROOT/'state/kaggle-month-dispatch/scheduler.json'
-    def blocked(exc):
-        report={**block_with_backoff(state_path.parent,exc,now=now),'started':[],'at':now}
+    configs=None
+    def blocked(exc,started=None):
+        # A concurrent stop outranks the earlier ledger failure. Preserve its
+        # existing recovery record instead of opening a new local-state retry.
+        current=None
+        try:
+            current=schedule_snapshot()
+            schedule_admission(current)
+            if configs is not None and config_fingerprint(current)!=config_fingerprint(configs):
+                raise DispatchStopped('configuration_changed')
+        except DispatchStopped as stop:return stopped(stop,started)
+        except DispatchBlocked:
+            # An unchanged malformed topology is still a typed local error.
+            # A changed configuration cannot authorize error-path mutation.
+            if current is None:return stopped(DispatchStopped('configuration_unavailable'),started)
+            if configs is not None and config_fingerprint(current)!=config_fingerprint(configs):
+                return stopped(DispatchStopped('configuration_changed'),started)
+        report={**block_with_backoff(state_path.parent,exc,now=now),'started':started or [],'at':now}
         atomic_json(state_path,report)
         return report
+    def stopped(exc,started=None):
+        report={**exc.report(),'started':started or [],'at':now}
+        atomic_json(state_path,report)
+        return report
+    try:
+        configs=schedule_snapshot()
+        schedule_admission(configs)
+    except DispatchStopped as exc:
+        return stopped(exc)
+    except DispatchBlocked as exc:
+        return blocked(exc)
     recovery_path=state_path.parent/'recovery.json'
     try:
         recovery=read_json(recovery_path,{})
@@ -228,17 +319,23 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
     except (OSError,ValueError,TypeError,RecursionError):
         return blocked(DispatchBlocked('invalid_recovery'))
     try:
-        configs,roots=dispatch_topology()
+        configs,roots=dispatch_topology(configs)
         claimed_entries(roots)
     except DispatchBlocked as exc:
         return blocked(exc)
-    states=service_states(run);lanes=snapshot_lanes(now,states)
+    try:revalidate_schedule(configs)
+    except DispatchStopped as exc:return stopped(exc)
+    except DispatchBlocked as exc:return blocked(exc)
+    states=service_states(run);lanes=snapshot_lanes(now,states,configs)
     cfg=configs['primary']
     try:
-        due,claimed=due_entries(now,cfg)
+        due,claimed=due_entries(now,cfg,admission=lambda:revalidate_schedule(configs))
+    except DispatchStopped as exc:return stopped(exc)
     except DispatchBlocked as exc:
         return blocked(exc)
-    summary=queue_summary(now,cfg)
+    try:summary=queue_summary(now,cfg,admission=lambda:revalidate_schedule(configs))
+    except DispatchStopped as exc:return stopped(exc)
+    except DispatchBlocked as exc:return blocked(exc)
     previous=read_json(state_path,{}) or {};cursor=int(previous.get('cursor',0))%len(KEYS)
     starts,new_cursor=plan(lanes,len(due),cursor)
     started=[];failures=[]
@@ -246,15 +343,26 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
         claimed_entries(roots)
     except DispatchBlocked as exc:
         return blocked(exc)
-    # Clear only after the last complete admission snapshot succeeds.
-    if recovery:
-        atomic_json(recovery_path,{'failures':0,'retry_at':0,'at':now})
     for key in starts:
-        if (STAGE/'paused.json').exists():break
         try:
+            revalidate_schedule(configs)
+            require_automatic(configs[key],STAGE/'paused.json')
             starter(key,run=run);started.append(key)
+        except DispatchStopped as exc:
+            return stopped(exc,started)
+        except DispatchBlocked as exc:
+            return blocked(exc,started)
         except (OSError,subprocess.SubprocessError) as exc:
             failures.append({'lane':key,'error':type(exc).__name__})
+    try:revalidate_schedule(configs)
+    except DispatchStopped as exc:return stopped(exc,started)
+    except DispatchBlocked as exc:return blocked(exc,started)
+    # A stopped tick is not a successful reset of persisted recovery.
+    if recovery:
+        try:revalidate_schedule(configs)
+        except DispatchStopped as exc:return stopped(exc,started)
+        except DispatchBlocked as exc:return blocked(exc,started)
+        atomic_json(recovery_path,{'failures':0,'retry_at':0,'at':now})
     times=[v for lane in lanes.values() for v in (lane['retry_at'],lane.get('local_retry_at',0)) if v>now]
     if summary['next_item_retry']:times.append(summary['next_item_retry'])
     next_retry=min(times,default=0)
@@ -276,6 +384,9 @@ def _tick(run=subprocess.run,starter=start_lane,now=None):
                 'state_error':lane.get('state_error')} for key,lane in lanes.items()}}
     atomic_json(state_path,report)
     if started or failures:
+        try:revalidate_schedule(configs)
+        except DispatchStopped as exc:return stopped(exc,started)
+        except DispatchBlocked as exc:return blocked(exc,started)
         Audit(ROOT/'state/qwen-exception-audit').append('scheduler_tick',
             started=started,start_failures=failures,due_unclaimed=len(due),due_claimed=len(claimed))
     return report

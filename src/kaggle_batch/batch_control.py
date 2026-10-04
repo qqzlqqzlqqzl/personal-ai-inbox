@@ -16,6 +16,10 @@ import subprocess
 import sys
 import time
 try:
+    from .dispatch_policy import DispatchStopped
+except ImportError:
+    from dispatch_policy import DispatchStopped
+try:
     from .quota_guard import query_client
     from .recovery_policy import ProviderError, classify_failure, classify, exception_code
     from .absence_proof import prove_absent
@@ -51,9 +55,13 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 class Controller:
-    def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None):
+    def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None, admission=None, recovery_batch=None, diagnostic_observer=None):
         if not re.fullmatch(r'[a-zA-Z0-9_-]+', owner):
             raise ValueError('Invalid Kaggle owner')
+        self.admission = admission
+        self.diagnostic_observer = diagnostic_observer
+        self.last_diagnostic_retained = None
+        self._admit()
         self.root = Path(root).resolve()
         database = self.root / 'batches.sqlite3'
         if initialize and not database.exists():
@@ -74,7 +82,14 @@ class Controller:
         self.required_roots = list(dict.fromkeys([self.root, *month_roots(self.root), *(required_roots or [])]))
         self.owner = owner
         self.kaggle_python = str(kaggle_python or sys.executable)
-        self.client = client or self._cli
+        original_client = client or self._cli
+        if admission is None:
+            self.client = original_client
+        else:
+            def guarded_client(args, timeout):
+                self._admit()
+                return original_client(args, timeout)
+            self.client = guarded_client
         with self.db() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS batches (
                 id TEXT PRIMARY KEY, manifest_hash TEXT NOT NULL, state TEXT NOT NULL,
@@ -82,7 +97,10 @@ class Controller:
             db.execute('CREATE TABLE IF NOT EXISTS batch_progress (batch_id TEXT PRIMARY KEY, next_try REAL NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0, error TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS batch_claims (batch_id TEXT NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(batch_id,entry_id))')
         with self.db() as db:
-            pending=[row['id'] for row in db.execute("SELECT id FROM batches WHERE state NOT IN ('imported','retired','resolved')")]
+            sql="SELECT id FROM batches WHERE state NOT IN ('imported','retired','resolved')"
+            # Explicit recovery must not backfill claims for other pending IDs.
+            pending=[row['id'] for row in db.execute(sql+" AND id=?" if recovery_batch else sql,
+                     (recovery_batch,) if recovery_batch else ())]
         for batch in pending:
             with self.db() as db:
                 if db.execute('SELECT 1 FROM batch_claims WHERE batch_id=? LIMIT 1',(batch,)).fetchone():continue
@@ -91,8 +109,12 @@ class Controller:
             with self.db() as db:db.executemany('INSERT OR IGNORE INTO batch_claims VALUES (?,?)',refs)
 
 
+    def _admit(self):
+        if self.admission is not None:self.admission()
+
     @contextmanager
     def db(self):
+        self._admit()
         try:
             db = sqlite3.connect((self.root/'batches.sqlite3').as_uri()+'?mode=rw', uri=True, timeout=15)
         except sqlite3.Error:
@@ -101,6 +123,7 @@ class Controller:
         try:
             with db:
                 yield db
+                self._admit()
         except sqlite3.OperationalError:
             raise DispatchBlocked('unreadable_ledger') from None
         except sqlite3.Error:
@@ -138,12 +161,30 @@ class Controller:
         try:
             result = subprocess.run([self.kaggle_python, '-m', 'kaggle', *args], timeout=timeout,
                                     capture_output=True, text=True, encoding='utf-8')
-        except (subprocess.TimeoutExpired, OSError):
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            self._observe_cli_failure(args, error=exc)
             raise ProviderError('network') from None
         # Never propagate raw client errors: they can include signed URLs.
         if result.returncode:
-            raise classify_failure(str(result.stderr or '') + '\n' + str(result.stdout or '')) from None
+            output = str(result.stderr or '') + '\n' + str(result.stdout or '')
+            self._observe_cli_failure(args, output=output)
+            raise classify_failure(output) from None
         return result.stdout
+
+    def _observe_cli_failure(self, args, **fields):
+        # Telemetry is best effort, never a retry input or another provider call.
+        self.last_diagnostic_retained = False
+        if getattr(self, 'diagnostic_observer', None) is None:
+            return
+        try:
+            try:
+                from .provider_diagnostics import failure
+            except ImportError:
+                from provider_diagnostics import failure
+            self.last_diagnostic_retained = self.diagnostic_observer(failure(args, **fields)) is True
+        except Exception:
+            # No raw fallback and no change to the original failure or claims.
+            pass
 
     def row(self, batch_id):
         with self.db() as db:
@@ -167,6 +208,7 @@ class Controller:
         return value
 
     def prepare(self, manifest, template):
+        self._admit()
         claimed_entries(self.required_roots)
         if not manifest.get('items'):
             return None  # Empty queue must not allocate a GPU.
@@ -195,6 +237,7 @@ class Controller:
                     raise RetiredManifest(batch_id)
                 return batch_id
             claimed_entries(self.required_roots)
+            self._admit()
             runtime_manifest = {**manifest, 'batch_id':batch_id, 'manifest_hash':canonical}
             atomic_json(folder/'manifest.json', runtime_manifest)
             if template.count('MANIFEST = None') != 1:
@@ -234,12 +277,15 @@ class Controller:
             quota_gate = query_client(self.client)
             if not quota_gate['allowed']:
                 return {**self.row(batch_id), 'submission_blocked':True, 'quota_gate':quota_gate}
+            self._admit()
             db.execute("UPDATE batches SET state='submitting',updated=? WHERE id=?",(time.time(),batch_id))
         try:
             output = self.client(['kernels','push','-p',str(self.root/batch_id),
                 '--accelerator','NvidiaTeslaT4','--timeout',str(manifest['session_timeout'])],90)
             if not re.search(r'Kernel version \d+ successfully pushed', output):
                 raise ProviderError(classify(output))
+        except DispatchStopped:
+            raise
         except Exception as exc:
             code=exception_code(exc)
             # A typed quota/auth rejection still requires remote reconciliation.
@@ -254,13 +300,14 @@ class Controller:
             db.execute('UPDATE batches SET state=?,remote_status=COALESCE(?,remote_status),error=?,updated=? WHERE id=?',
                        (state,remote,error,time.time(),batch_id))
 
-    def status(self, batch_id):
+    def status(self, batch_id, *, allow_retirement=True):
         before = self.row(batch_id)
         if before['state']=='retired' or (before['state'] in {'terminal','downloaded','imported','resolved'} and before['remote_status'] in TERMINAL):
             return before
         try:
             output = self.client(['kernels','status',self.owner+'/'+batch_id],45)
         except ProviderError as exc:
+            if not allow_retirement:raise
             return self._reconcile_absence(batch_id,before,exc)
         match = re.search(r'KernelWorkerStatus\.([A-Z]+)',output)
         if not match:
@@ -343,6 +390,7 @@ class Controller:
             return self.row(batch_id)
 
     def download(self, batch_id, salvage=False):
+        self._admit()
         row = self.status(batch_id)
         if row['remote_status'] not in TERMINAL:
             raise RuntimeError('Remote job is still active')
@@ -351,6 +399,7 @@ class Controller:
         folder = self.root/batch_id/'output'
         folder.mkdir(exist_ok=True)
         self.client(['kernels','output',self.owner+'/'+batch_id,'-p',str(folder)],180)
+        self._admit()
         evidence = self.verify_output(batch_id,salvage=salvage)
         self._set(batch_id,'downloaded',row['remote_status'])
         return evidence

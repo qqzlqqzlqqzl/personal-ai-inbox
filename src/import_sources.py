@@ -1,5 +1,9 @@
 """Idempotent feed import. AI worker, not the RSS description, obtains original text."""
 
+if __name__ == '__main__':
+    import argparse
+    argparse.ArgumentParser(allow_abbrev=False, description='Import the configured feed catalog.').parse_args()
+
 import json, time, concurrent.futures
 from pathlib import Path
 from ops_common import client

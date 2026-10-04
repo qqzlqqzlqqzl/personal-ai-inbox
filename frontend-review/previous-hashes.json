@@ -52,5 +52,20 @@
   "src/components/Ai/NavigationPalette.jsx": [
     "05d40752652369d53aa04ed4214dfd3383c102c83f5d3bc9ec24ce0eebcf8b55",
     "cc284a3a81eb82cb106162702d7dd600d2ba2197fe955746948f17c7e846348e"
+  ],
+  "src/components/Ai/note-drafts.js": [
+    "632c6ee65f2ea9369bcfc89e896db490e36b3eba8c36b904e21f041c10bded51"
+  ],
+  "src/components/Ai/note-session-core.js": [
+    "e8bbb8ae3a8b52cbd0f2bb095bfd5d5a5a4cdd2c142c0b3369847c8f27f6c328"
+  ],
+  "src/utils/note-session.js": [
+    "e695c84e70440a4b2395a6ad54766e70dc4f17f040c0ccff1014c13830a5852c"
+  ],
+  "src/utils/session.js": [
+    "6ac874324a1cea90243ed5fc2793eae6797024e324c5195920d4bad9c1ebf93d"
+  ],
+  "src/components/Ai/LogoutConfirm.jsx": [
+    "f80e0ee378e3b6d1b3984282ba4c01a4855fed8f7fb80b266dfd3be4f6b62e73"
   ]
 }

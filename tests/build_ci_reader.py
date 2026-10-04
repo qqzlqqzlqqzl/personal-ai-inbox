@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ STAGES = (
     'patch_frontend.py', 'polish_frontend.py', 'specialize_login.py',
     'patch_reading_session.py', 'patch_ui_review.py', 'patch_article_notes.py',
     'patch_reading_telemetry.py', 'patch_scope_ai_filters.py',
-    'patch_reader_detail_quality.py', 'patch_reader_entry_defaults.py', 'patch_interaction_review.py',
+    'patch_reader_detail_quality.py', 'patch_reader_entry_defaults.py', 'patch_interaction_review.py', 'install_agent_status.py',
 )
 
 
@@ -69,7 +70,11 @@ def main():
         raise RuntimeError('Node and pnpm must be installed from the workflow pins')
     prepare_version_info(web, Path(node), env)
     output = ROOT / 'runtime/browser-build'
-    subprocess.run([pnpm, 'exec', 'vite', 'build', '--outDir', str(output), '--emptyOutDir'],
+    if output.exists():
+        retained = ROOT / 'runtime/retained-browser-builds'
+        retained.mkdir(exist_ok=True)
+        output.rename(retained / ('browser-build-' + uuid.uuid4().hex))
+    subprocess.run([pnpm, 'exec', 'vite', 'build', '--outDir', str(output)],
                    cwd=web, env=env, check=True, timeout=600)
     validate_reader_bundle(output)
     print('Validated isolated /inbox/ bundle:', output)

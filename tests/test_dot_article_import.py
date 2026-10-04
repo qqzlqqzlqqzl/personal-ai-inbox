@@ -57,7 +57,7 @@ INSERT INTO kaggle_imports VALUES ('old-kaggle','old-item','old-hash',1);
             c.execute('INSERT INTO analyses(entry_id,user_id,feed_id,title,url,published_at,state,attempts,next_try,content_hash,source_text,truncated,content_source,source_chars,extracted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(eid,1,1,'Original '+str(eid),'https://example.com/'+str(eid),'2026-10-01T00:00:00Z','waiting_model',0,0,'html-hash-'+str(eid),text,0,'original_url_site_rule',len(text),100.0))
         c.execute('INSERT INTO card_translations(entry_id,user_id,status,source_hash,original_title,excerpt,source_kind,attempts,next_try) VALUES (?,?,?,?,?,?,?,?,?)',(2,1,'pending','preserve-source-hash','Original 2','Original source excerpt','source_excerpt',0,0))
         c.commit();c.close()
-        self.peer=self.root/'lane';self.peer.mkdir();c=sqlite3.connect(self.peer/'batches.sqlite3');c.executescript('CREATE TABLE batches(id TEXT,state TEXT);CREATE TABLE batch_claims(batch_id TEXT,entry_id INTEGER);');c.commit();c.close()
+        self.peer=self.root/'lane';self.peer.mkdir();c=sqlite3.connect(self.peer/'batches.sqlite3');c.executescript('CREATE TABLE batches ( id TEXT PRIMARY KEY, manifest_hash TEXT NOT NULL, state TEXT NOT NULL, remote_status TEXT, error TEXT, updated REAL NOT NULL);CREATE TABLE batch_claims (batch_id TEXT NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(batch_id,entry_id));');c.commit();c.close()
         self.coord=self.root/'coord';self.coord.mkdir();(self.coord/'bridge.lock').write_text('')
         self.config={'source':str(self.source),'database':str(self.db),'peer_state_roots':[str(self.peer)],'state_root':str(self.peer),'scope_user_id':1,'coordination_root':str(self.coord)}
         self.packet=exporter.export(self.config,enabled_feed_ids={1})
@@ -110,7 +110,7 @@ INSERT INTO kaggle_imports VALUES ('old-kaggle','old-item','old-hash',1);
         self.assertEqual(self.query('SELECT result,model FROM analyses WHERE entry_id=2'),[('user existing','existing')])
         self.assertEqual(self.query("SELECT count(*) FROM analyses WHERE state='done'")[0][0],1)
     def test_claim_after_export_blocks_entire_batch(self):
-        c=sqlite3.connect(self.peer/'batches.sqlite3');c.execute("INSERT INTO batches VALUES ('unknown','submit_unknown')");c.execute("INSERT INTO batch_claims VALUES ('unknown',2)");c.commit();c.close()
+        c=sqlite3.connect(self.peer/'batches.sqlite3');c.execute("INSERT INTO batches VALUES ('unknown','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','submit_unknown',NULL,NULL,0)");c.execute("INSERT INTO batch_claims VALUES ('unknown',2)");c.commit();c.close()
         with self.assertRaisesRegex(ValueError,'entry_claimed_or_leased'):self.run_import(apply=True)
         self.assert_clean()
     def test_active_lease_after_export_blocks(self):
@@ -119,7 +119,7 @@ INSERT INTO kaggle_imports VALUES ('old-kaggle','old-item','old-hash',1);
         self.assert_clean()
     def test_claim_during_backup_is_caught_again_inside_transaction(self):
         def racing(*args):
-            c=sqlite3.connect(self.peer/'batches.sqlite3');c.execute("INSERT INTO batches VALUES ('unknown','submit_unknown')");c.execute("INSERT INTO batch_claims VALUES ('unknown',1)");c.commit();c.close();return 'b'*64
+            c=sqlite3.connect(self.peer/'batches.sqlite3');c.execute("INSERT INTO batches VALUES ('unknown','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','submit_unknown',NULL,NULL,0)");c.execute("INSERT INTO batch_claims VALUES ('unknown',1)");c.commit();c.close();return 'b'*64
         with self.assertRaisesRegex(ValueError,'entry_claimed_or_leased'):
             imp.import_batch(self.config,self.packet,self.result,lambda:copy.deepcopy(self.upstream),apply=True,backup=racing)
         self.assert_clean()
@@ -199,9 +199,9 @@ INSERT INTO kaggle_imports VALUES ('old-kaggle','old-item','old-hash',1);
 
     def test_own_lane_claim_is_checked_when_peer_list_omits_own(self):
         other=self.root/'other-lane';other.mkdir();c=sqlite3.connect(other/'batches.sqlite3')
-        c.executescript('CREATE TABLE batches(id TEXT,state TEXT); CREATE TABLE batch_claims(batch_id TEXT,entry_id INTEGER);');c.commit();c.close()
+        c.executescript('CREATE TABLE batches ( id TEXT PRIMARY KEY, manifest_hash TEXT NOT NULL, state TEXT NOT NULL, remote_status TEXT, error TEXT, updated REAL NOT NULL); CREATE TABLE batch_claims (batch_id TEXT NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(batch_id,entry_id));');c.commit();c.close()
         self.config['peer_state_roots']=[str(other)]
-        c=sqlite3.connect(self.peer/'batches.sqlite3');c.execute("INSERT INTO batches VALUES ('own-unknown','submit_unknown')");c.execute("INSERT INTO batch_claims VALUES ('own-unknown',2)");c.commit();c.close()
+        c=sqlite3.connect(self.peer/'batches.sqlite3');c.execute("INSERT INTO batches VALUES ('own-unknown','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','submit_unknown',NULL,NULL,0)");c.execute("INSERT INTO batch_claims VALUES ('own-unknown',2)");c.commit();c.close()
         with self.assertRaisesRegex(ValueError,'entry_claimed_or_leased'):self.run_import(apply=True)
         self.assert_clean()
 

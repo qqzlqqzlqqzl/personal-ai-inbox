@@ -1,4 +1,8 @@
 """Refresh a bounded slice of X feeds so Miniflux usually reads local cache."""
+
+if __name__ == '__main__':
+    import argparse
+    argparse.ArgumentParser(allow_abbrev=False, description='Refresh one bounded slice of configured X feeds.').parse_args()
 import json, time, urllib.request
 from pathlib import Path
 

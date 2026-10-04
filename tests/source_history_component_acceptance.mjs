@@ -1,8 +1,9 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Lifecycle QA without live services. Requires the pinned reader's dependencies
 // plus jsdom: npm install --prefix runtime/history-test-tools --ignore-scripts jsdom@26.1.0
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {mkdtemp, rm} from 'node:fs/promises'
+import {mkdtemp} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import test from 'node:test'
@@ -75,4 +76,4 @@ await test('history expansion, repeated requests, error recovery and close/remou
   await act(async () => root.unmount())
   dom.window.close()
 })
-await rm(directory,{recursive:true,force:true})
+await retainTestDirectory(directory)

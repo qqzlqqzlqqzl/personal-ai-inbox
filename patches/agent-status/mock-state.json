@@ -1,0 +1,18 @@
+{
+  "sample": {
+    "schema_version": 1,
+    "sequence": 1,
+    "observed_at": "2026-10-02T04:10:31Z",
+    "tasks": [
+      {"name": "模拟任务 A", "state": "running", "model": "gpt-6-astra"},
+      {"name": "模拟任务 B", "state": "waiting", "model": "gpt-6-astra"}
+    ],
+    "statistics": {"total": 2, "capacity": 6, "active": 2, "waiting": 1, "completed": 0, "failed": 0, "unknown": 0}
+  },
+  "last_successful_pull_at": "2026-10-02T04:10:35Z",
+  "last_attempt_at": "2026-10-02T04:10:35Z",
+  "pull_status": "ok",
+  "freshness": "stale",
+  "stale_after_seconds": 1800,
+  "target_interval_seconds": 600
+}

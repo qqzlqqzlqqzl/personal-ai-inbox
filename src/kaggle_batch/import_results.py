@@ -9,18 +9,21 @@ import json
 from pathlib import Path
 import sqlite3
 import time
+from work_admission import check
 
-def import_validated(database, manifest, validation, upstream_unchanged):
+def import_validated(database, manifest, validation, upstream_unchanged, *,admission=None):
     if manifest.get('diagnostic',{}).get('must_not_import'):
         raise ValueError('Diagnostic batch cannot be imported')
     if validation['batch_id']!=manifest['batch_id'] or validation['manifest_hash']!=manifest['manifest_hash']:
         raise ValueError('Validation belongs to another batch')
     inputs={item['id']:item for item in manifest['items']}
     model=manifest['model']['filename']+'@'+manifest['model']['model_revision'][:12]
+    check(admission)
     db=sqlite3.connect(Path(database).resolve().as_uri()+'?mode=rw',uri=True,timeout=15)
     db.row_factory=sqlite3.Row
     outcome=[]
     try:
+        check(admission)
         db.execute('''CREATE TABLE IF NOT EXISTS kaggle_imports (
             batch_id TEXT NOT NULL,item_id TEXT NOT NULL,input_hash TEXT NOT NULL,
             imported_at REAL NOT NULL,PRIMARY KEY(batch_id,item_id))''')
@@ -35,6 +38,7 @@ def import_validated(database, manifest, validation, upstream_unchanged):
             refs=item['source_refs']
             if checked['input_hash']!=item['input_hash']:
                 raise ValueError('Validated input version mismatch')
+            check(admission)
             with db:
                 db.execute('BEGIN IMMEDIATE')
                 prior=db.execute('SELECT input_hash FROM kaggle_imports WHERE batch_id=? AND item_id=?',

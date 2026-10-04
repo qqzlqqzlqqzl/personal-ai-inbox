@@ -1,7 +1,8 @@
+import { retainTestDirectory } from './retain_test_directory.mjs'
 // Actual provider/list/load-more/status lifecycle, frozen clock and synthetic transport.
 import assert from "node:assert/strict";
 import {createRequire} from "node:module";
-import {mkdtemp,rm} from "node:fs/promises";
+import {mkdtemp} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 const web=new URL("../upstream/reactflux/",import.meta.url).pathname;
@@ -117,5 +118,5 @@ try{
  assert.equal(app.dataState.get().unreadTodayCount,5);
  console.log("PASS real provider gate, midnight/resume, stale initial/load-more/zone/account responses, optimistic Today badges");
 }finally{
- await React.act(async()=>root.unmount());dom.window.close();globalThis.Date=NativeDate;await rm(directory,{recursive:true,force:true});
+ await React.act(async()=>root.unmount());dom.window.close();globalThis.Date=NativeDate;await retainTestDirectory(directory);
 }

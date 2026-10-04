@@ -58,14 +58,25 @@ patch("src/apis/entries.js", '    status: "unread",\n  })\n\n  return updateEntr
 patch("src/apis/entries.js", '    await updateEntries(entryIds.slice(batchStart, batchStart + ENTRY_UPDATE_BATCH_SIZE), updates)',
       '    assertReadingCalendarCurrent(calendar)\n    await updateEntries(entryIds.slice(batchStart, batchStart + ENTRY_UPDATE_BATCH_SIZE), updates)')
 
-patch("src/utils/article-list-request-key.js", 'const articleListContentKeyFields = [',
-      'import { getReadingCalendarSnapshot } from "@/store/readingCalendarState"\n\nconst articleListContentKeyFields = [')
-patch("src/utils/article-list-request-key.js", 'return JSON.stringify({ ...contentKey, ...settingsKey })',
-      'return JSON.stringify({ ...contentKey, ...settingsKey, readingCalendar: getReadingCalendarSnapshot().key })')
+# Storage events update persistent AI state without invoking toolbar invalidation.
+# Bind both the live subscription and request identity so old in-flight results
+# cannot become valid again merely because the calendar stayed unchanged.
+normalize("src/utils/article-list-request-key.js", [
+      'import { getReadingCalendarSnapshot } from "@/store/readingCalendarState"\n\nconst articleListContentKeyFields = [',
+      'const articleListContentKeyFields = ['],
+      'import { getReadingCalendarSnapshot } from "@/store/readingCalendarState"\nimport { getAiQuery } from "@/store/aiState"\n\nconst articleListContentKeyFields = [')
+normalize("src/utils/article-list-request-key.js", [
+      'return JSON.stringify({ ...contentKey, ...settingsKey, readingCalendar: getReadingCalendarSnapshot().key })',
+      'return JSON.stringify({ ...contentKey, ...settingsKey })'],
+      'return JSON.stringify({ ...contentKey, ...settingsKey, readingCalendar: getReadingCalendarSnapshot().key, aiQuery: getAiQuery() })')
 patch("src/hooks/useArticleList.js", 'import { aiFilterEnabled } from "@/store/aiState"',
       'import { aiFilterEnabled } from "@/store/aiState"\nimport { readingCalendarKeyState, getReadingCalendarSnapshot } from "@/store/readingCalendarState"')
-patch("src/hooks/useArticleList.js", '  const contentSnapshot = useStore(contentState, {',
-      '  useStore(readingCalendarKeyState)\n  const contentSnapshot = useStore(contentState, {')
+patch("src/hooks/useArticleList.js", 'const handleResponses = (response) => {',
+      'import { aiState } from "@/store/aiState"\n\nconst handleResponses = (response) => {')
+normalize("src/hooks/useArticleList.js", [
+      '  useStore(readingCalendarKeyState)\n  const contentSnapshot = useStore(contentState, {',
+      '  const contentSnapshot = useStore(contentState, {'],
+      '  useStore(readingCalendarKeyState)\n  useStore(aiState, { keys: ["mode", "auxiliary", "minimum", "sort", "direction"] })\n  const contentSnapshot = useStore(contentState, {')
 patch("src/hooks/useArticleList.js", '  const fetchArticleList = useCallback(async () => {',
       '  const fetchArticleList = useCallback(async () => {\n    if (!getReadingCalendarSnapshot().ready) return')
 patch("src/hooks/useLoadMore.js", 'import { getTimestamp } from "@/utils/date"',

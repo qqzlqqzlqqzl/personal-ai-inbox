@@ -104,13 +104,18 @@ export default function AiPanel({ onClose, returnFocusRef }) {
   const startBatch = () => run(async()=>{
     if(!pendingBatch?.length)return
     const items=[...pendingBatch];stopBatch.current=false;setBatchProgress('正在添加；停止只影响尚未发送的项。')
-    const results=await subscriptionQueue(items,{
+    let results
+    try { results=await subscriptionQueue(items,{
       getCategories:()=>apiClient.get('/v1/categories',{retry:0,timeout:15000}),getFeeds:()=>apiClient.get('/v1/feeds',{retry:0,timeout:15000}),
       createCategory:title=>apiClient.post('/v1/categories',{title},{retry:0,timeout:15000}),
       subscribe:(source,category)=>apiClient.post('/v1/ai/subscribe',{url:source.url,category_id:category.id,crawler:false},{retry:0,timeout:15000}),
       stopped:()=>stopBatch.current||!alive.current,
       progress:rows=>{if(alive.current){setBatchResults(rows);setBatchProgress(`已处理 ${rows.length} / ${items.length}；已提交的操作不会撤回。`)}}
-    })
+    }) } catch (error) {
+      // Category/feed preflight happens before the queue can submit any item.
+      if(alive.current)setBatchProgress('添加前检查失败；未提交订阅。可重试或取消。')
+      throw error
+    }
     if(!alive.current)return
     setBatchResults(results);setPendingBatch(null);setBatchProgress(`本轮结束：成功 ${results.filter(r=>r.state==='success').length}，已存在 ${results.filter(r=>r.state==='existing').length}，失败 ${results.filter(r=>r.state==='failed').length}，未发送 ${items.length-results.length}。`)
     await refreshFeedData();invalidateArticleList();await load(['catalog'],{replace:true})
@@ -122,7 +127,8 @@ export default function AiPanel({ onClose, returnFocusRef }) {
   const analysisCounts = status?.counts || {}
   const coverage = status?.coverage || {}
   const translationCounts = status?.translations?.counts || {}
-  const articleTotal = coverage.reader_total || coverage.total_articles || Object.values(analysisCounts).reduce((a,b)=>a+b,0)
+  const articleTotal = coverage.reader_total ?? coverage.total_articles ?? Object.values(analysisCounts).reduce((a,b)=>a+b,0)
+  const analysisDone = coverage.ai_done ?? analysisCounts.done ?? 0
   const translated = (translationCounts.done || 0) + (translationCounts.native || 0)
   const translationTotal = Object.values(translationCounts).reduce((a,b)=>a+b,0)
   const queued = (analysisCounts.pending || 0) + (analysisCounts.waiting_model || 0) + (analysisCounts.budget_paused || 0)
@@ -175,7 +181,7 @@ export default function AiPanel({ onClose, returnFocusRef }) {
       <div className="ai-dashboard-grid">
         <div><strong>{articleTotal}</strong><span>已收录文章</span><small>当前信息箱规模</small></div>
         <div><strong>{coverage.source_count || 0}</strong><span>订阅来源</span><small>当前启用目录</small></div>
-        <div><strong>{coverage.ai_done || analysisCounts.done || 0}</strong><span>AI 已完成</span><small>{percentage(coverage.ai_done || analysisCounts.done, articleTotal)}% 覆盖</small></div>
+        <div><strong>{analysisDone}</strong><span>AI 已完成</span><small>{percentage(analysisDone, articleTotal)}% 覆盖</small></div>
         <div><strong>{coverage.substantial_source_text || 0}</strong><span>长正文已抓取</span><small>{percentage(coverage.substantial_source_text, articleTotal)}% 覆盖</small></div>
         <div><strong>{translated}</strong><span>中文卡片可用</span><small>{percentage(translated, translationTotal || articleTotal)}% 覆盖</small></div>
         <div><strong>{queued}</strong><span>队列中</span><small>等待抓取 / 模型</small></div>
@@ -235,7 +241,7 @@ export default function AiPanel({ onClose, returnFocusRef }) {
       <div className="review-source-filters"><input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} /><label>分类<select aria-label="目录分类" value={sourceCategory} onChange={e=>setSourceCategory(e.target.value)}><option value="">全部分类</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>状态<select aria-label="目录订阅状态" value={sourceState} onChange={e=>setSourceState(e.target.value)}><option value="all">全部</option><option value="subscribed">已订阅</option><option value="addable">尚未订阅且可添加</option><option value="attention">需要关注</option></select></label><button onClick={resetSourceFilters}>重置目录筛选</button></div>
       <p role="status">匹配 {filtered.length} / {sources.length} 个来源 · 本次显示 {Math.min(sourceLimit,filtered.length)} 个</p>
       <button disabled={busy||!filtered.some(s=>s.status==="ok"&&!s.subscribed&&s.analysis_supported!==false)} onClick={()=>add(filtered.filter(s=>s.status==="ok" && !s.subscribed && s.analysis_supported !== false))}>添加当前可用来源</button>
-      {pendingBatch&&<section className="review-confirm" aria-label="订阅确认"><h3>将添加 {pendingBatch.length} 个来源</h3><p>确认前不会创建订阅。已订阅来源会跳过；停止不能撤回已提交的项目。</p><ul>{pendingBatch.slice(0,12).map(s=><li key={s.url}>{s.name||s.url}</li>)}</ul>{pendingBatch.length>12&&<p>另 {pendingBatch.length-12} 项</p>}<button disabled={busy} onClick={startBatch}>确认添加来源</button><button disabled={busy} onClick={()=>setPendingBatch(null)}>取消添加</button>{busy&&<button onClick={()=>{stopBatch.current=true;setBatchProgress('将停止后续项，等待已发出的请求结束。')}}>停止剩余添加</button>}</section>}
+      {pendingBatch&&<section className="review-confirm" aria-label="订阅确认"><h3>将添加 {pendingBatch.length} 个来源</h3><p>确认前不会创建订阅。已订阅来源会跳过；停止不能撤回已提交的项目。</p><ul>{pendingBatch.slice(0,12).map(s=><li key={s.url}>{s.name||s.url}</li>)}</ul>{pendingBatch.length>12&&<p>另 {pendingBatch.length-12} 项</p>}<button disabled={busy} onClick={startBatch}>确认添加来源</button><button disabled={busy} onClick={()=>{setPendingBatch(null);setBatchProgress('已取消添加；未提交订阅。')}}>取消添加</button>{busy&&<button onClick={()=>{stopBatch.current=true;setBatchProgress('将停止后续项，等待已发出的请求结束。')}}>停止剩余添加</button>}</section>}
       {batchProgress&&<p role="status">{batchProgress}</p>}
       {batchResults.length>0&&<details open className="review-batch-results"><summary>本轮添加结果</summary>{batchResults.map((r,i)=><p key={i}>{r.source.name||r.source.url}：{({success:'添加成功',existing:'已存在，未重复添加',failed:'添加失败'})[r.state]} {r.error||''}</p>)}{batchResults.some(r=>r.state==='failed')&&<button disabled={busy} onClick={()=>add(batchResults.filter(r=>r.state==='failed').map(r=>r.source))}>仅重试失败来源</button>}</details>}
       <p className="ai-notice">X 已使用本机 x-cli guest Provider，无需登录、Cookie 或 API Key；上游限流时优先读取本地缓存。Instagram/Telegram 等其他社交源仍按各自适配器状态处理。</p>

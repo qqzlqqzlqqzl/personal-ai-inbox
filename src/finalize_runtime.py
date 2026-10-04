@@ -1,5 +1,9 @@
 """Remove the old news stack runtime dependency and install project-only backup timer."""
 
+if __name__ == '__main__':
+    import argparse
+    argparse.ArgumentParser(allow_abbrev=False, description='Finalize the project runtime and install its services.').parse_args()
+
 from pathlib import Path
 import hashlib, json, os, shutil, subprocess
 from initialize_secrets import ROOT, ENV

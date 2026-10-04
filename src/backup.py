@@ -1,5 +1,12 @@
 """Coordinated private backups; isolated restore checks never overwrite production."""
 
+# Parse before application imports, locks, backup creation or service calls.
+if __name__ == '__main__':
+    import argparse
+    _parser = argparse.ArgumentParser(allow_abbrev=False, description='Create a coordinated private backup or verify the latest one.')
+    _parser.add_argument('--verify-latest', action='store_true')
+    _parser.parse_args()
+
 import json, os, sqlite3, subprocess, time, hashlib, secrets, shutil, re
 from datetime import datetime, timezone
 from pathlib import Path

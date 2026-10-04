@@ -178,7 +178,7 @@ def test_drain_retires_without_counting_import_or_starting_new_job(tmp_path):
         if action=='prepare':return {'existing_batch':'b'}
         state['value']='retired'
         return {'state':'retired','id':'b'}
-    result=drain('config',{'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},c,
+    result=drain('config',{'schedule_enabled':True,'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},c,
         call=bridge,sleep=lambda _:None,clock=lambda:0)
     assert calls==['prepare','advance']
     assert result['state']=='retired_missing_remote' and result['completed_batches']==0
@@ -205,7 +205,7 @@ def test_retired_manifest_block_stops_drain_without_advance(tmp_path):
     def bridge(path,action,*args,**kwargs):
         calls.append(action)
         return {'state':'retired_manifest_requires_new_attempt','batch_id':'b','recovery_required':True}
-    result=drain('config',{'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},c,
+    result=drain('config',{'schedule_enabled':True,'batch_limit':20,'drain_queue':True,'cycle_timeout_seconds':60},c,
         call=bridge,sleep=lambda _:None,clock=lambda:0)
     assert calls==['prepare']
     assert result['state']=='retired_manifest_requires_new_attempt'
@@ -217,8 +217,8 @@ def test_scheduler_does_not_reextract_blocked_manifest_each_tick(uncertain,monke
     c,batch,_calls,_manifest=uncertain
     (c.root/'cycle-status.json').write_text(json.dumps({'state':'retired_missing_remote','recovery_required':True}))
     monkeypatch.setattr(lane_scheduler,'KEYS',('primary',))
-    monkeypatch.setattr(lane_scheduler,'lane_config',lambda key:{'state_root':str(c.root)})
-    monkeypatch.setattr(lane_scheduler,'query_config',lambda cfg:{'allowed':True,'state':'available'})
+    monkeypatch.setattr(lane_scheduler,'lane_config',lambda key:{'schedule_enabled':True,'state_root':str(c.root)})
+    monkeypatch.setattr(lane_scheduler,'query_config',lambda cfg,**kw:{'allowed':True,'state':'available'})
     lanes=lane_scheduler.snapshot_lanes(2000,{'primary':'inactive'})
     assert lanes['primary']['ready'] is False
     assert lanes['primary']['outstanding']['id']==batch

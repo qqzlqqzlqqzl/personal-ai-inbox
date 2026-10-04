@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-CODE = 'a545a4088414a192bacd8745a7021298ee73a69a'
+CODE = '8556df056561bd43c275e4b507d2749cb7c5d6fa'
 BINARY_SHA = '7b65ea945c29fba5b6a9fcca89984c806e70030eaf1603b516ba1e3487c03a6c'
 IMAGE = 'postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f'
 DSN = 'postgres://issue73:issue73-disposable-only@127.0.0.1:55473/issue73_metadata_test?sslmode=disable'

@@ -9,6 +9,7 @@ import time
 import httpx
 from bs4 import BeautifulSoup
 import core
+from work_admission import check,options
 
 VERSION = 'zh-cards-v1'
 BATCH_SIZE = 6
@@ -59,7 +60,7 @@ def source_card(entry, model):
     fingerprint = core.hash_text(json.dumps([VERSION,model,title,excerpt],ensure_ascii=False))
     return title, excerpt, kind, fingerprint
 
-def _enqueue_card(db, entry, source, model, now, priority):
+def _enqueue_card(db, entry, source, model, now, priority, *,admission=None):
     title, excerpt, kind, digest = source
 
     def current():
@@ -78,6 +79,7 @@ def _enqueue_card(db, entry, source, model, now, priority):
     # Only a real change enters a writer transaction. Recheck after acquiring it:
     # concurrent requests may have completed/promoted this same card meanwhile.
     if not db.in_transaction:
+        check(admission)
         db.execute('BEGIN IMMEDIATE')
         old, same, version = current()
     if same and not version:
@@ -101,19 +103,22 @@ def _enqueue_card(db, entry, source, model, now, priority):
       'native' if native else 'pending',priority,model,now,title if native else None,excerpt[:240] if native else None))
 
 
-def enqueue(entries, priority=0):
+def enqueue(entries, priority=0, *,admission=None):
+    check(admission)
     from prepared_content import apply as apply_prepared
-    entries = [apply_prepared(e) for e in entries
+    entries = [apply_prepared(e,**options(admission)) for e in entries
                if 'id' in e and 'user_id' in e and not e.get('content_deferred')]
     if not entries:
         return
+    check(admission)
     model = core.settings()['model']
     # Parse before opening the transaction, including applicable prepared content.
     sources = [(entry, source_card(entry, model)) for entry in entries]
     now = time.time()
+    check(admission)
     with core.connect() as db:
         for entry, source in sources:
-            _enqueue_card(db, entry, source, model, now, priority)
+            _enqueue_card(db, entry, source, model, now, priority,**options(admission))
 
 def attach(entry, user_id):
     with core.connect() as db:

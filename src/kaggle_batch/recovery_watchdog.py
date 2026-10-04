@@ -1,4 +1,8 @@
 """Single systemd entrypoint; lane_scheduler owns all dispatch/recovery policy."""
+
+if __name__ == '__main__':
+    import argparse
+    argparse.ArgumentParser(allow_abbrev=False, description='Run one recovery watchdog tick.').parse_args()
 import json
 import httpx
 

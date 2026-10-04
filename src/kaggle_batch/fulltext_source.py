@@ -3,6 +3,7 @@
 Rules were checked against saved publisher HTML, not RSS excerpts. They select
 the complete body container; they do not expand links to different articles.
 """
+from work_admission import check,options,http_client,AdmissionStopped
 import asyncio
 import hashlib
 import os
@@ -126,13 +127,13 @@ def _canonical_url(url):
     return (parsed.scheme+'://'+parsed.netloc+parsed.path).rstrip('/')
 
 
-async def fetch_netflix_feed(url):
+async def fetch_netflix_feed(url, *,admission=None):
     import httpx
     global _NETFLIX_FEED_LOADED
     target=_canonical_url(url)
     proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None
     if not _NETFLIX_FEED_LOADED:
-        async with httpx.AsyncClient(timeout=30,trust_env=False,proxy=proxy,
+        async with http_client(admission,timeout=30,trust_env=False,proxy=proxy,
                 headers={'User-Agent':'PersonalAIInbox/1.0'}) as client:
             response=await client.get('https://netflixtechblog.com/feed')
         if response.status_code!=200:
@@ -156,7 +157,7 @@ async def fetch_netflix_feed(url):
     match=re.search(r'-([0-9a-f]{12})(?:$|[/?#])',urlsplit(url).path)
     if not match:raise FulltextUnavailable('feed_article_not_found')
     medium='https://medium.com/p/'+match.group(1)
-    async with httpx.AsyncClient(timeout=30,trust_env=False,proxy=proxy) as client:
+    async with http_client(admission,timeout=30,trust_env=False,proxy=proxy) as client:
         response=await client.get('https://r.jina.ai/'+medium,headers={'x-cache-tolerance':'31536000000'})
     if response.status_code!=200:raise FulltextUnavailable('reader_http_'+str(response.status_code))
     raw_reader=response.text
@@ -173,11 +174,11 @@ async def fetch_netflix_feed(url):
                 'body_sha256':hashlib.sha256(text.encode()).hexdigest()}}
 
 
-async def fetch_adafruit_feed(url):
+async def fetch_adafruit_feed(url, *,admission=None):
     import httpx
     target=_canonical_url(url)
     proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None
-    async with httpx.AsyncClient(timeout=30,trust_env=False,proxy=proxy,
+    async with http_client(admission,timeout=30,trust_env=False,proxy=proxy,
             headers={'User-Agent':'PersonalAIInbox/1.0'}) as client:
         for page in range(1,9):
             if target in _ADAFRUIT_FEED_CACHE:
@@ -314,26 +315,32 @@ def _browser_executable():
     return str(max(candidates,key=lambda p:p.stat().st_mtime))
 
 
-async def _browser_slot(timeout=80):
+async def _browser_slot(timeout=80, *,admission=None):
     import fcntl
+    check(admission)
     folder=Path('/home/ubuntu/ai-news/state/kaggle-month-dispatch')
     folder.mkdir(parents=True,exist_ok=True)
     stream=(folder/'browser-fetch.lock').open('a')
     deadline=time.monotonic()+timeout
-    while True:
-        try:
-            fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            return stream,fcntl
-        except BlockingIOError:
-            if time.monotonic()>=deadline:
-                stream.close()
-                raise FulltextUnavailable('browser_slot_timeout')
-            await asyncio.sleep(.25)
-
-
-async def _fetch_browser_locked(url,selector,remove,repeated):
     try:
-        from playwright.async_api import async_playwright,TimeoutError as PlaywrightTimeoutError
+        while True:
+            check(admission)
+            try:
+                fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                return stream,fcntl
+            except BlockingIOError:
+                if time.monotonic()>=deadline:
+                    stream.close()
+                    raise FulltextUnavailable('browser_slot_timeout')
+                await asyncio.sleep(.25)
+    except BaseException:
+        stream.close()
+        raise
+
+
+async def _fetch_browser_locked(url,selector,remove,repeated, *,admission=None):
+    try:
+        from playwright.async_api import async_playwright,TimeoutError as PlaywrightTimeoutError,Error as PlaywrightError
     except ImportError as exc:
         raise FulltextUnavailable('browser_runtime_missing') from exc
     css=selector.split(':',1)[1]
@@ -344,10 +351,41 @@ async def _fetch_browser_locked(url,selector,remove,repeated):
         launch['proxy']={'server':proxy}
     try:
         async with async_playwright() as playwright:
+            check(admission)
             browser=await playwright.chromium.launch(**launch)
             try:
-                page=await browser.new_page(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36')
-                response=await page.goto(url,wait_until='domcontentloaded',timeout=45000)
+                page=await browser.new_page(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36',
+                    **({'service_workers':'block'} if admission is not None else {}))
+                stopped=[]
+                if admission is not None:
+                    async def admit_request(route):
+                        try:
+                            check(admission)
+                            # Playwright route callbacks omit automatic redirect
+                            # hops. Fetch one hop only; never hand a redirect to
+                            # the browser where it could bypass admission.
+                            response=await route.fetch(max_redirects=0,max_retries=0)
+                            check(admission)
+                            if 300<=response.status<400:
+                                raise FulltextUnavailable('browser_redirect_not_admitted')
+                            await route.fulfill(response=response)
+                        except (AdmissionStopped,FulltextUnavailable) as exc:
+                            stopped.append(exc)
+                            await route.abort()
+                        except PlaywrightError:
+                            stopped.append(FulltextUnavailable('browser_request_failed'))
+                            await route.abort()
+                    # Context routing also covers the first request of a popup.
+                    await page.context.route('**/*',admit_request)
+                check(admission)
+                try:
+                    response=await page.goto(url,wait_until='domcontentloaded',timeout=45000)
+                except Exception:
+                    if stopped:raise stopped[0]
+                    check(admission)
+                    raise
+                if stopped:raise stopped[0]
+                check(admission)
                 if response is not None and response.status>=400:
                     title=(await page.title()).lower()
                     if 'just a moment' in title or 'access denied' in title:
@@ -366,6 +404,8 @@ async def _fetch_browser_locked(url,selector,remove,repeated):
                 final_url=page.url
                 if urlsplit(final_url).hostname!=urlsplit(url).hostname:
                     raise FulltextUnavailable('browser_redirected_to_different_site')
+                if stopped:raise stopped[0]
+                check(admission)
                 raw=await page.content()
                 if len(raw.encode())>8*1024*1024:
                     raise FulltextUnavailable('browser_page_too_large')
@@ -378,19 +418,20 @@ async def _fetch_browser_locked(url,selector,remove,repeated):
     except FulltextUnavailable:
         raise
     except (OSError,PlaywrightTimeoutError) as exc:
+        check(admission)
         raise FulltextUnavailable('browser_fetch_'+type(exc).__name__) from exc
 
 
-async def fetch_browser(url,selector,remove,repeated):
-    slot,fcntl=await _browser_slot()
+async def fetch_browser(url,selector,remove,repeated, *,admission=None):
+    slot,fcntl=await _browser_slot(**options(admission))
     try:
-        return await _fetch_browser_locked(url,selector,remove,repeated)
+        return await _fetch_browser_locked(url,selector,remove,repeated,**options(admission))
     finally:
         try:fcntl.flock(slot,fcntl.LOCK_UN)
         finally:slot.close()
 
 
-async def fetch_reader(url):
+async def fetch_reader(url, *,admission=None):
     import httpx
     parsed=urlsplit(url);host=parsed.hostname
     candidates=[url]
@@ -409,7 +450,7 @@ async def fetch_reader(url):
     if proxy:routes.append(None)  # A local proxy outage must not strand a public reader request.
     for route in routes:
         try:
-            async with httpx.AsyncClient(timeout=30,trust_env=False,proxy=route) as client:
+            async with http_client(admission,timeout=30,trust_env=False,proxy=route) as client:
                 for candidate in candidates:
                     try:
                         response=await client.get('https://r.jina.ai/'+candidate,headers=headers)
@@ -428,22 +469,22 @@ async def fetch_reader(url):
     raise last or FulltextUnavailable('reader_fetch_failed')
 
 
-async def fetch(url):
+async def fetch(url, *,admission=None):
     """Bounded source fetch using only reviewed per-site transports."""
     import httpx
     selector,remove,repeated=rule_for(url)
     async def request():
         if selector=='@feed:adafruit':
-            return await fetch_adafruit_feed(url)
+            return await fetch_adafruit_feed(url,**options(admission))
         if selector=='@feed:netflix':
-            return await fetch_netflix_feed(url)
+            return await fetch_netflix_feed(url,**options(admission))
         if selector.startswith('@feed:'):
             raise FulltextUnavailable('feed_transport_not_implemented')
         if selector.startswith('@browser:'):
-            return await fetch_browser(url,selector,remove,repeated)
+            return await fetch_browser(url,selector,remove,repeated,**options(admission))
         if selector.startswith('@reader'):
-            return await fetch_reader(url)
-        async with httpx.AsyncClient(timeout=25, trust_env=False, follow_redirects=False,
+            return await fetch_reader(url,**options(admission))
+        async with http_client(admission,timeout=25, trust_env=False, follow_redirects=False,
                 proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None,
                 headers={'User-Agent': 'Mozilla/5.0 (compatible; PersonalAIInbox/1.0)'}) as client:
             target = url
@@ -457,7 +498,7 @@ async def fetch(url):
                             raise FulltextUnavailable('original_redirected_to_different_site')
                         next_selector,_,_=rule_for(next_target)
                         if next_selector.startswith('@'):
-                            result=await fetch(next_target)
+                            result=await fetch(next_target,**options(admission))
                             result['receipt']['requested_url']=url
                             result['receipt']['redirected_url']=next_target
                             return result
