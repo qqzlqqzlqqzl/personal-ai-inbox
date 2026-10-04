@@ -322,7 +322,7 @@ class WorkflowContracts(unittest.TestCase):
             if 'run: ' in line:
                 self.assertIn('run: timeout --signal=TERM --kill-after=10s ', line)
         self.assertIn("python-version: '3.12.14'", self.workflow)
-        self.assertIn('runs-on: ubuntu-24.04', self.workflow)
+        self.assertIn('runs-on: ubuntu-22.04', self.workflow)
         self.assertNotIn('--no-sandbox', self.workflow)
         self.assertNotIn('CHROMIUM_EXECUTABLE', self.workflow)
 
@@ -361,6 +361,35 @@ class WorkflowContracts(unittest.TestCase):
         self.assertIn('Measure five cold and warm pairs', users[1])
         for block in users:
             self.assertIn('        env:\n          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium\n', block)
+
+
+class MeasurementEnvironmentContracts(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix='environment-', dir=RETAINED))
+        (self.root / 'evidence').mkdir(mode=0o700)
+
+    def test_only_exact_ubuntu_2204_is_accepted_for_measurement(self):
+        versions = dict(line.split('==') for line in (ci.ROOT / 'requirements.dev.lock.txt').read_text().splitlines()
+                        if line and not line.startswith('#'))
+        with patch.object(ci.sys, 'version_info', (3, 12, 14)), \
+                patch.object(ci.platform, 'freedesktop_os_release', return_value={'ID': 'ubuntu', 'VERSION_ID': '22.04'}), \
+                patch.object(ci.importlib.metadata, 'version', side_effect=lambda name: versions[name]):
+            ci.identity(self.root)
+        self.assertEqual(json.loads((self.root / 'evidence/toolchain.json').read_text())['os']['VERSION_ID'], '22.04')
+
+    def test_other_release_or_distribution_fails_before_toolchain_receipt(self):
+        for release in ({'ID': 'ubuntu', 'VERSION_ID': '24.04'}, {'ID': 'ubuntu', 'VERSION_ID': '22.10'},
+                        {'ID': 'linuxmint', 'VERSION_ID': '22.04'}, {'ID': 'debian', 'VERSION_ID': '12'}, {}):
+            with self.subTest(release=release), patch.object(ci.sys, 'version_info', (3, 12, 14)), \
+                    patch.object(ci.platform, 'freedesktop_os_release', return_value=release):
+                with self.assertRaisesRegex(ValueError, 'expected Ubuntu 22.04'):
+                    ci.identity(self.root)
+        self.assertFalse((self.root / 'evidence/toolchain.json').exists())
+
+    def test_standard_reader_runner_is_still_ubuntu_2404(self):
+        workflow = (ci.ROOT / '.github/workflows/reader-regression.yml').read_text()
+        self.assertIn('runs-on: ubuntu-24.04', workflow)
+        self.assertNotIn('runs-on: ubuntu-22.04', workflow)
 
 
 if __name__ == '__main__':

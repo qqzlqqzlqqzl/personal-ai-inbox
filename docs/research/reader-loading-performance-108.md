@@ -207,7 +207,7 @@ warm re-selection and publishes timings directly from each verified proof.
 
 `.github/workflows/reader-loading-performance.yml` is an executable **baseline**
 measurement candidate for the publisher's reviewed PR. It starts three independent
-Ubuntu 24.04 jobs (`keyboard`, `touch`, `weak-network`); each runs five fresh-context
+Ubuntu 22.04 jobs (`keyboard`, `touch`, `weak-network`); each runs five fresh-context
 cold / same-context warm pairs. Weak network uses the existing keyboard scenario
 with 150 ms latency, 250000 bytes/s download and 125000 bytes/s upload. It does not
 compare a product fix or substitute for the full Reader regression workflow.
@@ -289,3 +289,37 @@ then verify the resulting exact HEAD/tree and run the full workflow. This branch
 alone is not a complete product acceptance candidate and its full identity gate
 will reject the absent two inputs. New Hosted browser measurements and the final
 combined-product acceptance remain **NOT RUN** until real runs produce receipts.
+
+The first Hosted run `37202844449` at exact `154862c8` used Ubuntu 24.04. All three
+jobs downloaded and verified the fixed build, Chromium and CJK font successfully,
+but Chromium reported `No usable sandbox!` during launch. Each retained result has
+zero pairs, zero fixture requests and no completed browser boundary check. These
+are environment failures, not loading measurements. The log's user-namespace /
+AppArmor suggestion does not establish the runner's actual kernel policy values.
+
+Only this measurement job now selects Ubuntu 22.04; its exact OS admission guard
+rejects other releases. The ordinary Reader and paired jobs are unchanged. Before
+comparing a future candidate, run both baseline and candidate on this same 22.04
+environment and verify both toolchain receipts, including the fresh signed-index
+font identity. Do not compare the failed 24.04 attempts with 22.04 timing samples.
+Sandboxing, browser/toolchain pins, exact artifact/manifest checks, HTTP-cache proof,
+external-origin rejection and timeouts remain unchanged. No AppArmor/sysctl policy,
+setuid binary, permission, or sandbox-disable workaround is introduced.
+
+Official support was checked in [Playwright's Python system requirements](https://playwright.dev/python/docs/intro#system-requirements),
+the exact [v1.63.0 platform mapping](https://github.com/microsoft/playwright/blob/v1.63.0/packages/utils/hostPlatform.ts),
+[browser descriptors](https://github.com/microsoft/playwright/blob/v1.63.0/packages/playwright-core/browsers.json),
+and [download registry](https://github.com/microsoft/playwright/blob/v1.63.0/packages/playwright-core/src/server/registry/index.ts).
+The tag marks Ubuntu 22.04 as supported and maps its x64 Chromium to the same
+Chrome for Testing Linux archive as 24.04, with revision 1243 / version 153.0.8010.12.
+Support documentation is not evidence that this particular Hosted launch or the
+five-pair matrix has passed; new actual receipts remain required.
+
+This runner choice is temporary. The official runner image release
+[`ubuntu22/20260927.309`](https://github.com/actions/runner-images/releases/tag/ubuntu22%2F20260927.309)
+documents image 20260927.309.1, but `ubuntu-22.04` is a moving image label, not a
+pin to that image revision. GitHub's [retirement notice](https://github.com/actions/runner-images/issues/14254)
+states deprecation began September 17, 2026 and retirement is April 17, 2027.
+Record each actual runner image version from job logs. This workaround is not a
+long-term availability guarantee; any later runner migration requires a new
+reviewed baseline/candidate environment match with sandboxing retained.
