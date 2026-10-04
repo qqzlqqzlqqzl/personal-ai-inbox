@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import AiPanel from "./AiPanel"
 import { kaggleStatus } from "./kaggle-status"
 import NavigationPalette from "./NavigationPalette"
+import { COMPACT_READER_QUERY } from "./reader-media"
 
 import apiClient from "@/apis/ofetch"
 import { aiState } from "@/store/aiState"
@@ -14,7 +15,7 @@ import "./MobileReader.css"
 export default function AiToolbar({ source }) {
   const state = useStore(aiState)
   const [open, setOpen] = useState(false)
-  const [compact, setCompact] = useState(() => window.matchMedia?.("(max-width: 768px), (pointer: coarse) and (max-height: 500px)")?.matches ?? false)
+  const [compact, setCompact] = useState(() => window.matchMedia?.(COMPACT_READER_QUERY)?.matches ?? false)
   const [statusOpen, setStatusOpen] = useState(false)
   const statusDialog = useRef(null), statusButton = useRef(null), navigation = useRef(null)
   const closeStatus = (restoreFocus = true) => {
@@ -24,7 +25,7 @@ export default function AiToolbar({ source }) {
     if (wasOpen && restoreFocus && statusButton.current?.getClientRects().length) statusButton.current.focus({ preventScroll: true })
   }
   useEffect(() => {
-    const media = window.matchMedia?.("(max-width: 768px), (pointer: coarse) and (max-height: 500px)")
+    const media = window.matchMedia?.(COMPACT_READER_QUERY)
     if (!media) return
     const resize = () => {
       const restoreFocus = statusDialog.current?.open
@@ -207,7 +208,7 @@ export default function AiToolbar({ source }) {
         </div>
       </dialog>
     </> : <>{diagnostics}<button className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button></>}
-    <NavigationPalette onConsole={openConsole} launchRef={navigation} beforeLaunch={closeStatus} returnFocusRef={statusButton}
+    <NavigationPalette onConsole={openConsole} launchRef={navigation} beforeLaunch={closeStatus} returnFocusRef={statusButton} compact={compact}
       triggerClassName={compact ? "ai-navigation-hidden" : ""} />
     {open && <AiPanel onClose={() => setOpen(false)} returnFocusRef={statusButton} />}
   </div>

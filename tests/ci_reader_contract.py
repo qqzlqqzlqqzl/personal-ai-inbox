@@ -23,6 +23,7 @@ BROWSER_TESTS = (
     'reader_panel_transition_browser.py', 'mobile_reading_browser.py',
     'calendar_browser_acceptance.py', 'calendar_identity_browser.py',
     'dev_fixture_workspace_browser_acceptance.py',
+    'navigation_focus_transition_browser.py',
 )
 
 
