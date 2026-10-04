@@ -590,7 +590,11 @@ def boundary_check(browser, fixture):
         context.close();sentinel.shutdown();sentinel.server_close();thread.join(timeout=3)
 
 
-def main():
+def main(argv=None, *, pair_index=None):
+    # The A/B coordinator runs one complete unchanged pair at a time. The
+    # ordinary CLI still requires all five; a one-pair report cannot compare.
+    require(pair_index is None or type(pair_index) is int and 1<=pair_index<=5,
+            'invalid isolated A/B pair index')
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build',required=True);parser.add_argument('--manifest',required=True)
     parser.add_argument('--manifest-sha',required=True);parser.add_argument('--artifact-zip',required=True)
@@ -599,7 +603,7 @@ def main():
     parser.add_argument('--output-parent',required=True);parser.add_argument('--input',choices=['keyboard','touch'],default='keyboard')
     parser.add_argument('--weak-network',action='store_true')
     parser.add_argument('--transport-profile',choices=PROFILES,default=IDENTITY)
-    args=parser.parse_args()
+    args=parser.parse_args(argv)
     if sys.platform!='linux':
         print(json.dumps({'status':'NOT_RUN','error':'This entry requires Linux directory-FD/O_NOFOLLOW ownership guards; native Windows/macOS are unsupported.',
                           'platform':sys.platform,'browser_started':False,'output_created':False},ensure_ascii=False))
@@ -607,7 +611,7 @@ def main():
     parent=checked_directory(args.output_parent)
     require(not parent.is_relative_to(checked_directory(args.build)), 'output parent must be outside build')
     output=Path(tempfile.mkdtemp(prefix='reader-perf-',dir=parent))
-    report={'status':'FAILED','phase':args.phase,'pairs_requested':5,'pairs':[], 'production':False,
+    report={'status':'FAILED','phase':args.phase,'pairs_requested':5 if pair_index is None else 1,'pairs':[], 'production':False,
             'measurement_contract':MEASUREMENT_CONTRACT,'transport_profile':profile_identity(args.transport_profile),
             'warm_semantics':{'warm_click_to_body_ms':'same-page user reopen; no HTTP cache-hit claim',
                               'http_cache_page':'separate new document in the same cache context; strict six-request cache proof'},
@@ -644,7 +648,7 @@ def main():
         report['browser_version']=browser.version
         report['boundary']=boundary_check(browser,fixture)
         save_new(output/'boundary.json',report['boundary'])
-        for index in range(1,6):
+        for index in range(1,6) if pair_index is None else (pair_index,):
             report['pairs'].append(one_pair(browser,fixture,output,index,args.input,args.weak_network))
         report['summary']={key:{'median':statistics.median(row[key] for row in report['pairs']),
                                 'min':min(row[key] for row in report['pairs']),'max':max(row[key] for row in report['pairs'])}
