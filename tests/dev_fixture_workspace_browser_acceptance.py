@@ -257,10 +257,9 @@ def probe_script(sentinel):
 """
 
 
-def prepare_derived(build, output, sentinel):
+def prepare_derived(build, output, sentinel, derived):
     original_sha, manifest = tool.tree_manifest(build)
     tool.write_new(output / "original-build.json", {"sha256": original_sha, "files": manifest})
-    derived = output / "derived-build"
     shutil.copytree(build, derived)
     index = derived / "index.html"
     before = index.read_bytes()
@@ -454,9 +453,12 @@ def main():
         identity = json.loads((ROOT / "artifacts/ci-reader-identity.json").read_text())
         require(identity["head"] == report["head"] and identity["src_tree"] == SRC, "build/CI source identity mismatch")
         sentinel = Sentinel()
-        derived, derived_sha, original_sha = prepare_derived(original_build, output, sentinel.base)
-        report.update(original_build_sha256=original_sha, derived_build_sha256=derived_sha)
         fixture_parent = Path(tempfile.mkdtemp(prefix="reader-fixture-browser-", dir="/tmp"))
+        # Keep the derived static bytes outside the collected evidence folder.
+        # The original and derived manifests remain available for exact review.
+        derived, derived_sha, original_sha = prepare_derived(original_build, output, sentinel.base,
+                                                            fixture_parent / "derived-build")
+        report.update(original_build_sha256=original_sha, derived_build_sha256=derived_sha)
         # Use the real tool's owned-root admission before start, so only this
         # xvfb-run's temporary display cookie can enter its private HOME. The
         # tool's environment allowlist and API are not changed or bypassed.
