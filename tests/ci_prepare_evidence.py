@@ -19,6 +19,8 @@ UPLOAD_PATHS = (
     'runtime/sort-component.json', 'runtime/mobile-reading-*/',
     'runtime/mobile-reading-metrics.json', 'runtime/reader-panel-transition/',
     'runtime/calendar-*/', 'runtime/browser-build/',
+    'runtime/dev-fixture-workspace-browser/',
+    'runtime/navigation-focus-*/',
 )
 
 

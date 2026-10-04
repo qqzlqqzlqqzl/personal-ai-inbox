@@ -103,6 +103,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s xvfb-run -a python tests/native_zoom_browser.py
+      - name: Real headed fixture CLI lifecycle and isolation acceptance
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s xvfb-run -a python tests/dev_fixture_workspace_browser_acceptance.py
       - name: Reviewed control workflows in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -134,6 +138,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/mobile_reading_browser.py
+      - name: Navigation close preserves focus through responsive commits
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/navigation_focus_transition_browser.py
       - name: Account calendar consistency across three browser timezones
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -175,6 +183,7 @@ jobs:
             runtime/mobile-reading-*/
             runtime/mobile-reading-metrics.json
             runtime/reader-panel-transition/
+            runtime/navigation-focus-*/
             runtime/native-zoom/result.json
             runtime/native-zoom/native-metrics.json
             runtime/native-zoom/native-font-coverage.json
@@ -184,4 +193,5 @@ jobs:
             artifacts/browser-admission.json
             runtime/calendar-*/
             runtime/browser-build/
+            runtime/dev-fixture-workspace-browser/
           retention-days: 7
