@@ -22,6 +22,7 @@ BROWSER_TESTS = (
     'search_ime_browser_audit.py', 'sort_browser_acceptance.py',
     'reader_panel_transition_browser.py', 'mobile_reading_browser.py',
     'calendar_browser_acceptance.py', 'calendar_identity_browser.py',
+    'dev_fixture_workspace_browser_acceptance.py',
 )
 
 
