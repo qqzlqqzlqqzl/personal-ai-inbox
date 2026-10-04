@@ -27,6 +27,13 @@ class FakeFixture:
         w.write_new(self.out / "closed.json", {"closed": True})
 
 
+class CaptureUnavailable(FakeFixture):
+    def capture(self, reason):
+        if not (self.out / "allow-capture.json").exists():
+            raise OSError("synthetic unavailable evidence destination")
+        super().capture(reason)
+
+
 class Contract(unittest.TestCase):
     def setUp(self):
         self.parent = Path(tempfile.mkdtemp(prefix="reader-fixture-contract-", dir="/tmp"))
@@ -43,12 +50,12 @@ class Contract(unittest.TestCase):
         return {"workspace": self.marker["workspace"], "instance": self.instance,
                 "id": uuid.uuid4().hex, "command": action, **changes}
 
-    def launch_synthetic(self):
+    def launch_synthetic(self, factory=FakeFixture):
         self.instance = uuid.uuid4().hex
         w.write_new(self.root / f"launch-{self.instance}.json", {
             "workspace": self.marker["workspace"], "headed": False})
         process = multiprocessing.get_context("fork").Process(
-            target=w.serve, args=(self.root, self.instance), kwargs={"fixture_factory": FakeFixture})
+            target=w.serve, args=(self.root, self.instance), kwargs={"fixture_factory": factory})
         process.start()
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:
@@ -217,10 +224,60 @@ class Contract(unittest.TestCase):
         session = w.Session(self.root, self.marker, self.instance, FailedCapture)
         session.start()
         generation = session.generation
-        with self.assertRaises(OSError): session.handle(self.request("reset"))
+        with self.assertRaises(w.CaptureFailed): session.handle(self.request("reset"))
         self.assertEqual(session.generation, generation)
         self.assertIsNotNone(session.fixture)
         self.assertFalse((self.root / "generations" / generation / "closed.json").exists())
+
+    def test_cross_process_reset_and_stop_capture_failures_keep_context_and_can_retry(self):
+        process = self.launch_synthetic(CaptureUnavailable)
+        try:
+            first = w.command(self.root, "status", timeout=3)
+            generation = first["generation"]
+            old = self.root / "generations" / generation
+            for action in ("reset", "stop"):
+                with self.subTest(action=action), self.assertRaisesRegex(w.Rejected, "old context retained"):
+                    w.command(self.root, action, timeout=3)
+                self.assertTrue(process.is_alive())
+                state = w.command(self.root, "status", timeout=3)
+                self.assertTrue(state["live"])
+                self.assertEqual(state["generation"], generation)
+                self.assertEqual(state["last_command_failure"]["command"], action)
+                failure = w.latest(self.root)
+                self.assertEqual(failure["outcome"], "failed")
+                self.assertTrue(failure["retained_context"])
+                self.assertFalse((old / "closed.json").exists())
+            # Restore the synthetic destination, then retry normally.
+            w.write_new(old / "allow-capture.json", {"allowed": True})
+            after = w.command(self.root, "reset", timeout=3)
+            self.assertNotEqual(after["generation"], generation)
+            self.assertTrue((old / "captured.json").is_file())
+            self.assertTrue((old / "closed.json").is_file())
+            current = w.command(self.root, "status", timeout=3)
+            self.assertIsNone(current["last_command_failure"])
+            w.write_new(self.root / "generations" / after["generation"] / "allow-capture.json", {"allowed": True})
+            w.command(self.root, "stop", timeout=3)
+            process.join(timeout=3)
+            self.assertEqual(process.exitcode, 0)
+        finally:
+            if process.is_alive(): process.terminate(); process.join(timeout=3)
+
+    def test_cross_process_new_generation_failure_is_not_swallowed_as_capture_failure(self):
+        process = self.launch_synthetic()
+        try:
+            first = w.command(self.root, "status", timeout=3)
+            old = self.root / "generations" / first["generation"]
+            (self.root / "build" / "index.html").write_text("synthetic pin mismatch")
+            with self.assertRaisesRegex(w.Rejected, "worker failed"):
+                w.command(self.root, "reset", timeout=3)
+            process.join(timeout=3)
+            self.assertEqual(process.exitcode, 1)
+            self.assertEqual(w.latest(self.root)["state"], "failed")
+            self.assertFalse(w.command(self.root, "status")["live"])
+            self.assertTrue((old / "captured.json").is_file())
+            self.assertTrue((old / "closed.json").is_file())
+        finally:
+            if process.is_alive(): process.terminate(); process.join(timeout=3)
 
     def test_worker_rejects_unknown_command_and_keeps_usable_session(self):
         process = self.launch_synthetic()

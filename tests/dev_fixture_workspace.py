@@ -35,6 +35,10 @@ class Rejected(RuntimeError):
     """An explicit local-fixture admission failure."""
 
 
+class CaptureFailed(Rejected):
+    """A command failed before closing anything; the old context is retained."""
+
+
 def checked_path(value, *, directory=True, temp=False):
     path = Path(value)
     if not path.is_absolute() or ".." in path.parts or FORBIDDEN.intersection(path.parts):
@@ -218,6 +222,9 @@ def command(root_value, action, *, timeout=20):
             if not data.get("ok"):
                 raise Rejected(data.get("error", "worker rejected command"))
             return data
+        current = latest(root)
+        if current and current["instance"] == instance and current["state"] == "failed":
+            raise Rejected("worker failed; inspect retained failure receipt")
         time.sleep(0.05)
     raise Rejected("worker did not acknowledge; stale receipts do not prove liveness")
 
@@ -375,6 +382,7 @@ class Session:
         self.fixture = None
         self.generation = None
         self.tool_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        self.last_command_failure = None
 
     def start(self):
         expected = read_json(self.root / "build-manifest.json")["sha256"]
@@ -382,6 +390,7 @@ class Session:
             raise Rejected("pinned build changed")
         self.generation = f"{time.time_ns()}-{uuid.uuid4().hex}"
         self.fixture = self.factory(self.root, self.generation, headed=self.headed)
+        self.last_command_failure = None
         return receipt(self.root, self.marker, self.instance, "running", generation=self.generation,
                        pid=os.getpid(), headed=self.headed, context_only=True,
                        build_sha256=expected, tool_sha256=self.tool_sha256)
@@ -399,8 +408,14 @@ class Session:
             self.fixture.pump()
             return {"state": "running", "generation": self.generation, "live": True,
                     "build_sha256": read_json(self.root / "build-manifest.json")["sha256"],
-                    "tool_sha256": self.tool_sha256, "headed": self.headed, "context_only": True}
-        self.fixture.capture(action)  # Must complete before anything is closed/reset.
+                    "tool_sha256": self.tool_sha256, "headed": self.headed, "context_only": True,
+                    "last_command_failure": self.last_command_failure}
+        try:
+            self.fixture.capture(action)  # Must complete before anything is closed/reset.
+        except Exception as exc:
+            self.last_command_failure = {"command": action, "outcome": "failed",
+                                         "error_type": type(exc).__name__, "retained_context": True}
+            raise CaptureFailed("evidence capture failed; old context retained") from exc
         self.fixture.close()
         self.fixture = None
         if action == "stop":
@@ -457,9 +472,24 @@ def serve(root_value, instance, headed=False, *, fixture_factory=ControlledFixtu
                         if data.get("id") != ident:
                             raise Rejected("command filename identity mismatch")
                         response.update(session.handle(data), ok=True)
+                    except CaptureFailed as exc:
+                        response.update(ok=False, error=str(exc), retained_context=True)
+                        # Failure of this evidence destination must not turn a
+                        # rejected reset/stop into destruction of the old context.
+                        with contextlib.suppress(OSError):
+                            receipt(root, marker, instance, "running", generation=session.generation,
+                                    **session.last_command_failure)
                     except Rejected as exc:
+                        if session.fixture is None:
+                            raise  # A failed new generation is not a live rejected command.
                         response.update(ok=False, error=str(exc))
-                    write_new(root / "responses" / f"{ident}.json", response)
+                    try:
+                        write_new(root / "responses" / f"{ident}.json", response)
+                    except OSError:
+                        if not response.get("retained_context"):
+                            raise
+                        # If the whole volume is unavailable, the caller times
+                        # out rather than receiving a false success. Keep live.
                     if session.fixture is None:
                         break
                 if session.fixture is not None:

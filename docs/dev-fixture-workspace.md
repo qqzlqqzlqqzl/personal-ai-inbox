@@ -85,6 +85,14 @@ retained intentionally. Browser-managed transient scratch is not read or used
 as a control path. Do not paste real credentials or personal data into this
 synthetic UI; evidence is private and may contain anything typed there.
 
+A reset/stop capture failure is a failed **command**, while the worker remains
+running with the same generation. Its receipt has `outcome: failed` and
+`retained_context: true`; status reports `last_command_failure`. Restore the
+evidence destination and retry. If the whole volume cannot accept even receipts
+or responses, the caller times out, but that failure does not close the old
+context. A later new-generation startup failure is still a worker failure;
+it is not swallowed or mislabeled as retaining a live old context.
+
 ## Network and fixture boundary
 
 The existing harness server binds only `127.0.0.1` on an ephemeral port. There is
