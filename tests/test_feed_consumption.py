@@ -49,7 +49,7 @@ async def test_preview_summary_never_discovers_or_repairs(db, entry, monkeypatch
     assert result['result'] == 'updated'
     row = saved()
     assert row['cover_url'] == 'https://example.org/rss-cover.jpg'
-    assert row['cover_source'] == 'kicktraq_rss_summary'
+    assert row['cover_source'] == 'cached_entry_image'
     assert (row['state'], row['attempts'], row['next_try']) == ('budget_paused', 2, 1234)
 
 
@@ -64,7 +64,7 @@ async def test_analysis_summary_never_fetches_or_models(db, entry, monkeypatch, 
     core.discover([entry])
     # Preserve a prior conservative quality exclusion; this guard does not score.
     quality = '{"recommendation_eligible":false,"reason_codes":["explicit_paid_gate"]}'
-    core.update(1, content_quality=quality)
+    core.update(1, content_quality=quality, content_source='previously_bound_source')
     import product_source, adafruit_source
     cover = AsyncMock(return_value=(None, None))
     add = AsyncMock(return_value=entry['content'])
@@ -86,7 +86,7 @@ async def test_analysis_summary_never_fetches_or_models(db, entry, monkeypatch, 
     assert calls == [('GET', '/mf/v1/entries/1')]
     after = saved()
     assert after['state'] == 'requires_fulltext_adapter'
-    assert after['content_source'] == 'kicktraq_rss_summary'
+    assert after['content_source'] == 'previously_bound_source'
     assert after['content_quality'] == quality
     assert after['result'] is None and after['score'] is None
     with core.connect() as db:
@@ -112,11 +112,12 @@ async def test_bridge_summary_never_enters_fulltext_or_prepared(db, entry, monke
     assert result['samples'] == []
     assert result['skipped'][0]['state'] == 'requires_fulltext_adapter'
     assert saved()['state'] == 'requires_fulltext_adapter'
-    assert saved()['content_source'] == 'kicktraq_rss_summary'
+    assert saved()['content_source'] is None
 
 
 def test_feed_identity_is_exact_and_not_entry_domain(entry):
-    from feed_consumption import is_summary_only_feed
+    from feed_consumption import is_summary_only_feed, POLICY_VERSION
+    assert POLICY_VERSION == "kicktraq-rss-preview-only-v1"
     for feed in FEEDS:
         assert is_summary_only_feed(summary_entry(entry, feed, 'https://unrelated.example/item'))
     for feed in ('https://www.kicktraq.com/categories/technology/ending.rss',
@@ -147,7 +148,7 @@ async def test_observed_http_self_is_unverified_not_generic_fetch(db, entry, mon
     cover.assert_not_awaited()
     assert preview['error'] == 'UnverifiedFeedIdentity'
     assert saved()['state'] == 'requires_source_review'
-    assert saved()['content_source'] == 'unverified_rss_feed'
+    assert saved()['content_source'] is None
     assert calls == [('GET', '/mf/v1/entries/1')] * 2
 
 

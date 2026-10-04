@@ -5,12 +5,13 @@ atom:self identities are observed but not authorized aliases: keep those closed
 pending confirmation of the actual stored Miniflux feed URL. No wildcard/domain
 classification or URL rewriting is used here.
 """
+POLICY_VERSION = "kicktraq-rss-preview-only-v1"
 SUMMARY_FEEDS = frozenset({
     "https://www.kicktraq.com/categories/technology/latest.rss",
     "https://www.kicktraq.com/categories/design/latest.rss",
 })
 UNVERIFIED_SELF_FEEDS = frozenset(url.replace("https://", "http://", 1) for url in SUMMARY_FEEDS)
-SUMMARY_SOURCE = "kicktraq_rss_summary"
+PREVIEW_IMAGE_SOURCE = "cached_entry_image"
 
 
 def summary_feed_policy(entry):
@@ -31,9 +32,9 @@ def is_summary_only_feed(entry):
 
 def restricted_analysis_fields(policy):
     if policy == "summary_only":
-        return {"state": "requires_fulltext_adapter", "content_source": SUMMARY_SOURCE,
+        return {"state": "requires_fulltext_adapter",
                 "error": "Kicktraq RSS 摘要；未接入项目全文，不生成全文价值评分"}
     if policy == "identity_unverified":
-        return {"state": "requires_source_review", "content_source": "unverified_rss_feed",
+        return {"state": "requires_source_review",
                 "error": "Kicktraq RSS HTTP self 身份待核实；禁止扩展抓取"}
     raise ValueError("Unknown feed restriction")

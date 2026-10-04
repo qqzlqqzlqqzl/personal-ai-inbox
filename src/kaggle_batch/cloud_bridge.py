@@ -210,10 +210,10 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
             if analysis_needed:
                 check(admission)
                 with core.connect() as db:
-                    changed=db.execute("""UPDATE analyses SET state=?,error=?,content_source=?,updated_at=?
+                    changed=db.execute("""UPDATE analyses SET state=?,error=?,updated_at=?
                         WHERE entry_id=? AND user_id=? AND url=? AND title=? AND state=?
                         AND content_hash IS ? AND source_text IS ?""",
-                        (fields['state'],fields['error'],fields['content_source'],time.time(),
+                        (fields['state'],fields['error'],time.time(),
                          row['entry_id'],row['user_id'],row['url'],row['title'],row['state'],
                          row['content_hash'],row['source_text'])).rowcount
                 if changed!=1:
