@@ -171,7 +171,7 @@ def identity(root):
     root = private_directory(root)
     require(sys.platform == 'linux' and sys.version_info[:3] == (3, 12, 14), 'expected Linux Python 3.12.14')
     release = platform.freedesktop_os_release()
-    require(release.get('ID') == 'ubuntu' and release.get('VERSION_ID') == '24.04', 'expected Ubuntu 24.04')
+    require(release.get('ID') == 'ubuntu' and release.get('VERSION_ID') == '22.04', 'expected Ubuntu 22.04')
     require(not os.environ.get('CHROMIUM_EXECUTABLE'), 'browser executable override refused')
     raw = (ROOT / 'requirements.dev.lock.txt').read_bytes()
     require(hashlib.sha256(raw).hexdigest() == LOCK_SHA, 'locked test dependency file changed')
