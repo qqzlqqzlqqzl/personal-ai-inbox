@@ -67,10 +67,14 @@ class ObservationTests(unittest.TestCase):
         for name in ['open_article','image_sweep']:
             function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==name)
             observations=[n for n in ast.walk(function) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='wait_for_observation']
-            self.assertEqual(len(observations),1)
-            expression=observations[0].args[2].value
-            self.assertTrue(expression.startswith('e=>'))
-            self.assertNotIn('eval',expression);self.assertNotIn('Function(',expression)
+            self.assertEqual(len(observations),2 if name=='open_article' else 1)
+            if name=='open_article':
+                self.assertEqual(observations[0].args[2].value,"e=>(e.innerText.length>100 && !e.getAttribute('aria-busy'))")
+                self.assertEqual(observations[1].args[2].value,'e=>window.__readerBodySnapshot().ready')
+            for observation in observations:
+                expression=observation.args[2].value
+                self.assertTrue(expression.startswith('e=>'))
+                self.assertNotIn('eval',expression);self.assertNotIn('Function(',expression)
         self.assertIn("expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')",source)
 
 

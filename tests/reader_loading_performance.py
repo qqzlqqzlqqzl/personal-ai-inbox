@@ -24,6 +24,7 @@ import zipfile
 from reader_loading_fixture import Fixture, TOKEN, SCENARIO, admit_build, bound_read, checked_directory, require
 from reader_loading_navigation import NavigationObservation
 from reader_loading_transport import IDENTITY, PROFILES, profile_identity
+from reader_loading_body import BODY_CONTRACT, BODY_OBSERVER, mark as body_mark, collect as collect_body, validate_ready
 
 PLAYWRIGHT = '1.63.0'
 CHROMIUM = '153.0.8010.12'
@@ -184,17 +185,27 @@ def wait_for_observation(page, locator, predicate, timeout_ms=15000):
         page.wait_for_timeout(min(50,remaining*1000))
 
 
-def open_article(page, input_kind, number=1):
+def open_article(page, input_kind, number=1, observation=None):
+    observation = observation if observation is not None else {}
     before = time.monotonic()
+    observation.update(contract=BODY_CONTRACT, before=body_mark(page,'driver-before-open'))
     activate(page.locator(f'.entry-list [data-entry-id="{number}"]').first, input_kind)
     page.locator('.article-body').wait_for(state='visible')
     wait_for_observation(page,page.locator('.article-body'),"e=>(e.innerText.length>100 && !e.getAttribute('aria-busy'))")
-    return (time.monotonic()-before)*1000
+    observation['container_ready_ms']=(time.monotonic()-before)*1000
+    observation['container_ready']=body_mark(page,'container-ready-not-prose-proof')
+    wait_for_observation(page,page.locator('.article-body'),"e=>window.__readerBodySnapshot().ready")
+    observation['prose_ready']=body_mark(page,'prose-dom-ready')
+    validate_ready(observation['prose_ready'])
+    observation['prose_dom_ready_ms']=(time.monotonic()-before)*1000
+    return observation['prose_dom_ready_ms']
 
 
 def close_article(page, input_kind):
+    body_mark(page,'driver-before-close')
     activate(page.get_by_role('button', name='关闭文章', exact=True), input_kind)
     page.locator('.article-body').wait_for(state='hidden')
+    body_mark(page,'driver-after-body-hidden')
 
 
 def image_sweep(page):
@@ -321,7 +332,7 @@ def await_warm_image_proof(page, events, event_start, rows, base, start_ms):
             page.wait_for_timeout(10)
 
 
-MEASUREMENT_CONTRACT='same-page-reopen-and-new-page-http-cache-v2'
+MEASUREMENT_CONTRACT='fixture-prose-dom-and-separate-http-cache-v3'
 
 
 def page_identity(session):
@@ -426,12 +437,13 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
                'locale':'zh-CN','service_workers':'block','accept_downloads':False}
     context = browser.new_context(**options)
     events=[]; errors=[]; page=None
-    pair={'pair':index,'status':'FAILED','input':input_kind,'hover_dwell':False,'weak_network':weak,
+    pair={'pair':index,'status':'FAILED','input':input_kind,'hover_dwell':False,'weak_network':weak,'body_observations':[],
           'measurement_contract':MEASUREMENT_CONTRACT,'transport_profile':fixture.transport_profile}
     start_record=len(fixture.records)
     try:
         context.add_init_script("localStorage.setItem('auth',JSON.stringify({server:location.origin+'/mf',token:"+json.dumps(TOKEN)+",username:'',password:''}));localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all',theme:'light',markReadOnScroll:false}));localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:6,sort:'score',direction:'desc',auxiliary:'none'}));")
         context.add_init_script(PROBE)
+        context.add_init_script(BODY_OBSERVER)
         page=context.new_page(); page.set_default_timeout(15000); page.set_default_navigation_timeout(15000)
         page.on('pageerror',lambda error:errors.append(str(error)))
         page.on('download', lambda download: download.cancel())
@@ -454,7 +466,8 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         page.mouse.move(0,0)
         pair['before_activation_requests']=len(fixture.records)-start_record
         pair['before_activation_detail_requests']=sum(r['label'].startswith('detail:') for r in fixture.records[start_record:])
-        pair['cold_click_to_body_ms']=open_article(page,input_kind)
+        pair['cold_body_observation']={}
+        pair['cold_click_to_body_ms']=open_article(page,input_kind,observation=pair['cold_body_observation'])
         pair['cold_images']=image_sweep(page)
         join_image_network(pair['cold_images'],events,fixture.base)
         pair['cold_image_http_requests']=count_images(fixture.records[start_record:])
@@ -462,7 +475,8 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         close_article(page,input_kind)
         warm_start=len(fixture.records);event_start=len(events)
         pair['warm_start_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
-        pair['warm_click_to_body_ms']=open_article(page,input_kind)
+        pair['warm_body_observation']={}
+        pair['warm_click_to_body_ms']=open_article(page,input_kind,observation=pair['warm_body_observation'])
         pair['warm_images']=image_sweep(page)
         pair['warm_end_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
         decoded_reopen_observation(pair['warm_images'],pair['warm_start_wall_ms'],pair['warm_end_wall_ms'])
@@ -495,6 +509,9 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         # request. Keep that user timing above, but do not call it HTTP-cache
         # evidence. A separate new document in this SAME context must satisfy
         # the original strict six-image request/cache/completion proof below.
+        original_body_trace=collect_body(page)
+        require(original_body_trace and not original_body_trace['truncated'],'body observation budget exhausted or missing')
+        pair['body_observations'].append({'page':'original','observations':original_body_trace})
         page.close()
         cache_events=[];cache_start=len(fixture.records)
         page=context.new_page();page.set_default_timeout(15000);page.set_default_navigation_timeout(15000)
@@ -527,7 +544,8 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         cache_event_start=len(cache_events);cache_image_start=len(fixture.records)
         cache['image_event_start']=cache_event_start;cache['image_http_record_start']=cache_image_start
         cache['start_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
-        cache['click_to_body_ms']=open_article(page,input_kind)
+        cache['body_observation']={}
+        cache['click_to_body_ms']=open_article(page,input_kind,observation=cache['body_observation'])
         cache['images']=image_sweep(page)
         proof,cache['end_wall_ms']=await_warm_image_proof(page,cache_events,cache_event_start,cache['images'],fixture.base,cache['start_wall_ms'])
         cache['image_http_requests']=count_images(fixture.records[cache_image_start:])
@@ -549,6 +567,15 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
             except Exception as screenshot_error: pair['screenshot_error']=type(screenshot_error).__name__+': '+str(screenshot_error)
         raise
     finally:
+        observation_was_passed=pair['status']=='PASSED';body_close_error=None
+        if page and not page.is_closed():
+            try:
+                body_trace=collect_body(page)
+                pair['body_observations'].append({'page':'current-at-finish','observations':body_trace})
+                require(body_trace and not body_trace['truncated'],'body observation budget exhausted or missing')
+            except Exception as exc:
+                body_close_error=exc
+                pair.update(status='FAILED',body_observation_error=type(exc).__name__+': '+str(exc))
         close_error=None
         try: context.close()
         except Exception as exc:
@@ -558,6 +585,7 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         if close_error: pair['status']='FAILED'
         save_new(output/f'pair-{index}.json',pair)
         if close_error and was_passed: raise close_error
+        if body_close_error and observation_was_passed: raise body_close_error
     return pair
 
 

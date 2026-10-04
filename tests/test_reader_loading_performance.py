@@ -296,7 +296,7 @@ class SamplingContract(unittest.TestCase):
                 'identity':{'target_id':'new','browser_context_id':'same'},'origin':WarmCacheContract.base,
                 'bootstrap_ms':4,'click_to_body_ms':3,'image_event_start':0,'cdp':events,
                 'images':images,'image_cache_proof':proof,'start_wall_ms':900,'end_wall_ms':1500,'image_http_requests':0}
-        return {'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,'transport_profile':profile_identity(IDENTITY),'phase':phase,'scenario':f.SCENARIO,'input':'keyboard','weak_network':False,
+        value={'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,'transport_profile':profile_identity(IDENTITY),'phase':phase,'scenario':f.SCENARIO,'input':'keyboard','weak_network':False,
                 'browser_version':'synthetic-test','identity':{'head':'synthetic'},
                 'pairs':[{'pair':i,'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,'transport_profile':profile_identity(IDENTITY),
                           'warm_observation_class':'SAME_PAGE_DECODED_REOPEN; HTTP_CACHE_HIT_NOT_CLAIMED',
@@ -306,6 +306,14 @@ class SamplingContract(unittest.TestCase):
                           'cold_images':[{'image':j,'scroll_to_visible_ms':1} for j in range(1,7)],
                           'warm_images':[{'image':j,'scroll_to_visible_ms':1,'at':1300,'visible':True,'naturalWidth':960,'naturalHeight':640} for j in range(1,7)],
                           'next_pages':[{'loaded':48,'fast_scroll_bottom_wait_ms':2},{'loaded':72,'fast_scroll_bottom_wait_ms':2}]} for i in range(1,6)]}
+        from reader_loading_body import BODY_CONTRACT
+        from test_reader_loading_body import ready_snapshot
+        for row in value['pairs']:
+            for key,metric in [('cold_body_observation','cold_click_to_body_ms'),('warm_body_observation','warm_click_to_body_ms')]:
+                row[key]={'contract':BODY_CONTRACT,'container_ready_ms':0,'prose_dom_ready_ms':row[metric],'prose_ready':ready_snapshot()}
+            row['http_cache_page']['body_observation']={'contract':BODY_CONTRACT,'container_ready_ms':0,
+                'prose_dom_ready_ms':row['http_cache_page']['click_to_body_ms'],'prose_ready':ready_snapshot()}
+        return value
     def test_five_pairs_compare(self): self.assertEqual(len(compare(self.row('baseline'),self.row('candidate'))['pairs']),5)
     def test_not_run_never_compares(self):
         other=self.row('candidate');other['status']='NOT_RUN'

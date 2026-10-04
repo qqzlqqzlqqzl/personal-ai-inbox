@@ -61,6 +61,7 @@ class WarmPhaseTests(unittest.TestCase):
         for row in after['pairs']:
             row['http_cache_page']['bootstrap_ms']=1000
             row['http_cache_page']['click_to_body_ms']=800
+            row['http_cache_page']['body_observation']['prose_dom_ready_ms']=800
         result=compare(before,after)['pairs'][0]
         self.assertEqual(result['milliseconds']['warm_click_to_body_ms']['delta'],0)
         self.assertEqual(result['http_cache_page']['bootstrap_ms']['delta'],996)
