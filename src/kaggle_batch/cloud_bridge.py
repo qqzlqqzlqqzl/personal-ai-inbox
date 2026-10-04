@@ -248,15 +248,22 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
                 return
             content_source=fulltext['receipt'].get('source','original_url_site_rule')
             source_content_hash=worker.hash_text(entry.get('content') or '')
+            from content_quality import assess, serialized
+            quality=fulltext.get('content_quality') or assess(url=entry['url'],
+                html_body=fulltext.get('html',''),text=fulltext['source_text'],extraction_state='available')
+            quality={**quality,'observed_at':time.time()}
+            excluded=quality['recommendation_eligible'] is False
+            quality_json=serialized(quality,{**row,'content_hash':source_content_hash,'source_text':fulltext['source_text']})
             check(admission)
             with core.connect() as db:
                 changed=db.execute("""UPDATE analyses SET source_text=?,source_chars=?,input_chars=?,
                     image_count=?,content_source=?,truncated=0,extracted_at=?,updated_at=?,
-                    content_hash=?,state='waiting_model',error=NULL
-                    WHERE entry_id=? AND user_id=? AND state=? AND content_hash IS ? AND source_text IS ?""",
+                    content_hash=?,state=?,error=NULL,content_quality=?
+                    WHERE entry_id=? AND user_id=? AND url=? AND title=? AND state=? AND content_hash IS ? AND source_text IS ?""",
                     (fulltext['source_text'],len(fulltext['source_text']),len(fulltext['source_text']),
                      fulltext['image_count'],content_source,time.time(),time.time(),source_content_hash,
-                     row['entry_id'],row['user_id'],row['state'],row['content_hash'],row['source_text'])).rowcount
+                     'content_excluded' if excluded else 'waiting_model',quality_json,
+                     row['entry_id'],row['user_id'],row['url'],row['title'],row['state'],row['content_hash'],row['source_text'])).rowcount
             if changed!=1:
                 skipped.append({'entry_id':row['entry_id'],'state':'source_changed_during_fulltext'})
                 return
@@ -266,8 +273,14 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
                 entry=apply_prepared(entry,**options(admission))
             refreshed.update(source_text=fulltext['source_text'],source_chars=len(fulltext['source_text']),
                              input_chars=len(fulltext['source_text']),truncated=False,
-                             content_hash=source_content_hash,state='waiting_model',
+                             content_hash=source_content_hash,state='content_excluded' if excluded else 'waiting_model',
+                             content_quality=quality_json,
                              content_source=content_source,fulltext_receipt=fulltext['receipt'])
+            if excluded:
+                skipped.append({'entry_id':row['entry_id'],'state':'content_excluded',
+                                'reason':quality['reason_codes'][0] if quality['reason_codes'] else 'content_excluded'})
+                append_card_only(entry,refreshed)
+                return
         check(admission)
         cards.enqueue([entry],**options(admission))
         check(admission)

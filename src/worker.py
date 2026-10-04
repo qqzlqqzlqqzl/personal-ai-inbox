@@ -175,7 +175,11 @@ async def process_one(client, row, cfg, *,admission=None):
                     cover_source = "enclosure"
                     break
         text, images = content_text(current)
-        if len(text) < (8 if social else 120):
+        from content_quality import assess, serialized, meaningful_short
+        quality = assess(url=entry['url'], html_body=current, text=text,
+                         extraction_state='available', observed_at=time.time())
+        excluded = quality['recommendation_eligible'] is False
+        if len(text) < (8 if social else 120) and not excluded and not meaningful_short(text):
             mutate(update,
                 entry_id,
                 state="insufficient_content",
@@ -202,7 +206,12 @@ async def process_one(client, row, cfg, *,admission=None):
             extracted_at=time.time(),
             truncated=int(len(text) > len(used)),
             error=None,
+            content_quality=serialized(quality, {'entry_id': entry_id, 'user_id': entry['user_id'],
+                'url': entry['url'], 'content_hash': hash_text(current), 'source_text': used}),
         )
+        if excluded:
+            mutate(update, entry_id, state='content_excluded', attempts=0, next_try=0)
+            return
         if not os.environ.get("ARK_API_KEY"):
             mutate(update,entry_id, state="waiting_model")
             return

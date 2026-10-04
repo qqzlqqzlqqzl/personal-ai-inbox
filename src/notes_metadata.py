@@ -4,7 +4,7 @@ from datetime import datetime
 
 MAX_IDS = 10000
 MAX_REQUEST_BYTES = 256 << 10
-FIELDS = {"id", "user_id", "feed_id", "title", "published_at"}
+FIELDS = {"id", "user_id", "feed_id", "title", "url", "published_at"}
 
 
 def published_timestamp(entry):
@@ -40,6 +40,7 @@ def decode_metadata(content, uid, ids):
                        for k in ("id", "user_id", "feed_id"))
                 or entry["user_id"] != uid or entry["id"] not in allowed
                 or entry["id"] in seen or not isinstance(entry["title"], str)
+                or not isinstance(entry.get("url"), str) or not entry["url"].strip()
                 or not isinstance(entry["published_at"], (str, type(None)))):
             raise ValueError("invalid or unscoped notes metadata row")
         seen.add(entry["id"])
@@ -114,6 +115,7 @@ def body_matches(entry, metadata, feeds, params):
     """Detect selected-row churn before returning a stale selection/total."""
     feed_id = int(entry.get("feed_id") or (entry.get("feed") or {}).get("id", 0))
     if (entry.get("title", "") != metadata["title"] or feed_id != metadata["feed_id"]
+            or entry.get("url") != metadata["url"]
             or published_timestamp(entry) != published_timestamp(metadata)
             or entry.get("status") not in {"read", "unread"}
             or (params.get("status") and entry["status"] != params["status"])

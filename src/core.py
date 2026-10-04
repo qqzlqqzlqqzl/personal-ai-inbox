@@ -172,6 +172,7 @@ def update(entry_id, **fields):
         "cover_source",
         "preview_checked_at",
         "preview_error",
+        "content_quality",
     }
     if not set(fields) <= allowed:
         raise ValueError("Unknown analysis field")
@@ -183,6 +184,32 @@ def update(entry_id, **fields):
             + " WHERE entry_id=?",
             (*fields.values(), entry_id),
         )
+
+
+def record_content_quality(row, assessment, *, expected_quality=None, admission=None):
+    """Apply a reviewed assessment only to the same current input and prior receipt.
+
+    No provider, extraction, settings, claims, read marks or model action occurs.
+    Existing history is not scanned or corrected automatically by this helper.
+    """
+    from content_quality import serialized, public_for_row
+    from work_admission import check
+    row = dict(row)
+    payload = serialized(assessment, row)
+    verified = public_for_row({**row, 'content_quality': payload})
+    if (type(row.get('entry_id')) is not int or type(row.get('user_id')) is not int
+            or any(code in {'quality_unverified','quality_source_changed'} for code in verified['reason_codes'])):
+        raise ValueError('Invalid quality assessment')
+    check(admission)
+    with connect() as c:
+        check(admission)
+        changed = c.execute('''UPDATE analyses SET content_quality=?
+            WHERE entry_id=? AND user_id=? AND url=? AND content_hash IS ? AND source_text IS ?
+              AND content_quality IS ?''',
+            (payload, row['entry_id'], row['user_id'], row['url'], row.get('content_hash'),
+             row.get('source_text'), expected_quality)).rowcount
+        check(admission)
+    return changed == 1
 
 
 def _source_text_fallback(entry, row):
@@ -216,7 +243,9 @@ def _source_text_fallback(entry, row):
     }
 
 
-def decorate(entry, user_id, include_source_fallback=False):
+def decorate(entry, user_id, include_source_fallback=False, processing_evidence=None):
+    from content_quality import public_for_row, unknown
+    from processing_status import for_entry
     from prepared_content import apply as apply_prepared
     entry = apply_prepared(entry)
     from card_translation import attach
@@ -241,6 +270,8 @@ def decorate(entry, user_id, include_source_fallback=False):
                 **entry,
                 "ai": {
                     "state": "pending",
+                    "content_quality": unknown(),
+                    "processing": for_entry({'entry_id': entry['id'], 'state': 'pending'}, processing_evidence),
                     "has_note": bool(note and note["note"].strip()),
                     "note_updated_at": note["updated_at"] if note else None,
                 },
@@ -254,6 +285,8 @@ def decorate(entry, user_id, include_source_fallback=False):
     has_note = bool(row.pop("has_note", 0))
     note_updated_at = row.pop("note_updated_at", None)
     metadata = {
+        "content_quality": public_for_row(row, current_entry=entry),
+        "processing": for_entry(row, processing_evidence),
         **{
             k: row[k]
             for k in [
@@ -419,6 +452,7 @@ def migrate():
             "cover_source": "TEXT",
             "preview_checked_at": "REAL",
             "preview_error": "TEXT",
+            "content_quality": "TEXT",
         }.items():
             if name not in existing:
                 c.execute(f"ALTER TABLE analyses ADD COLUMN {name} {kind}")

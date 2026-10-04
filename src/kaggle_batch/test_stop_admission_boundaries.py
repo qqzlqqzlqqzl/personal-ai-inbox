@@ -52,7 +52,7 @@ def test_real_bridge_stops_inside_extraction_after_first_request(stop_at):
         fixture.db.execute("""INSERT INTO analyses SELECT
             2,user_id,title,url,state,next_try,attempts,published_at,truncated,
             content_hash,source_text,content_source,source_chars,input_chars,
-            image_count,extracted_at,updated_at,error FROM analyses WHERE entry_id=1""")
+            image_count,extracted_at,updated_at,error,content_quality FROM analyses WHERE entry_id=1""")
         fixture.db.commit()
         calls = []
         def stop():config_path.write_text(json.dumps({**config,'schedule_enabled':False}))

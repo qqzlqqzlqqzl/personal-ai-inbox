@@ -22,6 +22,7 @@ class FulltextBridgeTests(unittest.IsolatedAsyncioTestCase):
               0,'old-hash','Old RSS excerpt','original_url',15,15,0,0,0,NULL);
             CREATE TABLE card_translations(entry_id INTEGER,user_id INTEGER,status TEXT,next_try REAL,attempts INTEGER);
         ''')
+        self.db.execute('ALTER TABLE analyses ADD COLUMN content_quality TEXT')
         self.entry={'id':1,'user_id':2,'title':'Title','url':'https://go.dev/blog/article','content':'Old RSS excerpt'}
         @contextmanager
         def connect():
@@ -142,6 +143,40 @@ class FulltextBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([],sample['samples'])
         self.assertEqual('source_changed_during_fulltext',sample['skipped'][0]['state'])
         self.assertEqual('done',self.db.execute('SELECT state FROM analyses').fetchone()[0])
+
+    async def test_quality_receipt_is_persisted_after_exact_source_cas(self):
+        from content_quality import assess, public_for_row
+        body={**self.body,'content_quality':assess(url=self.entry['url'],
+            html_body='<script type="application/ld+json">{"@type":"NewsArticle","url":"https://go.dev/blog/article","isAccessibleForFree":false}</script><article>Preview.</article>',
+            extraction_state='available')}
+        sample=await self.prepare(AsyncMock(return_value=body))
+        self.assertEqual([],sample['samples'])
+        row=dict(self.db.execute('SELECT * FROM analyses').fetchone())
+        self.assertEqual('content_excluded',row['state'])
+        self.assertFalse(public_for_row(row)['recommendation_eligible'])
+        self.assertEqual('unknown',public_for_row(row)['access'])
+
+    async def test_changed_database_identity_or_source_does_not_half_write_quality(self):
+        for column,value in [('user_id',9),('url','https://changed.example/article'),('content_hash','concurrent-hash')]:
+            with self.subTest(column=column):
+                self.db.execute("UPDATE analyses SET user_id=2,url='https://go.dev/blog/article',content_hash='old-hash',state='waiting_model',source_text='Old RSS excerpt',content_quality=NULL")
+                self.db.commit()
+                async def fetch(url):
+                    self.db.execute(f'UPDATE analyses SET {column}=?',(value,))
+                    self.db.commit()
+                    return self.body
+                sample=await self.prepare(fetch)
+                self.assertEqual([],sample['samples'])
+                row=self.db.execute('SELECT source_text,content_quality FROM analyses').fetchone()
+                self.assertEqual(('Old RSS excerpt',None),tuple(row))
+
+    async def test_receipt_transaction_failure_preserves_previous_source(self):
+        self.db.execute("CREATE TRIGGER reject_quality BEFORE UPDATE OF content_quality ON analyses BEGIN SELECT RAISE(ABORT,'synthetic refusal'); END")
+        self.db.commit()
+        with self.assertRaisesRegex(sqlite3.IntegrityError,'synthetic refusal'):
+            await self.prepare(AsyncMock(return_value=self.body))
+        row=self.db.execute('SELECT source_text,content_hash,content_quality FROM analyses').fetchone()
+        self.assertEqual(('Old RSS excerpt','old-hash',None),tuple(row))
 
 if __name__=='__main__':
     unittest.main()

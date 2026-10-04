@@ -74,6 +74,17 @@ def import_validated(database, manifest, validation, upstream_unchanged, *,admis
                         (json.dumps(data,ensure_ascii=False),data['score'],data['technical_score'],
                          data['business_score'],model,prompt_hash,int(checked.get('tokens') or 0),
                          now,now,ref['entry_id']))
+                    if 'content_quality' in row.keys():
+                        from content_quality import assess, public_for_row, serialized
+                        # Preserve a valid source-bound exclusion through an old
+                        # batch's import. Legacy rows gain a durable assessment;
+                        # this write shares the existing result/import transaction.
+                        current_quality=public_for_row(row)
+                        if current_quality['recommendation_eligible'] is None:
+                            record=assess(url=row['url'],text=row['source_text'] or '',
+                                          extraction_state='available',observed_at=now)
+                            db.execute('UPDATE analyses SET content_quality=? WHERE entry_id=? AND user_id=?',
+                                       (serialized(record,row),ref['entry_id'],ref['user_id']))
                 else:
                     rows=[db.execute('SELECT * FROM card_translations WHERE entry_id=?',
                                      (ref['entry_id'],)).fetchone() for ref in refs]
