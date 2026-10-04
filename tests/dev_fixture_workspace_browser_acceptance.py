@@ -453,7 +453,8 @@ def main():
         identity = json.loads((ROOT / "artifacts/ci-reader-identity.json").read_text())
         require(identity["head"] == report["head"] and identity["src_tree"] == SRC, "build/CI source identity mismatch")
         sentinel = Sentinel()
-        fixture_parent = Path(tempfile.mkdtemp(prefix="reader-fixture-browser-", dir="/tmp"))
+        # Keep Chromium's nested SingletonSocket below Linux AF_UNIX limits.
+        fixture_parent = Path(tempfile.mkdtemp(prefix="rf-", dir="/tmp"))
         # Keep the derived static bytes outside the collected evidence folder.
         # The original and derived manifests remain available for exact review.
         derived, derived_sha, original_sha = prepare_derived(original_build, output, sentinel.base,
