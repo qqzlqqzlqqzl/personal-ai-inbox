@@ -32,9 +32,9 @@ def require(value, message):
         raise ValueError(message)
 
 
-def run(*argv, seconds=60, check=True):
+def run(*argv, seconds=60, check=True, environ=None):
     start = time.monotonic()
-    result = subprocess.run(argv, text=True, capture_output=True, timeout=seconds)
+    result = subprocess.run(argv, text=True, capture_output=True, timeout=seconds, env=environ)
     COMMANDS.append({'argv': list(argv), 'seconds': round(time.monotonic() - start, 6),
                      'timeout_seconds': seconds, 'exit_code': result.returncode,
                      'stdout': result.stdout, 'stderr': result.stderr})
@@ -93,6 +93,74 @@ def bind_checkout(root, expected_head, environ):
         stream.write('GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=safe.directory\nGIT_CONFIG_VALUE_0=' + str(root) + '\n')
     return {'passed': True, 'head': actual, 'exact_safe_directory': str(root),
             'scope': 'subsequent steps of this one disposable job; no persistent/global Git configuration'}
+
+
+def bind_python_cache_paths(cache, original_prefix):
+    """Preserve a cached pip script and map its proven original interpreter path.
+
+    Called only with /__t and /opt/hostedtoolcache by the hosted CLI. A missing
+    cached distribution is left to the unchanged setup-python installer. Unknown
+    shebangs, targets outside that exact Python version, and existing conflicting
+    paths are fatal. No script, package, cache key or permission is rewritten.
+    """
+    cache, original_prefix = Path(cache), Path(original_prefix)
+    require(cache.is_absolute() and cache.is_dir() and cache.resolve() == cache,
+            'Expected canonical mounted tool cache')
+    require(not any(p.is_symlink() for p in (cache, *cache.parents)), 'Symlink tool cache is refused')
+    require(original_prefix.is_absolute() and original_prefix.parent.is_dir()
+            and not any(p.is_symlink() for p in original_prefix.parents), 'Unsafe original tool-cache prefix')
+    version = cache / 'Python/3.12.14/x64'
+    pip = version / 'bin/pip'
+    if not pip.exists():
+        require(not pip.is_symlink(), 'Broken cached pip symlink')
+        require(not version.exists(), 'Existing exact Python cache is incomplete; no fallback repair')
+        return {'passed': True, 'mapping_created': False,
+                'diagnosis': 'No cached distribution; absolute-prefix mismatch not established',
+                'reason': 'Exact cached distribution absent; unchanged official installer must provide it'}
+    require(pip.is_file() and not pip.is_symlink() and version.resolve() == version,
+            'Cached pip must be a regular file in the exact version directory')
+    before = pip.read_bytes()
+    first = before.split(b'\n', 1)[0]
+    require(first.startswith(b'#!') and len(first) < 1024, 'Unrecognized cached pip interpreter')
+    interpreter = Path(first[2:].decode('ascii'))
+    require(interpreter.name in {'python', 'python3', 'python3.12'}, 'Unexpected cached pip interpreter name')
+    relative = Path('Python/3.12.14/x64/bin') / interpreter.name
+    translated = cache / relative
+    require(translated.is_file() and translated.resolve().is_relative_to(version),
+            'Exact cached interpreter is missing or redirected')
+    require(interpreter in (original_prefix / relative, translated),
+            'Unrecognized cached interpreter prefix; no mapping attempted')
+    probe = 'import json,sys; print(json.dumps(dict(version=list(sys.version_info[:3]),implementation=sys.implementation.name,executable=sys.executable,prefix=sys.prefix)))'
+    identity = json.loads(run(str(translated), '-I', '-c', probe, seconds=15,
+                              environ={**os.environ, 'LD_LIBRARY_PATH': str(version / 'lib')}).stdout)
+    require(identity.get('version') == [3, 12, 14] and identity.get('implementation') == 'cpython',
+            'Actual cached CPython identity mismatch')
+    require(Path(identity.get('executable', '')).resolve() == translated.resolve()
+            and Path(identity.get('prefix', '')).resolve() == version,
+            'Actual cached CPython executable or prefix mismatch')
+    created = False
+    if interpreter == original_prefix / relative:
+        if original_prefix.exists() or original_prefix.is_symlink():
+            require(original_prefix.is_symlink() and original_prefix.resolve() == cache,
+                    'Existing original tool-cache prefix conflicts; refusing overwrite')
+        else:
+            original_prefix.symlink_to(cache, target_is_directory=True)
+            created = True
+        require(interpreter.resolve() == translated.resolve(), 'Interpreter path mapping mismatch')
+        reason = 'Original absolute shebang now resolves to the existing mounted interpreter'
+    else:
+        reason = 'Cached interpreter already uses the mounted path'
+    require(pip.read_bytes() == before, 'Cached pip bytes changed during path mapping')
+    return {'passed': True, 'mapping_created': created, 'reason': reason,
+            'diagnosis': 'Missing absolute shebang prefix confirmed and mapped' if created
+                         else 'Existing interpreter path resolves; missing-prefix hypothesis not established in this run',
+            'cache': str(cache), 'original_prefix': str(original_prefix),
+            'observed_shebang_interpreter': str(interpreter), 'resolved_interpreter': str(translated.resolve()),
+            'pip_sha256': hashlib.sha256(before).hexdigest(),
+            'interpreter_sha256': hashlib.sha256(translated.read_bytes()).hexdigest(),
+            'actual_cpython_identity': identity,
+            'identity_probe_library_path': str(version / 'lib'),
+            'version_validation': 'The unchanged setup-python action and subsequent exact CI identity guard remain mandatory'}
 
 
 def verify_browser(path):
@@ -163,7 +231,7 @@ def measure_pulls():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('verify', 'pull-cost', 'bind-checkout'))
+    parser.add_argument('action', choices=('verify', 'pull-cost', 'bind-checkout', 'bind-python-cache'))
     parser.add_argument('--expected-head', required=True)
     args = parser.parse_args()
     if args.action == 'bind-checkout':
@@ -175,9 +243,16 @@ def main():
             'Tracked trial inputs changed')
     output = ROOT / 'runtime/playwright-container'
     output.mkdir(parents=True, exist_ok=True)
-    report = {'passed': False, 'head': head, 'action': args.action}
+    report = {'passed': False, 'head': head, 'action': args.action, 'diagnosis': 'Not established'}
     try:
-        report.update(verify_container() if args.action == 'verify' else measure_pulls())
+        if args.action == 'bind-python-cache':
+            require(os.environ.get('GITHUB_ACTIONS') == 'true'
+                    and os.environ.get('READER_PLAYWRIGHT_IMAGE') == IMAGE
+                    and os.environ.get('RUNNER_TOOL_CACHE') == '/__t',
+                    'Tool-cache binding requires the declared hosted container mount')
+            report.update(bind_python_cache_paths('/__t', '/opt/hostedtoolcache'))
+        else:
+            report.update(verify_container() if args.action == 'verify' else measure_pulls())
     finally:
         report['commands'] = COMMANDS
         with (output / (args.action + '.json')).open('x') as stream:

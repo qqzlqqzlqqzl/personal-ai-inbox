@@ -80,3 +80,22 @@ The independent image-pull job succeeded: the image was initially absent; first
 pull 29.035926 seconds, same-runner second pull 0.296657 seconds. Container job
 initialization took 31 seconds. These are setup observations, not full-suite
 performance acceptance; the failure and original logs are retained.
+
+Second hosted trial (`aa3544c`, run `37185380760`) passed the exact checkout
+binding and fresh-evidence preparation, then failed in setup-python's unchanged
+pip-cache step: spawning `/__t/Python/3.12.14/x64/bin/pip` returned ENOENT.
+Image initialization took 52 seconds; functional tests still did not run. The
+log alone does not establish whether the pip file or its shebang target was
+missing. Its single-file preparation artifact is not regression evidence.
+
+The next preflight reads the actual exact-version pip shebang in the hosted
+container. Before any path change it runs the existing interpreter with an
+isolated probe and that version's library directory, requiring CPython 3.12.14,
+the exact executable and prefix. Only a proven original
+`/opt/hostedtoolcache/Python/3.12.14/x64/bin/python*` reference can cause creation
+of `/opt/hostedtoolcache -> /__t`. Unknown targets, conflicting existing paths
+and incomplete distributions fail. Existing contents, owners, modes, package
+cache behavior, the pinned setup-python action and all later identity checks are
+unchanged. The receipt distinguishes a confirmed mismatch from cases where the
+hypothesis was not established. A synthetic kernel-level shebang counterexample
+and negative identity cases are retained; actual hosted confirmation is pending.

@@ -1,5 +1,6 @@
 """Offline rejection and workflow coverage for the official image trial."""
 import copy
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -150,6 +151,79 @@ class CheckoutBindingTests(unittest.TestCase):
         self.assertEqual(trusted.returncode, 0, trusted.stderr)
         self.assertEqual(other.returncode, 128)
         self.assertIn('dubious ownership', other.stderr)
+
+
+class PythonCacheBindingTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix='reader-python-prefix-retained-'))
+        self.cache = self.base / 'mounted-cache'
+        self.bin = self.cache / 'Python/3.12.14/x64/bin'
+        self.bin.mkdir(parents=True)
+        self.prefix = self.base / 'original-cache-prefix'
+        self.python = self.bin / 'python3.12'
+        # Synthetic executable tests the OS shebang failure, not Python version acceptance.
+        self.python.write_text('#!/bin/sh\nprintf "synthetic-interpreter-reached\\n"\n')
+        self.python.chmod(0o755)
+        self.pip = self.bin / 'pip'
+        self.pip.write_text('#!' + str(self.prefix / 'Python/3.12.14/x64/bin/python3.12') + '\n# synthetic pip fixture\n')
+        self.pip.chmod(0o755)
+
+    def identity(self, **overrides):
+        return subprocess.CompletedProcess([], 0, json.dumps({
+            'version': [3, 12, 14], 'implementation': 'cpython',
+            'executable': str(self.python), 'prefix': str(self.bin.parent), **overrides}), '')
+
+    def test_actual_missing_shebang_target_then_exact_mapping_without_rewrite(self):
+        before = self.pip.read_bytes()
+        with self.assertRaises(FileNotFoundError):
+            subprocess.run([str(self.pip), 'cache', 'dir'], check=True, capture_output=True, timeout=10)
+        # The identity boundary is mocked; the kernel shebang failure/recovery is real.
+        with patch.object(trial, 'run', return_value=self.identity()):
+            result = trial.bind_python_cache_paths(self.cache, self.prefix)
+        self.assertTrue(result['mapping_created'])
+        actual = subprocess.run([str(self.pip), 'cache', 'dir'], check=True,
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(actual.stdout, 'synthetic-interpreter-reached\n')
+        self.assertEqual(self.pip.read_bytes(), before)
+        with patch.object(trial, 'run', return_value=self.identity()):
+            self.assertFalse(trial.bind_python_cache_paths(self.cache, self.prefix)['mapping_created'])
+
+    def test_conflicting_prefix_is_retained_and_rejected(self):
+        self.prefix.mkdir()
+        sentinel = self.prefix / 'keep'
+        sentinel.write_text('retained')
+        with patch.object(trial, 'run', return_value=self.identity()), self.assertRaisesRegex(ValueError, 'conflicts'):
+            trial.bind_python_cache_paths(self.cache, self.prefix)
+        self.assertEqual(sentinel.read_text(), 'retained')
+
+    def test_unknown_shebang_and_wrong_version_do_not_create_alias(self):
+        for interpreter in ['/unrecognized/python3.12',
+                            str(self.prefix / 'Python/3.13.0/x64/bin/python3.12')]:
+            with self.subTest(interpreter=interpreter):
+                self.pip.write_text('#!' + interpreter + '\n')
+                with self.assertRaises(ValueError):
+                    trial.bind_python_cache_paths(self.cache, self.prefix)
+                self.assertFalse(self.prefix.exists())
+
+    def test_actual_interpreter_identity_mismatch_prevents_mapping(self):
+        for change in [{'version': [3, 12, 3]}, {'implementation': 'pypy'},
+                       {'executable': '/unrelated/python'}, {'prefix': '/unrelated/prefix'}]:
+            with self.subTest(change=change), patch.object(trial, 'run', return_value=self.identity(**change)), \
+                    self.assertRaises(ValueError):
+                trial.bind_python_cache_paths(self.cache, self.prefix)
+            self.assertFalse(self.prefix.exists())
+
+    def test_uncached_distribution_leaves_original_installer_responsible(self):
+        untouched = self.base / 'empty-cache'
+        untouched.mkdir()
+        result = trial.bind_python_cache_paths(untouched, self.prefix)
+        self.assertFalse(result['mapping_created'])
+        self.assertFalse(self.prefix.exists())
+
+    def test_workflow_keeps_original_python_action_cache_and_exact_version(self):
+        text = (Path(__file__).resolve().parents[1] / '.github/workflows/reader-container-trial.yml').read_text()
+        self.assertLess(text.index(' bind-python-cache '), text.index('uses: actions/setup-python@'))
+        self.assertIn("python-version: '3.12.14'\n          cache: pip\n          cache-dependency-path: requirements.dev.lock.txt", text)
 
 
 if __name__ == '__main__':

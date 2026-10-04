@@ -42,6 +42,8 @@ jobs:
       - name: Prepare fresh evidence paths while retaining old output
         id: prepare_evidence
         run: timeout --signal=TERM --kill-after=10s 60s python3 tests/ci_prepare_evidence.py --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Preserve cached Python shebangs across the exact container tool-cache mount
+        run: timeout --signal=TERM --kill-after=10s 60s python3 tests/ci_playwright_container.py bind-python-cache --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12.14'
