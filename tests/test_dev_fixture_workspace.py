@@ -177,6 +177,46 @@ class Contract(unittest.TestCase):
         with self.assertRaises(FileExistsError): w.write_new(path, {"x": 2})
         self.assertEqual(path.read_bytes(), before)
 
+    def test_write_and_read_reject_symlinked_parent(self):
+        outside = self.parent / "outside-target"; outside.mkdir()
+        parent = self.root / "linked-parent"; parent.symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(w.Rejected): w.write_new(parent / "receipt.json", {"synthetic": True})
+        self.assertEqual(list(outside.iterdir()), [])
+        (outside / "existing.json").write_text('{"synthetic":true}')
+        with self.assertRaises(w.Rejected): w.read_json(parent / "existing.json")
+
+    def test_publication_parent_swap_keeps_both_link_ends_bound_and_rejects_success(self):
+        inside = self.root / "swap-parent"; inside.mkdir()
+        retained = self.root / "retained-parent"
+        outside = self.parent / "outside-swap-target"; outside.mkdir()
+        original = os.link
+        def swap_then_link(source, target, **kwargs):
+            self.assertEqual(kwargs["src_dir_fd"], kwargs["dst_dir_fd"])
+            self.assertFalse(Path(source).is_absolute())
+            self.assertFalse(Path(target).is_absolute())
+            inside.rename(retained)
+            inside.symlink_to(outside, target_is_directory=True)
+            return original(source, target, **kwargs)
+        with patch.object(w.os, "link", swap_then_link), self.assertRaises(w.Rejected):
+            w.write_new(inside / "receipt.json", {"synthetic": True})
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(w.read_json(retained / "receipt.json"), {"synthetic": True})
+
+    def test_worker_exception_receipt_cannot_write_through_replaced_parent(self):
+        process = self.launch_synthetic()
+        try:
+            outside = self.parent / "outside-receipts"; outside.mkdir()
+            (self.root / "receipts").rename(self.root / "retained-receipts")
+            (self.root / "receipts").symlink_to(outside, target_is_directory=True)
+            request = self.request("status")
+            w.write_new(self.root / "commands" / self.instance / (request["id"] + ".json"), request)
+            process.join(timeout=3)
+            self.assertEqual(process.exitcode, 1)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertTrue(list((self.root / "retained-receipts").glob("*.json")))
+        finally:
+            if process.is_alive(): process.terminate(); process.join(timeout=3)
+
     def test_environment_allowlist_and_headed_validation(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic", "AI_NEWS_ROOT": "/production", "DISPLAY": ":9"}):
             env = w.clean_env(self.root)

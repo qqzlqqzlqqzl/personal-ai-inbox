@@ -72,6 +72,13 @@ special-file control paths are rejected. A timeout means no acknowledgment was
 obtained: inspect receipts before retrying a mutation. A stale running receipt
 never counts as a live process. A stopped/failed receipt is returned as not live.
 
+Control JSON reads and every receipt/response publication open each parent
+component with directory file descriptors and `O_NOFOLLOW`. Staging creation and
+both ends of the final hardlink use the same bound directory descriptor. A
+parent replacement during publication cannot redirect bytes elsewhere and is
+rejected rather than acknowledged; any completed bytes remain in the original
+directory as retained evidence. This also covers exception-path receipt writes.
+
 Reset first records screenshot (or screenshot failure), page errors, denied
 requests, fixture calls/writes, browser storage and session storage. Only after
 the evidence file is safely published does it close the old browser/server.

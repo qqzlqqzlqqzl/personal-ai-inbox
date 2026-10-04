@@ -78,6 +78,28 @@ def tree_manifest(path):
     return digest, records
 
 
+@contextlib.contextmanager
+def directory_fd(value):
+    """Bind every path component without following symlinks, including parents."""
+    path = checked_path(value)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open(path.anchor, flags)
+    try:
+        for part in path.parts[1:]:
+            following = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = following
+        yield fd
+        # Keep any already-written evidence in the bound directory, but do not
+        # acknowledge success if its pathname was replaced during publication.
+        checked_path(path)
+        current, bound = path.stat(), os.fstat(fd)
+        if (current.st_dev, current.st_ino) != (bound.st_dev, bound.st_ino):
+            raise Rejected("control parent changed during operation")
+    finally:
+        os.close(fd)
+
+
 def write_new(path, data):
     """Never replace or delete evidence. Parent must already be owned."""
     raw = json.dumps(data, ensure_ascii=True, sort_keys=True, indent=2).encode() + b"\n"
@@ -85,20 +107,23 @@ def write_new(path, data):
     path = Path(path)
     # Publish complete JSON atomically. Preserve the staging link as evidence;
     # link() also refuses an existing final path instead of overwriting it.
-    staged = path.with_name(f".{path.name}.pending-{uuid.uuid4().hex}")
-    with os.fdopen(os.open(staged, flags, 0o600), "wb") as stream:
-        stream.write(raw)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.link(staged, path, follow_symlinks=False)
+    staged = f".{path.name}.pending-{uuid.uuid4().hex}"
+    with directory_fd(path.parent) as parent:
+        with os.fdopen(os.open(staged, flags, 0o600, dir_fd=parent), "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(staged, path.name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
 
 
 def read_json(path):
+    path = Path(path)
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-    with os.fdopen(os.open(path, flags), "rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise Rejected("regular JSON file required")
-        raw = stream.read(LIMIT + 1)
+    with directory_fd(path.parent) as parent:
+        with os.fdopen(os.open(path.name, flags, dir_fd=parent), "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise Rejected("regular JSON file required")
+            raw = stream.read(LIMIT + 1)
     if len(raw) > LIMIT:
         raise Rejected("oversize control JSON")
     def pairs(items):
