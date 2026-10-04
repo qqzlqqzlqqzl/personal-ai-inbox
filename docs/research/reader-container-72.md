@@ -99,3 +99,18 @@ cache behavior, the pinned setup-python action and all later identity checks are
 unchanged. The receipt distinguishes a confirmed mismatch from cases where the
 hypothesis was not established. A synthetic kernel-level shebang counterexample
 and negative identity cases are retained; actual hosted confirmation is pending.
+
+Third hosted trial (`cfa2539`, run `37187282911`) confirmed the cached pip's
+missing absolute interpreter prefix. Its receipt observed CPython 3.12.14,
+`/__t/Python/3.12.14/x64`, and the unchanged interpreter and pip hashes before
+creating the exact mapping. Pip then started successfully, but the original
+cache action rejected `/github/home/.cache/pip`: that host-mounted home was not
+owned by the container's root user. Functional tests still did not run. Image
+initialization took 42 seconds.
+
+The next change sets only the container job's `PIP_CACHE_DIR` to
+`/root/.cache/pip`. This uses the official image user's own home and preserves
+pip's ownership validation plus the original setup-python cache restore/save.
+It does not chown, chmod, delete or rewrite the host-mounted cache, and leaves the
+native baseline unchanged. Any initial miss for the different cache path must
+be counted as cold setup cost; cache keys are not churned to manufacture results.

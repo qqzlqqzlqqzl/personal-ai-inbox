@@ -221,9 +221,12 @@ class PythonCacheBindingTests(unittest.TestCase):
         self.assertFalse(self.prefix.exists())
 
     def test_workflow_keeps_original_python_action_cache_and_exact_version(self):
-        text = (Path(__file__).resolve().parents[1] / '.github/workflows/reader-container-trial.yml').read_text()
+        workflows = Path(__file__).resolve().parents[1] / '.github/workflows'
+        text = (workflows / 'reader-container-trial.yml').read_text()
         self.assertLess(text.index(' bind-python-cache '), text.index('uses: actions/setup-python@'))
         self.assertIn("python-version: '3.12.14'\n          cache: pip\n          cache-dependency-path: requirements.dev.lock.txt", text)
+        self.assertIn('PIP_CACHE_DIR: /root/.cache/pip', text)
+        self.assertNotIn('PIP_CACHE_DIR:', (workflows / 'reader-regression.yml').read_text())
 
 
 if __name__ == '__main__':
