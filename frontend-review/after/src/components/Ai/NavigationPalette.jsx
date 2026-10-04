@@ -26,24 +26,33 @@ export default function NavigationPalette({ onConsole, launchRef, beforeLaunch, 
   const [open, setOpen] = useState(false), [query, setQuery] = useState(''), [index, setIndex] = useState(0)
   const all = useMemo(() => navigationCommands(feeds, categories), [feeds, categories])
   const matched = useMemo(() => matchCommands(all, query), [all, query]), shown = matched.slice(0, 50)
-  const launch = () => {
+  const cancelPendingFocus = () => {
+    const ticket = pendingFocus.current
     pendingFocus.current = null
+    if (ticket) clearTimeout(ticket.cancelTimer)
+  }
+  const launch = () => {
+    cancelPendingFocus()
     beforeLaunch?.()
     if (anotherDialogOpen(dialog.current)) return
     opener.current = document.activeElement
     setQuery(''); setIndex(0); setOpen(true)
   }
   const close = () => {
+    cancelPendingFocus()
     setOpen(false); dialog.current?.close()
     const expectedCompact = window.matchMedia?.(COMPACT_READER_QUERY)?.matches ?? compact
-    const ticket = { opener: opener.current, target: null, expectedCompact }
+    const ticket = { opener: opener.current, target: null, expectedCompact, expiresAt: performance.now() + 1000 }
     pendingFocus.current = ticket
     returnFocus(ticket)
     // Only a media event awaiting its React commit can keep restoration rights.
-    if (expectedCompact === compact) pendingFocus.current = null
+    if (expectedCompact === compact) cancelPendingFocus()
+    else if (pendingFocus.current === ticket) ticket.cancelTimer = setTimeout(() => {
+      if (pendingFocus.current === ticket) cancelPendingFocus()
+    }, 1000)
   }
   const returnFocus = ticket => {
-    if (anotherDialogOpen(dialog.current)) { pendingFocus.current = null; return }
+    if (anotherDialogOpen(dialog.current)) { cancelPendingFocus(); return }
     for (const target of [ticket.opener, returnFocusRef?.current, trigger.current]) {
       if (!canReturnFocus(target)) continue
       ticket.target = target
@@ -52,28 +61,39 @@ export default function NavigationPalette({ onConsole, launchRef, beforeLaunch, 
     }
   }
   useLayoutEffect(() => {
-    if (open) { pendingFocus.current = null; return }
+    if (open) { cancelPendingFocus(); return }
     const ticket = pendingFocus.current
+    if (ticket && (performance.now() >= ticket.expiresAt || window.matchMedia?.(COMPACT_READER_QUERY)?.matches !== ticket.expectedCompact)) {
+      cancelPendingFocus(); return
+    }
     // The close commit can precede the held media callback. Do not consume it.
     if (!ticket || compact !== ticket.expectedCompact) return
     const active = document.activeElement
     if (!canReturnFocus(ticket.target) && (active === ticket.target || active === document.body)) returnFocus(ticket)
-    pendingFocus.current = null
+    cancelPendingFocus()
   }, [open, compact])
   useEffect(() => {
-    const cancel = () => { pendingFocus.current = null }
+    const cancel = cancelPendingFocus
     const focus = event => {
       const ticket = pendingFocus.current
-      if (ticket && event.target !== ticket.target && event.target !== document.body) cancel()
+      if (ticket && event.target !== ticket.target) cancel()
+    }
+    const media = window.matchMedia?.(COMPACT_READER_QUERY)
+    const resize = event => {
+      const ticket = pendingFocus.current
+      // Queued media events must retain their own value, including reversals.
+      if (ticket && event.matches !== ticket.expectedCompact) cancel()
     }
     document.addEventListener('pointerdown', cancel, true)
     document.addEventListener('keydown', cancel, true)
     document.addEventListener('focusin', focus, true)
+    media?.addEventListener('change', resize)
     return () => {
       cancel()
       document.removeEventListener('pointerdown', cancel, true)
       document.removeEventListener('keydown', cancel, true)
       document.removeEventListener('focusin', focus, true)
+      media?.removeEventListener('change', resize)
     }
   }, [])
   if (launchRef) launchRef.current = launch
@@ -96,6 +116,7 @@ export default function NavigationPalette({ onConsole, launchRef, beforeLaunch, 
   const select = command => {
     if (!command) return
     close()
+    cancelPendingFocus()
     if (command.console) { onConsole(); return }
     if (command.unread) updateSettings({ showStatus: 'unread' })
     navigate(command.path)

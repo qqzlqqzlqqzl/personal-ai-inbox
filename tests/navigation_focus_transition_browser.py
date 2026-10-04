@@ -19,7 +19,7 @@ INIT="""(() => {
  };
 })()"""
 reports=[]
-cases=['close-before-commit','commit-before-close','user-focus','user-pointer-blank','user-keyboard','reopen','new-modal','desktop-to-mobile','no-stale-ticket']
+cases=['close-before-commit','commit-before-close','user-focus','user-pointer-blank','user-keyboard','user-body-focus','reopen','new-modal','desktop-to-mobile','no-stale-ticket','issued-ticket-reversal','issued-ticket-expiry']
 for case in cases:
     mobile=case!='desktop-to-mobile'
     h=Harness('navigation-focus-'+case,has_touch=True,is_mobile=True,viewport={'width':390 if mobile else 900,'height':844 if mobile else 900})
@@ -37,7 +37,6 @@ for case in cases:
         external=p.locator('#focus-external')
         if case=='no-stale-ticket':
             p.keyboard.press('Escape');expect(status).to_be_focused()
-            p.evaluate("document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))")
             p.evaluate('window.focusTransition.hold=true')
         else:p.evaluate('window.focusTransition.hold=true')
         p.set_viewport_size({'width':900 if mobile else 390,'height':900 if mobile else 844})
@@ -49,23 +48,36 @@ for case in cases:
         if case=='user-focus':external.evaluate('(node)=>node.focus()');expect(external).to_be_focused()
         if case=='user-pointer-blank':p.evaluate("document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))")
         if case=='user-keyboard':
-            p.keyboard.press('Tab');external.evaluate('(node)=>node.focus()');expect(external).to_be_focused()
+            p.keyboard.press('ArrowLeft');expect(status).to_be_focused()
+        if case=='user-body-focus':
+            p.evaluate('document.body.tabIndex=-1;document.body.focus()');expect(p.locator('body')).to_be_focused()
+        if case=='issued-ticket-reversal':
+            queued=p.evaluate('window.focusTransition.queue.length')
+            p.set_viewport_size({'width':390,'height':844})
+            p.wait_for_function('count => window.focusTransition.queue.length>count',arg=queued,timeout=5000)
+        if case=='issued-ticket-expiry':p.wait_for_timeout(1200)
         if case=='reopen':
             p.keyboard.press('Control+k');expect(p.locator('.review-navigation-dialog')).to_be_visible()
         if case=='new-modal':
             p.evaluate("const d=document.createElement('dialog');d.id='fixture-new-modal';d.innerHTML='<button id=fixture-modal-focus>new modal focus</button>';document.body.append(d);d.showModal();d.querySelector('button').focus()")
             expect(p.locator('#fixture-modal-focus')).to_be_focused()
         p.evaluate('flushFocusTransition()')
+        if case=='issued-ticket-reversal':
+            expect(status).to_be_visible()
+            p.set_viewport_size({'width':900,'height':900})
         if mobile:expect(status).to_have_count(0);expect(desktop).to_be_visible()
         else:expect(status).to_be_visible();expect(desktop).to_be_hidden()
         if case in ['close-before-commit','commit-before-close']:expect(desktop).to_be_focused()
         elif case=='desktop-to-mobile':expect(status).to_be_focused()
-        elif case in ['user-focus','user-keyboard']:expect(external).to_be_focused()
-        elif case in ['user-pointer-blank','no-stale-ticket']:expect(desktop).not_to_be_focused()
+        elif case=='user-focus':expect(external).to_be_focused()
+        elif case in ['user-pointer-blank','user-keyboard','user-body-focus','no-stale-ticket','issued-ticket-reversal','issued-ticket-expiry']:expect(desktop).not_to_be_focused()
         elif case=='reopen':
             expect(p.locator('.review-navigation-dialog')).to_be_visible()
             expect(p.get_by_role('combobox',name='搜索视图、分类或订阅')).to_be_focused()
         elif case=='new-modal':expect(p.locator('#fixture-modal-focus')).to_be_focused()
+        if case=='no-stale-ticket':
+            p.set_viewport_size({'width':390,'height':844});expect(status).to_be_visible()
+            p.set_viewport_size({'width':900,'height':900});expect(desktop).to_be_visible();expect(desktop).not_to_be_focused()
         h.check('focus_contract_'+case,True)
         h.check('zero_api_writes',not h.writes)
         record=p.evaluate("({active:{tag:document.activeElement.tagName,cls:document.activeElement.className,id:document.activeElement.id},navigationOpen:!!document.querySelector('.review-navigation-dialog[open]'),queued:window.focusTransition.queue.length})")

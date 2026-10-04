@@ -20,6 +20,7 @@ UPLOAD_PATHS = (
     'runtime/mobile-reading-metrics.json', 'runtime/reader-panel-transition/',
     'runtime/calendar-*/', 'runtime/browser-build/',
     'runtime/dev-fixture-workspace-browser/',
+    'runtime/navigation-focus-*/',
 )
 
 
