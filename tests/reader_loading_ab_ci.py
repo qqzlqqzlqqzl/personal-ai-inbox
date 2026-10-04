@@ -257,21 +257,30 @@ def measure(root, mode):
                 save_new(root / 'evidence' / f'sample-{item["ordinal"]:02d}-finished.json', observation)
                 collect_sample(root, folder, item['ordinal'])
         validate_order(observations)
+        require(time.monotonic() < deadline, 'whole A/B deadline exhausted before aggregation')
         before, after = (aggregate(results[side], side, instruments) for side in SIDES)
+        require(time.monotonic() < deadline, 'whole A/B deadline exhausted during aggregation')
         require(all(before[key] == after[key] for key in ('browser_executable_sha256', 'playwright', 'python', 'instrument_manifest')),
                 'A/B executable, interpreter or instruments differ')
         save_new(root / 'evidence/baseline-result.json', before)
         save_new(root / 'evidence/candidate-result.json', after)
+        require(time.monotonic() < deadline, 'whole A/B deadline exhausted before comparison')
         comparison = compare(before, after)
         comparison.update(schedule=observations, instrument_sha256=instruments['sha256'], input_specs=spec,
                           candidate_full_regression_passed=spec['inputs']['candidate']['producer_conclusion'] == 'success')
+        require(time.monotonic() < deadline, 'whole A/B deadline exhausted during comparison')
         save_new(root / 'evidence/comparison.json', comparison)
+        require(time.monotonic() < deadline, 'whole A/B deadline exhausted before success receipt')
         report['status'] = 'PASSED'
     except Exception as exc:
         report.update(error_type=type(exc).__name__, error=str(exc))
         raise
     finally:
+        expired_at_receipt = report['status'] == 'PASSED' and time.monotonic() >= deadline
+        if expired_at_receipt:
+            report.update(status='FAILED', error_type='TimeoutError', error='whole A/B deadline exhausted before final receipt')
         save_new(root / 'evidence/ab-result.json', report)
+        require(not expired_at_receipt, 'whole A/B deadline exhausted before final receipt')
 
 
 def aggregate(samples, side, instruments):

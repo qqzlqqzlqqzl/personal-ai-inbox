@@ -137,6 +137,53 @@ class OrderContracts(unittest.TestCase):
 
 
 class WorkflowContracts(unittest.TestCase):
+    def test_actual_comparator_cannot_publish_success_after_whole_deadline(self):
+        from test_reader_loading_performance import SamplingContract
+        from reader_loading_transport import GZIP, profile_identity
+        for late_stage in ('aggregate', 'compare', 'comparison-write'):
+            with self.subTest(stage=late_stage):
+                root=Path(tempfile.mkdtemp(prefix='reader-ab-deadline-control-'))
+                for name in ('work','inputs','evidence'):(root/name).mkdir(mode=0o700)
+                spec=ab.load_spec();clock=[100.0]
+                actual_compare=ab.compare;actual_aggregate=ab.aggregate;actual_save=ab.save_new
+                class SampleProcess:
+                    def __init__(self,args,**kwargs):
+                        val=lambda key:args[args.index(key)+1]
+                        side=val('--phase');index=int(val('--pair-index'))
+                        row=SamplingContract().row(side)
+                        row.update(pairs_requested=1,pairs=[row['pairs'][index-1]],
+                            identity={key:spec['inputs'][side][key] for key in ('head','tree','src')},
+                            browser_version='153.0.8010.12',browser_executable_sha256=ab.BROWSER_SHA,
+                            playwright='1.63.0',python='3.12.14',transport_profile=profile_identity(GZIP))
+                        row['pairs'][0]['transport_profile']=profile_identity(GZIP)
+                        output=Path(val('--output-parent'))/'reader-perf-synthetic';output.mkdir(mode=0o700)
+                        (output/'result.json').write_text(json.dumps(row))
+                    def wait(self,timeout):return 0
+                    def poll(self):return 0
+                def wrapped_aggregate(*args):
+                    result=actual_aggregate(*args)
+                    if late_stage=='aggregate':clock[0]=691
+                    return result
+                def wrapped_compare(*args):
+                    result=actual_compare(*args)
+                    if late_stage=='compare':clock[0]=691
+                    return result
+                def wrapped_save(path,value):
+                    result=actual_save(path,value)
+                    if late_stage=='comparison-write' and path.name=='comparison.json':clock[0]=691
+                    return result
+                with patch.object(ab,'assert_checkout',return_value={'mode':'keyboard'}), \
+                     patch.object(ab,'instrument_manifest',return_value={'sha256':'synthetic'}), \
+                     patch.object(ab,'browser_env',return_value={}), \
+                     patch.dict(os.environ,{'PLAYWRIGHT_BROWSERS_PATH':str(root)}), \
+                     patch.object(ab.subprocess,'Popen',SampleProcess), \
+                     patch.object(ab.time,'monotonic',side_effect=lambda:clock[0]), \
+                     patch.object(ab,'aggregate',side_effect=wrapped_aggregate), \
+                     patch.object(ab,'compare',side_effect=wrapped_compare), \
+                     patch.object(ab,'save_new',side_effect=wrapped_save), self.assertRaises(ValueError):
+                    ab.measure(root,'keyboard')
+                self.assertEqual(json.loads((root/'evidence/ab-result.json').read_text())['status'],'FAILED')
+
     def test_same_pins_minimal_read_permissions_and_no_job_runner_context(self):
         text=(ab.ROOT/'.github/workflows/reader-loading-ab.yml').read_text()
         self.assertIn('runs-on: ubuntu-22.04',text)
