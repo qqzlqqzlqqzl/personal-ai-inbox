@@ -71,8 +71,8 @@ jobs:
         run: timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py
       - name: Install Chromium system dependencies
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
-      - name: Install hosted Chromium headless shell
-        # The browser tests launch headless Chromium without a channel override.
+      - name: Install hosted Chromium and headless shell
+        # Native zoom additionally launches headed Chromium under Xvfb.
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install chromium
       - name: Browser fulltext request, redirect and popup admission
         env:

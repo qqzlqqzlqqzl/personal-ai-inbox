@@ -39,17 +39,22 @@ try:
     h.check('native_dpr_and_css_viewport_changed',abs(metrics['dpr']/baseline['dpr']-2)<.05 and abs(metrics['width']/baseline['width']-.5)<.05)
     h.check('no_css_zoom_substitute',metrics['cssZoom']=='')
     h.check('native_200_document_no_horizontal_overflow',metrics['documentWidth']<=metrics['width'])
-    expect(p.get_by_role('button',name='关闭文章',exact=True)).to_be_visible()
+    close=p.get_by_role('button',name='关闭文章',exact=True)
+    for control in (close,note):
+        control.scroll_into_view_if_needed();control.click(trial=True);control.focus();expect(control).to_be_focused()
+        h.check('native_200_'+('close' if control==close else 'note')+'_intersects_viewport',control.evaluate('e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.left<innerWidth&&r.right>0&&r.top<innerHeight&&r.bottom>0}'))
     expect(note).to_be_enabled();expect(note).to_have_value(h.notes['101'])
     h.check('native_200_close_and_note_reachable')
     heading=p.locator('.article-content h2').first;expect(heading).to_contain_text(title)
-    heading.scroll_into_view_if_needed();p.evaluate('document.fonts.ready')
+    heading.scroll_into_view_if_needed();p.evaluate('document.fonts.ready');p.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
     session=ctx.new_cdp_session(p);session.send('DOM.enable');session.send('CSS.enable')
     root=session.send('DOM.getDocument')['root']['nodeId']
     node=session.send('DOM.querySelector',{'nodeId':root,'selector':'.article-content h2'})['nodeId']
     fonts=session.send('CSS.getPlatformFontsForNode',{'nodeId':node})['fonts']
-    h.check('native_200_actual_cjk_glyphs',any('CJK' in f['familyName'] and f['glyphCount']>0 and not f['isCustomFont'] for f in fonts))
+    (h.out/'native-metrics.json').write_text(json.dumps({'native_zoom':zoom,'baseline':baseline,'observed':metrics,'rendered_fonts':fonts,'heading':heading.evaluate('e=>({html:e.outerHTML,rect:e.getBoundingClientRect().toJSON(),font:getComputedStyle(e).fontFamily})'),'method':'chrome.tabs.setZoom/getZoom in headed Chromium/Xvfb','physical_android_ios':False},ensure_ascii=False,indent=2))
     shot=p.screenshot(path=str(h.out/'native-200.png'))
+    print('Rendered fonts:',json.dumps(fonts,ensure_ascii=False),flush=True)
+    h.check('native_200_actual_cjk_glyphs',any('CJK' in f['familyName'] and f['glyphCount']>0 and not f['isCustomFont'] for f in fonts))
     offset=8;compressed=b''
     while offset<len(shot):
         size=struct.unpack('>I',shot[offset:offset+4])[0];kind=shot[offset+4:offset+8]
@@ -57,7 +62,6 @@ try:
         offset+=size+12
     h.check('native_200_visual_capture_not_blank',len(set(zlib.decompress(compressed)))>8)
     h.check('native_200_does_not_save_note',not h.note_writes)
-    (h.out/'native-metrics.json').write_text(json.dumps({'native_zoom':zoom,'baseline':baseline,'observed':metrics,'rendered_fonts':fonts,'method':'chrome.tabs.setZoom/getZoom in headed Chromium/Xvfb','physical_android_ios':False},ensure_ascii=False,indent=2))
     assert worker.evaluate('([url,value])=>zoomFixture(url,value)',[p.url,1])==1
 except Exception as exc:
     h.errors.append(type(exc).__name__+': '+str(exc)[:500]);raise
