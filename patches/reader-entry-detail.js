@@ -1,5 +1,5 @@
 // Bind detail hydration to the current reader activation, route and data session.
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useStore } from '@nanostores/react'
 import { getEntry } from '@/apis'
 import { contentState, setActiveContent, setIsArticleLoading } from '@/store/contentState'
@@ -8,22 +8,29 @@ import { authState } from '@/store/authState'
 import { getAuthSessionKey } from '@/utils/auth'
 import prepareEntry from '@/utils/entry-presentation'
 
+let closeIntentRevision = 0
+
+export function invalidateReaderEntryDetail() {
+  closeIntentRevision += 1
+  setIsArticleLoading(false)
+}
+
 export default function useReaderEntryDetail({ entryId, source, sourceId, activeContent, entryRequestIdRef, restoreEntryListFocus }) {
   const { sessionRevision } = useStore(dataState, { keys: ['sessionRevision'] })
   const routeKey = JSON.stringify([source, sourceId ?? null, entryId ?? null])
   const currentRoute = useRef(routeKey)
-  currentRoute.current = routeKey
+  useLayoutEffect(() => { currentRoute.current = routeKey }, [routeKey])
   const previousRoute = useRef(null)
   const pendingOwner = useRef(null)
   const selection = useRef({ generation: 0, active: contentState.get().activeContent })
 
   useEffect(() => {
     const stop = contentState.listen(({ activeContent: next }) => {
-    const previous = selection.current.active
-    if (next !== previous) {
-      if (!next || !previous || next.id !== previous.id) selection.current.generation += 1
-      selection.current.active = next
-    }
+      const previous = selection.current.active
+      if (next !== previous) {
+        if (!next || !previous || next.id !== previous.id) selection.current.generation += 1
+        selection.current.active = next
+      }
     })
     return () => {
       stop()
@@ -39,11 +46,13 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
     const requestSession = getDataSessionRevision()
     const requestAuth = getAuthSessionKey(authState.get())
     const requestGeneration = selection.current.generation
+    const requestCloseIntent = closeIntentRevision
     const requestActive = contentState.get().activeContent
     const isCurrent = () => entryRequestIdRef.current === requestId &&
       currentRoute.current === requestRoute && getDataSessionRevision() === requestSession &&
       getAuthSessionKey(authState.get()) === requestAuth &&
-      selection.current.generation === requestGeneration && contentState.get().activeContent === requestActive
+      selection.current.generation === requestGeneration && closeIntentRevision === requestCloseIntent &&
+      contentState.get().activeContent === requestActive
     pendingOwner.current = { requestId, isCurrent }
     const numericId = Number(requestedId)
     const existing = contentState.get().entries.find(entry => entry.id === numericId)

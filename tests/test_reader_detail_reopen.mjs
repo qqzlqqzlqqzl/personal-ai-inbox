@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -46,7 +47,7 @@ const fixtures = {
  '@/components/Article/ArticleDetail': `import {useStore} from '@nanostores/react';export default function Detail(){const {activeContent:e}=useStore(F.content);return <article><h1>{e?.title}</h1><div className="article-body"><div data-original dangerouslySetInnerHTML={{__html:e?.content||''}}/><section data-note>我的笔记</section></div></article>}`,
 }
 const leaf = /(?:FooterPanel|AiToolbar|ActionButtons|ArticleList|SearchAndSortBar|FadeTransition)$/
-await build({stdin:{contents:`export {default as Content} from '${webRoot}/src/components/Content/Content.jsx';export {ContextProvider,ContentContext} from '${webRoot}/src/components/Content/ContentContext.jsx'`,loader:'jsx',resolveDir:webRoot},bundle:true,platform:'node',format:'cjs',jsx:'automatic',outfile:out,
+await build({stdin:{contents:`export {default as Content} from '${webRoot}/src/components/Content/Content.jsx';export {ContextProvider,ContentContext} from '${webRoot}/src/components/Content/ContentContext.jsx';${existsSync(join(webRoot,'src/utils/reader-entry-detail.js'))?`export {default as useReaderEntryDetail} from '${webRoot}/src/utils/reader-entry-detail.js'`:''}`,loader:'jsx',resolveDir:webRoot},bundle:true,platform:'node',format:'cjs',jsx:'automatic',outfile:out,
  plugins:[{name:'controlled-boundaries',setup(b){
   b.onResolve({filter:/^(react(?:\/.*)?|nanostores|@nanostores\/react|validator\/lib\/isURL)$/},({path})=>({path:web.resolve(path),external:true}))
   b.onResolve({filter:/\.css$/},()=>({path:'empty',namespace:'fixture'}))
@@ -172,6 +173,48 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
  const t=await setup('batched-close-reopen-without-intermediate-react-render')
  await act(async()=>{F.actions.closeActiveContent();F.actions.handleEntryClick(dtos(1))})
  assert.equal(F.requests.length,2);await t.complete(1,1);original(1);await finish(t)
+}
+{
+ const t=await setup('explicit-close-of-null-active-deep-link-cancels-late-response', {initialPath:'/inbox/all/entry/1',cold:false})
+ assert.equal(F.requests.length,1);assert.equal(F.content.get().activeContent,null)
+ await close();assert.equal(F.requests.length,1);assert.equal(F.content.get().isArticleLoading,false)
+ await t.complete(0,1);assert.equal(F.content.get().activeContent,null);assert.equal(F.requests.length,1)
+ await finish(t)
+}
+{
+ const t=await setup('abandoned-concurrent-route-render-preserves-committed-owner',{cold:false});await act(async()=>t.root.unmount())
+ const {useReaderEntryDetail}=createRequire(import.meta.url)(out)
+ const never=new Promise(()=>{}),seen=[],commits=[];const restore=()=>{}
+ function Host(){
+  const [route,setRoute]=React.useState({id:'1',block:false});F.setRoute=setRoute
+  const requestRef=React.useRef(0),state=useStore(F.content)
+  useReaderEntryDetail({entryId:route.id,source:'all',sourceId:null,activeContent:state.activeContent,entryRequestIdRef:requestRef,restoreEntryListFocus:restore})
+  React.useLayoutEffect(()=>{commits.push(route.id)},[route.id])
+  if(route.block){seen.push(route.id);throw never}
+  return React.createElement('div',{'data-current-route':route.id},'committed '+route.id)
+ }
+ const root=createRoot(document.querySelector('#root'))
+ await act(async()=>root.render(React.createElement(React.Suspense,{fallback:React.createElement('p',null,'pending')},React.createElement(Host))))
+ assert.equal(F.requests.length,1);assert.deepEqual(commits,['1'])
+ await act(async()=>React.startTransition(()=>F.setRoute({id:'2',block:true})))
+ assert.ok(seen.includes('2'));assert.deepEqual(commits,['1']);assert.equal(document.querySelector('[data-current-route]').dataset.currentRoute,'1')
+ await act(async()=>F.requests[0].resolve(full(1)))
+ await act(async()=>F.setRoute({id:'1',block:false}))
+ original(1);assert.equal(F.content.get().isArticleLoading,false);assert.equal(F.requests.length,1)
+ reports.push({name:t.name,speculative_renders:seen,commits,observations:[t.snapshot('final')]});console.log('PASS',t.name)
+ await act(async()=>root.unmount())
+}
+{
+ const t=await setup('ssr-hydration-deep-link-loads-only-on-client',{cold:false});await act(async()=>t.root.unmount())
+ const {useReaderEntryDetail}=createRequire(import.meta.url)(out),restore=()=>{}
+ function Host(){const state=useStore(F.content),ref=React.useRef(0);useReaderEntryDetail({entryId:'1',source:'all',sourceId:null,activeContent:state.activeContent,entryRequestIdRef:ref,restoreEntryListFocus:restore});return React.createElement('div',null,'SSR details')}
+ const savedWindow=globalThis.window,savedDocument=globalThis.document
+ let html;try{delete globalThis.window;delete globalThis.document;html=web('react-dom/server').renderToString(React.createElement(Host))}finally{globalThis.window=savedWindow;globalThis.document=savedDocument}
+ assert.equal(F.requests.length,0);assert.ok(html.includes('SSR details'));document.querySelector('#root').innerHTML=html
+ let root;await act(async()=>{root=web('react-dom/client').hydrateRoot(document.querySelector('#root'),React.createElement(Host))})
+ assert.equal(F.requests.length,1);await act(async()=>F.requests[0].resolve(full(1)));original(1);assert.equal(F.content.get().isArticleLoading,false)
+ reports.push({name:t.name,server_requests:0,client_requests:F.requests.length,observations:[t.snapshot('final')]});console.log('PASS',t.name)
+ await act(async()=>root.unmount())
 }
 const hashes={}
 for(const rel of ['src/components/Content/Content.jsx','src/components/Content/ContentContext.jsx','src/utils/reader-entry-detail.js','src/utils/entry-presentation.js','src/utils/url.js']) hashes[rel]=createHash('sha256').update(await readFile(join(webRoot,rel))).digest('hex')

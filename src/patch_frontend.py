@@ -87,8 +87,23 @@ def install_reader_entry_detail(root, web):
         text = text.replace(fetch, '', 1).replace(effect, hook_call, 1)
         text = text.replace('import { getEntry } from "@/apis"', hook_import, 1)
         text = text.replace('import prepareEntry from "@/utils/entry-presentation"\n', '', 1)
+    context_name = 'src/components/Content/ContentContext.jsx'
+    context_path = web / context_name
+    context = context_path.read_text()
+    context_import = 'import { invalidateReaderEntryDetail } from "@/utils/reader-entry-detail"'
+    close_before = '  const closeActiveContent = useCallback(() => {\n'
+    close_after = close_before + '    invalidateReaderEntryDetail()\n'
+    if context_import in context or close_after in context:
+        if context.count(context_import) != 1 or context.count(close_after) != 1:
+            raise RuntimeError('Unreviewed reader close intent wiring')
+    else:
+        if context.count(close_before) != 1:
+            raise RuntimeError('Unreviewed reader close intent source')
+        context = context_import + '\n' + context.replace(close_before, close_after, 1)
     backup(name)
+    backup(context_name)
     path.write_text(text)
+    context_path.write_text(context)
     target.write_bytes(helper)
 
 install_reader_entry_detail(ROOT, WEB)
