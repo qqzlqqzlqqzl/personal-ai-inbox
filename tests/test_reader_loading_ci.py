@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -330,6 +331,36 @@ class WorkflowContracts(unittest.TestCase):
         launches = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and
                     isinstance(node.func, ast.Attribute) and node.func.attr == 'launch']
         self.assertEqual(launches, [])
+
+    @staticmethod
+    def check_job_environment_contexts(workflow):
+        # This workflow's block-style job.env contract, not a generic YAML parser.
+        # Official context table: jobs.<job_id>.env excludes runner/steps/job/env.
+        allowed = {'github', 'needs', 'strategy', 'matrix', 'vars', 'secrets', 'inputs'}
+        blocks = re.findall(r'^    env:\n((?:^      .*\n|^\n)*)', workflow, re.MULTILINE)
+        for block in blocks:
+            for expression in re.findall(r'\$\{\{(.*?)\}\}', block, re.DOTALL):
+                references = re.findall(r'(?<![\w.])([A-Za-z_]\w*)\s*(?:\.|\[)', expression)
+                if not set(references).issubset(allowed):
+                    raise ValueError('context unavailable in jobs.<job_id>.env')
+
+    def test_job_environment_uses_only_contexts_available_before_runner(self):
+        self.check_job_environment_contexts(self.workflow)
+
+    def test_old_runner_context_failure_and_equivalent_step_job_env_are_refused(self):
+        for expression in ('runner.temp', "runner['temp']", 'steps.prepare.outputs.root', 'job.status', 'env.CACHE'):
+            with self.subTest(expression=expression), self.assertRaisesRegex(ValueError, 'unavailable'):
+                self.check_job_environment_contexts('jobs:\n  baseline:\n    env:\n      CACHE: ${{ ' + expression + ' }}\n    steps:\n')
+        self.check_job_environment_contexts('jobs:\n  baseline:\n    env:\n      NAME: ${{ matrix.mode }}\n    steps:\n')
+
+    def test_fixed_browser_path_is_identical_and_only_in_supported_step_env(self):
+        blocks = self.workflow.split('    steps:\n', 1)[1].split('      - ')
+        users = [block for block in blocks if 'PLAYWRIGHT_BROWSERS_PATH:' in block]
+        self.assertEqual(len(users), 2)
+        self.assertIn('Install the locked full Chromium and headless shell', users[0])
+        self.assertIn('Measure five cold and warm pairs', users[1])
+        for block in users:
+            self.assertIn('        env:\n          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium\n', block)
 
 
 if __name__ == '__main__':

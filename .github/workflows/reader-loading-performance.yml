@@ -33,7 +33,6 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,6 +60,8 @@ jobs:
       - name: Install Chromium system dependencies from signed APT indices
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
       - name: Install the locked full Chromium and headless shell
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install chromium
       - name: Resolve CJK font from refreshed signed APT indices
         id: cjk-package
@@ -77,6 +78,8 @@ jobs:
         run: timeout --signal=TERM --kill-after=10s 600s python -B tests/reader_loading_ci.py font-install --root "${{ steps.prepare.outputs.root }}"
       - name: Measure five cold and warm pairs with sandbox and actual cache proof
         id: measure
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium
         run: timeout --signal=TERM --kill-after=10s 600s python -B tests/reader_loading_ci.py measure --root "${{ steps.prepare.outputs.root }}" --mode "${{ matrix.mode }}"
       - name: Save only the verified font archive after successful measurement
         if: steps.cjk-cache.outputs.cache-hit != 'true'
