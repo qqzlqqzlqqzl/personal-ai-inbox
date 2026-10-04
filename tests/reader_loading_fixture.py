@@ -215,7 +215,7 @@ class Fixture:
         paragraphs = '<p>' + ('合成性能正文，只用于测量阅读时序与滚动。' * 12) + '</p>'
         images = ''.join(paragraphs * (1 if i < 3 else 3) + f'<img src="/fixture-images/{i}.png" width="960" height="640" alt="合成图片 {i}">' for i in range(1, 7))
         feed = {'id': 7, 'user_id': 1, 'title': '合成性能源', 'feed_url': self.base+'/fixture-feed', 'site_url': self.base,
-                'category': {'id': 1, 'title': '合成分类'}}
+                'category': {'id': 1, 'title': '合成分类'}, 'icon': {'feed_id': 7, 'icon_id': 0}}
         return {'id': number, 'user_id': 1, 'feed_id': 7, 'title': f'性能样本 {number:03d}', 'url': self.base+'/inbox/all/'+str(number),
                 'comments_url': '', 'author': 'Synthetic', 'content': '' if deferred else paragraphs + images,
                 'content_deferred': deferred, 'hash': str(number), 'published_at': '2026-10-04T01:00:00Z',
