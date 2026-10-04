@@ -40,7 +40,8 @@
   };
   const scopeForLabel = label => label === '全部' ? 'all' : label === '今天' ? 'today' : null;
   window.queryFrame = (kind = 'manual', rafTime = null, mutationCount = null) => {
-    const selected = [...document.querySelectorAll('.arco-menu-selected .custom-menu-item')].find(e => e.getClientRects().length);
+    const selectedCandidates = [...document.querySelectorAll('.arco-menu-selected .custom-menu-item')].filter(e => e.getClientRects().length);
+    const selected = selectedCandidates[0];
     const rows = [...document.querySelectorAll('.entry-list [data-entry-id]')].filter(e => e.getClientRects().length);
     const count = selected?.querySelector('.item-count');
     const label = selected?.firstElementChild?.textContent.trim() ?? null;
@@ -49,6 +50,9 @@
       sequence: ++window.queryObservation.sequence, kind, time: performance.now(), rafTime, mutationCount,
       location: { pathname: location.pathname, search: location.search, hash: location.hash },
       dom: { selected_label: label, selected_scope: scopeForLabel(label),
+        selected_count: selectedCandidates.length,
+        selected_candidates: selectedCandidates.map(e => ({ label: e.firstElementChild?.textContent.trim() ?? null,
+          scope: scopeForLabel(e.firstElementChild?.textContent.trim()), geometry: geometry(e) })),
         selected_href: selected?.closest('a')?.getAttribute('href') ?? null,
         selected_aria: selected?.closest('[aria-selected]')?.getAttribute('aria-selected') ?? null,
         count_rendered_text: count?.innerText?.trim() ?? null,

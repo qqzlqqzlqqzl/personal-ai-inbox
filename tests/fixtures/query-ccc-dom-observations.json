@@ -1,0 +1,1657 @@
+{
+  "source_head": "ccc11d62a2ee306b2b7f4e9310630ca461ed1800",
+  "source_run": 37226596390,
+  "source_query_frames_sha256": "871173408bca15b2b1783598d18d901701b3d45bc28a4f61f6134b8d49e70649",
+  "scope": "all 60 original observations projected without geometry; no selected cardinality invented",
+  "frames": [
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 72,
+      "time": 945.2999999999884,
+      "kind": "raf",
+      "rafTime": 940.8,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 73,
+      "time": 948.2999999999884,
+      "kind": "mutation-raf",
+      "rafTime": 940.8,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 74,
+      "time": 951.5999999999767,
+      "kind": "mutation-raf",
+      "rafTime": 940.8,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 75,
+      "time": 955,
+      "kind": "mutation-raf",
+      "rafTime": 940.8,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 76,
+      "time": 956.7999999999884,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 77,
+      "time": 963.5,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 78,
+      "time": 969.3999999999651,
+      "kind": "raf",
+      "rafTime": 957.4,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 79,
+      "time": 973,
+      "kind": "mutation-raf",
+      "rafTime": 957.4,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 80,
+      "time": 976.0999999999767,
+      "kind": "mutation-raf",
+      "rafTime": 957.4,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 81,
+      "time": 985.5,
+      "kind": "raf",
+      "rafTime": 974,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 82,
+      "time": 991.8999999999651,
+      "kind": "raf",
+      "rafTime": 990.8,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 83,
+      "time": 1007.7999999999884,
+      "kind": "raf",
+      "rafTime": 1007.4,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 84,
+      "time": 1024.5,
+      "kind": "raf",
+      "rafTime": 1024.1,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "all",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 85,
+      "time": 1034.6999999999534,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/all",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 86,
+      "time": 1043.0999999999767,
+      "kind": "raf",
+      "rafTime": 1040.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "19651965",
+      "ids": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112"
+      ],
+      "sequence": 87,
+      "time": 1046.1999999999534,
+      "kind": "mutation-raf",
+      "rafTime": 1040.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "all",
+        "selected_label": "全部",
+        "count_rendered_text": "1965",
+        "headers": [
+          {
+            "rendered_text": "全部 · AI精选\n(1965)"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 88,
+      "time": 1074.899999999965,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 89,
+      "time": 1078.5,
+      "kind": "raf",
+      "rafTime": 1057.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 90,
+      "time": 1082.399999999965,
+      "kind": "mutation-raf",
+      "rafTime": 1057.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 91,
+      "time": 1083.5999999999767,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 92,
+      "time": 1084.899999999965,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 93,
+      "time": 1092.2999999999884,
+      "kind": "raf",
+      "rafTime": 1074.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 94,
+      "time": 1092.899999999965,
+      "kind": "mutation-raf",
+      "rafTime": 1074.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 95,
+      "time": 1093.5,
+      "kind": "mutation-raf",
+      "rafTime": 1074.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 96,
+      "time": 1093.899999999965,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 97,
+      "time": 1096.2999999999884,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 98,
+      "time": 1109.2999999999884,
+      "kind": "raf",
+      "rafTime": 1107.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 99,
+      "time": 1110,
+      "kind": "mutation-raf",
+      "rafTime": 1107.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 100,
+      "time": 1110.399999999965,
+      "kind": "mutation-raf",
+      "rafTime": 1107.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 101,
+      "time": 1124.899999999965,
+      "kind": "raf",
+      "rafTime": 1124.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 102,
+      "time": 1229.1999999999534,
+      "kind": "raf",
+      "rafTime": 1224.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 103,
+      "time": 1241.899999999965,
+      "kind": "raf",
+      "rafTime": 1240.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 104,
+      "time": 1258.7999999999884,
+      "kind": "raf",
+      "rafTime": 1257.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 105,
+      "time": 1279.2999999999884,
+      "kind": "raf",
+      "rafTime": 1274.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 106,
+      "time": 1291.6999999999534,
+      "kind": "raf",
+      "rafTime": 1290.8,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 107,
+      "time": 1310.399999999965,
+      "kind": "raf",
+      "rafTime": 1307.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 108,
+      "time": 1327.1999999999534,
+      "kind": "raf",
+      "rafTime": 1324.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 109,
+      "time": 1341.399999999965,
+      "kind": "raf",
+      "rafTime": 1340.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 110,
+      "time": 1360.399999999965,
+      "kind": "raf",
+      "rafTime": 1357.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 111,
+      "time": 1374.899999999965,
+      "kind": "raf",
+      "rafTime": 1374.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 112,
+      "time": 1391.5,
+      "kind": "raf",
+      "rafTime": 1390.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 113,
+      "time": 1411.5999999999767,
+      "kind": "raf",
+      "rafTime": 1407.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 114,
+      "time": 1426.5,
+      "kind": "raf",
+      "rafTime": 1424.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 115,
+      "time": 1442,
+      "kind": "raf",
+      "rafTime": 1440.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 116,
+      "time": 1458.5999999999767,
+      "kind": "raf",
+      "rafTime": 1457.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 117,
+      "time": 1475.1999999999534,
+      "kind": "raf",
+      "rafTime": 1474.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 118,
+      "time": 1491.899999999965,
+      "kind": "raf",
+      "rafTime": 1490.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 119,
+      "time": 1508.6999999999534,
+      "kind": "raf",
+      "rafTime": 1507.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 120,
+      "time": 1525.1999999999534,
+      "kind": "raf",
+      "rafTime": 1524,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 121,
+      "time": 1541.7999999999884,
+      "kind": "raf",
+      "rafTime": 1540.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 122,
+      "time": 1552.0999999999767,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 123,
+      "time": 1558.399999999965,
+      "kind": "raf",
+      "rafTime": 1557.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 124,
+      "time": 1559,
+      "kind": "mutation-raf",
+      "rafTime": 1557.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 125,
+      "time": 1575,
+      "kind": "raf",
+      "rafTime": 1574.1,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 126,
+      "time": 1591.6999999999534,
+      "kind": "raf",
+      "rafTime": 1590.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 127,
+      "time": 1608,
+      "kind": "raf",
+      "rafTime": 1607.4,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 128,
+      "time": 1624.7999999999884,
+      "kind": "raf",
+      "rafTime": 1624,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 129,
+      "time": 1637.399999999965,
+      "kind": "mutation",
+      "rafTime": null,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 130,
+      "time": 1641.6999999999534,
+      "kind": "raf",
+      "rafTime": 1640.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    },
+    {
+      "scope": "today",
+      "count": "",
+      "ids": [],
+      "sequence": 131,
+      "time": 1644.6999999999534,
+      "kind": "mutation-raf",
+      "rafTime": 1640.7,
+      "location": {
+        "pathname": "/inbox/today",
+        "search": "",
+        "hash": ""
+      },
+      "dom": {
+        "selected_scope": "today",
+        "selected_label": "今天",
+        "count_rendered_text": "",
+        "headers": [
+          {
+            "rendered_text": "今天 · AI精选 · Asia/Shanghai"
+          }
+        ]
+      }
+    }
+  ],
+  "dropped": 0
+}
