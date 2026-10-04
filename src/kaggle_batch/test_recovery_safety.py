@@ -96,7 +96,7 @@ def test_listing_at_bound_is_unknown_not_negative():
 def test_zero_quota_allows_proof_but_unknown_quota_does_not():
     def client(args,timeout):
         if args[0]=='quota':return '[{"resource":"GPU","remaining":"0h"}]'
-        return 'ref,title\nowner/sibling,Visible\n' if args[args.index('--page')+1]=='1' else 'ref,title\n'
+        return 'ref,title\nowner/sibling,Visible\n' if args[args.index('--page')+1]=='1' else 'Not found\n'
     proof=prove_absent(client,'owner','target')
     assert proof['pages']==2 and proof['listed_count']==1
     def bad_quota(args,timeout):
