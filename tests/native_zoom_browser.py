@@ -3,10 +3,22 @@
 Uses a retained test-only extension in a headed Xvfb browser. No CSS zoom,
 deviceScaleFactor or page-scale emulation substitutes for tabs.setZoom/getZoom.
 """
-import json,os,struct,zlib
+import json,os,struct,zlib,subprocess
 from urllib.parse import urlsplit
 from review_reader_harness import Harness
 from playwright.sync_api import expect
+
+def rendered_chinese_fonts(fonts,text):
+    points=[ord(c) for c in text if '\u4e00'<=c<='\u9fff'];proof=[]
+    for font in fonts:
+        if font['isCustomFont'] or font['glyphCount']<=0:continue
+        match=subprocess.run(['fc-match','--format=%{family}\n%{file}\n%{index}',font['familyName']],check=True,capture_output=True,text=True,timeout=10).stdout.splitlines()
+        assert font['familyName'] in match[0],match[0]
+        charset=subprocess.run(['fc-query','-i',match[2],'--format=%{charset}',match[1]],check=True,capture_output=True,text=True,timeout=10).stdout
+        ranges=[tuple(int(v,16) for v in token.split('-')) for token in charset.split()]
+        covers=all(any(r[0]<=cp<=r[-1] for r in ranges) for cp in points)
+        proof.append({'family':font['familyName'],'glyphs':font['glyphCount'],'font_file':os.path.basename(match[1]),'font_index':match[2],'covers_chinese_codepoints':covers})
+    return sum(f['glyphs'] for f in proof if f['covers_chinese_codepoints'])>=len(points)>0,proof
 
 h=Harness('native-zoom');ctx=None
 try:
@@ -54,7 +66,9 @@ try:
     (h.out/'native-metrics.json').write_text(json.dumps({'native_zoom':zoom,'baseline':baseline,'observed':metrics,'rendered_fonts':fonts,'heading':heading.evaluate('e=>({html:e.outerHTML,rect:e.getBoundingClientRect().toJSON(),font:getComputedStyle(e).fontFamily})'),'method':'chrome.tabs.setZoom/getZoom in headed Chromium/Xvfb','physical_android_ios':False},ensure_ascii=False,indent=2))
     shot=p.screenshot(path=str(h.out/'native-200.png'))
     print('Rendered fonts:',json.dumps(fonts,ensure_ascii=False),flush=True)
-    h.check('native_200_actual_cjk_glyphs',any('CJK' in f['familyName'] and f['glyphCount']>0 and not f['isCustomFont'] for f in fonts))
+    chinese_ok,font_proof=rendered_chinese_fonts(fonts,title)
+    (h.out/'native-font-coverage.json').write_text(json.dumps(font_proof,ensure_ascii=False,indent=2))
+    h.check('native_200_actual_cjk_glyphs',chinese_ok)
     offset=8;compressed=b''
     while offset<len(shot):
         size=struct.unpack('>I',shot[offset:offset+4])[0];kind=shot[offset+4:offset+8]

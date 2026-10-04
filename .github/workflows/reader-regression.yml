@@ -177,6 +177,7 @@ jobs:
             runtime/reader-panel-transition/
             runtime/native-zoom/result.json
             runtime/native-zoom/native-metrics.json
+            runtime/native-zoom/native-font-coverage.json
             runtime/native-zoom/native-200.png
             artifacts/browser-admission.json
             runtime/calendar-*/
