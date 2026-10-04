@@ -3,9 +3,10 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from playwright.sync_api import expect
+from playwright.sync_api import expect, TimeoutError as PlaywrightTimeoutError
 from review_reader_harness import Harness
 from query_route_queue import HeldQueryRoutes, matches_query
+from query_dom_ownership import assess_pending_ui
 
 
 h = Harness("query-result-ownership")
@@ -70,14 +71,31 @@ def frames():
 
 
 def pending_is_unowned(scope):
+    baseline = p.evaluate("window.queryBaseline")
+    remaining = max(1, min(5000, int(p.evaluate("5000-(performance.now()-window.queryBaseline.time)"))))
+    wait_timed_out = False
+    try:
+        # Wait for route identity only, never for old rows/counts to disappear.
+        # Every earlier observation remains in the array for the strict check.
+        p.wait_for_function("""scope => (window.queryFrames || []).some(frame =>
+          frame.dom?.selected_count === 1 && frame.dom.selected_scope === scope &&
+          frame.dom.headers?.length === 1 &&
+          frame.dom.headers[0].rendered_text?.startsWith(({all:'全部',today:'今天'})[scope]+' · AI精选'))""",
+                            arg=scope, timeout=remaining)
+    except PlaywrightTimeoutError:
+        wait_timed_out = True
     captured = frames()
-    current = [frame for frame in captured if frame["scope"] == scope]
-    h.check(scope+"_pending_has_no_old_count_or_rows", bool(current) and all(not f["count"] and not f["ids"] for f in current))
+    report = assess_pending_ui(scope, baseline, captured, dropped=p.evaluate("window.queryObservation.dropped"))
+    if wait_timed_out:
+        report["passed"] = False
+        report["violations"].append({"sequence": None, "reason": "target_ui_wait_timeout"})
+    trace[scope+"_ui_ownership"] = {"baseline": baseline, "assessment": report}
+    h.check(scope+"_pending_has_no_old_count_or_rows", report["passed"])
     return captured
 
 
 def mark():
-    p.evaluate("window.queryFrames=[]")
+    p.evaluate("window.queryBaseline=window.queryFrame('baseline');window.queryFrames=[]")
 
 
 h.custom = intercept
@@ -88,6 +106,7 @@ try:
     expected_requests.append(("all", observed.value))
     take("all").fulfill(json={"total": 1965, "entries": entries(101, 24)})
     expect(p.locator('.page-info')).to_contain_text('(1965)')
+    expect(p.locator('[data-entry-id="101"]')).to_be_visible()
     mark(); go("today"); old_today = take("today")
     trace["today_pending"] = pending_is_unowned("today")
     mark(); go("all"); new_all = take("all")
