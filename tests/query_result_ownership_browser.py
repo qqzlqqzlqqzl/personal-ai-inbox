@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect
 from review_reader_harness import Harness
+from query_route_queue import HeldQueryRoutes, matches_query
 
 
 h = Harness("query-result-ownership")
@@ -12,7 +13,9 @@ h.settings["minimum_score"] = 8
 # Miniflux feed DTOs include icon even when no icon has been downloaded.
 h.feeds[0]["icon"] = {"feed_id": 7, "icon_id": 0}
 p = h.page
-pending = []
+held_routes = HeldQueryRoutes(p, h.base)
+pending = held_routes.pending
+expected_requests = []
 request_trace = []
 fail_requests = False
 p.add_init_script("""localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all'}));
@@ -49,21 +52,23 @@ def intercept(route, path, method):
         if fail_requests:
             route.fulfill(status=503, json={"detail": "synthetic read failure"})
             return True
-        pending.append((scope, route))
+        held_routes.hold(scope, route)
         return True
     return False
 
 
 def take(scope):
-    # Event processing comes from the expected real browser request, not a sleep.
-    assert pending and pending[0][0] == scope, [(name, r.request.url) for name, r in pending]
-    return pending.pop(0)[1]
+    assert expected_requests and expected_requests[0][0] == scope, 'observed request order/scope mismatch'
+    route = held_routes.take(scope, expected_requests[0][1])
+    expected_requests.pop(0)
+    return route
 
 
 def go(scope):
     label = {"today": "今天", "all": "全部"}[scope]
-    with p.expect_request(lambda r: "/entries?" in r.url and "ai_view=recommended" in r.url):
+    with p.expect_request(lambda r: matches_query(scope, r, h.base)) as observed:
         p.locator('.custom-menu-item').filter(has=p.get_by_text(label, exact=True)).first.click()
+    expected_requests.append((scope, observed.value))
 
 
 def frames():
@@ -84,8 +89,9 @@ def mark():
 h.custom = intercept
 trace = {}
 try:
-    with p.expect_request(lambda r: "/entries?" in r.url and "ai_view=recommended" in r.url):
+    with p.expect_request(lambda r: matches_query("all", r, h.base)) as observed:
         h.goto("/inbox/all")
+    expected_requests.append(("all", observed.value))
     take("all").fulfill(json={"total": 1965, "entries": entries(101, 24)})
     expect(p.locator('.page-info')).to_contain_text('(1965)')
     mark(); go("today"); old_today = take("today")
@@ -120,6 +126,8 @@ except Exception as exc:
 finally:
     trace["requests"] = request_trace
     trace["pending_scopes"] = [scope for scope, _ in pending]
+    trace["route_queue"] = {"enqueued": held_routes.added, "consumed": held_routes.taken,
+                            "expected_scopes": [scope for scope, _ in expected_requests]}
     try:
         trace["last_frames"] = p.evaluate("window.queryFrames || []")
     except Exception as capture_error:
