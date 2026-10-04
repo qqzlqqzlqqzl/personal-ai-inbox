@@ -5,6 +5,7 @@ or arbitrary Chromium executable. NOT_RUN is a failing exit, never a green resul
 """
 from __future__ import annotations
 import argparse
+from decimal import Decimal
 import hashlib
 import importlib.metadata
 import io
@@ -266,7 +267,30 @@ def warm_image_proof(events, rows, base, start_ms, end_ms):
         require(headers.get('content-type','').split(';',1)[0]=='image/png','warm response is not the expected image type')
         response_time=finite_nonnegative(response['timestamp'],'response time')
         finish_time=finite_nonnegative(finish['timestamp'],'finish time')
-        require(request_time<=response_time<=finish_time,'image event order is invalid')
+        late_disk_timing=None
+        if response_time>finish_time:
+            # Chromium 153 sends responseReceived with TimeTicks::Now(), but
+            # loadingFinished carries the underlying monotonic_finish_time.
+            # Disk-cache completion may precede that response notification.
+            # Admit only exact ResourceTiming causality, never a time tolerance.
+            require(response.get('from_disk_cache') is True,'late response is not a disk-cache hit')
+            timing=response.get('timing')
+            require(isinstance(timing,dict),'late disk-cache response lacks timing')
+            used={key:Decimal(str(finite_nonnegative(timing.get(key),key))) for key in
+                  ('requestTime','sendStart','sendEnd','receiveHeadersStart','receiveHeadersEnd')}
+            require(used['sendStart']<=used['sendEnd']<=used['receiveHeadersStart']<=used['receiveHeadersEnd'],
+                    'disk-cache resource phases are reversed')
+            headers_end=used['requestTime']+used['receiveHeadersEnd']/1000
+            require(Decimal(str(request_time))<=used['requestTime']<=headers_end<=Decimal(str(finish_time)),
+                    'disk-cache headers do not precede completion in this request')
+            notification_wall_ms=wall_ms+(response_time-request_time)*1000
+            require(start_ms<=notification_wall_ms<=visible_ms<=end_ms,
+                    'disk-cache response notification is outside its visible warm window')
+            late_disk_timing={'basis':'disk-cache-resource-timing',
+                              'headers_end_monotonic':float(headers_end),
+                              'response_notification_wall_ms':notification_wall_ms}
+        else:
+            require(request_time<=response_time<=finish_time,'image event order is invalid')
         finish_wall_ms=wall_ms+(finish_time-request_time)*1000
         require(finish_wall_ms<=visible_ms<=end_ms,'image completion is outside the visible warm window')
         bytes_received=finite_nonnegative(finish.get('encoded_bytes'),'encoded bytes')
@@ -282,7 +306,8 @@ def warm_image_proof(events, rows, base, start_ms, end_ms):
         row.update(metrics)
         proof.append({'image':number,'url':expected,'request_id':request_id,'cache_event':cached,
                       'from_disk_cache':disk,'request_wall_ms':wall_ms,'finished_wall_ms':finish_wall_ms,
-                      'visible_wall_ms':visible_ms,'encoded_bytes':bytes_received,'published_metrics':metrics})
+                      'visible_wall_ms':visible_ms,'encoded_bytes':bytes_received,'published_metrics':metrics,
+                      **({'late_disk_cache_timing':late_disk_timing} if late_disk_timing else {})})
     return proof
 
 
