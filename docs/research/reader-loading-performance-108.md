@@ -255,8 +255,9 @@ perform its existing actual Chinese glyph rendering acceptance.
 
 Every job creates its own private directory under `RUNNER_TEMP`, before dependency
 installation, and records the exact tested workflow HEAD/tree/src. Original input
-archives and extracted builds stay in `inputs/`; browser profiles, driver HOME,
-raw gh errors and retained font staging stay in `work/`. The upload path is only
+archives and extracted builds stay in `inputs/`; driver HOME, raw gh errors and
+retained font staging stay in `work/`. Fresh short browser temporary roots are
+separate, private `/tmp/rl-*` directories, excluded from uploads. The upload path is only
 the fresh `evidence/` directory. It contains safe source/toolchain/input receipts,
 signed-index font identity, explicit setup/measurement status, synthetic measurement
 stdout/stderr and an allowlisted copy of direct result/pair/boundary JSON files and
@@ -323,3 +324,32 @@ states deprecation began September 17, 2026 and retirement is April 17, 2027.
 Record each actual runner image version from job logs. This workaround is not a
 long-term availability guarantee; any later runner migration requires a new
 reviewed baseline/candidate environment match with sandboxing retained.
+
+The next retained Ubuntu 22.04 run `37205965113`, exact `110255c`, reached another
+launch failure before any pair or fixture request. All three original archives
+report a Chromium `SingletonSocket` pathname of 138 filesystem bytes, exceeding
+Linux's 107-byte pathname budget plus the terminating NUL in `sun_path[108]`.
+This is a separate path-length failure; it is not proof that a browser boundary
+or performance measurement has passed, nor a new AppArmor diagnosis.
+
+`browser_env` now creates a fresh owner-private 0700 short temporary root under
+the real `/tmp`, without following a directory symlink, reading ambient TMPDIR,
+reusing a profile, or changing existing ownership/permissions. Both the driver
+and browser receive their own fresh root through the existing environment
+allowlist. HOME/cache/config still use new private directories under the owned
+output; output parents over 400 bytes, including non-ASCII segments, therefore
+do not lengthen the IPC path. The outer temporary roots are retained; the tools
+retain their normal ephemeral socket/profile lifecycle. Profiles are never uploaded.
+
+Before and after creation, the temporary path's filesystem byte length plus a
+conservative 64-byte Chromium socket suffix allowance must fit 107 bytes. Longer
+temporary parents are rejected before launch, including paths whose character
+count fits but encoded byte count does not. A separate local AF_UNIX contract
+binds a 107-byte socket path and rejects 108 bytes, keeping the closed fixture node.
+These controls follow the Linux [UNIX-domain socket pathname contract](https://man7.org/linux/man-pages/man7/unix.7.html).
+The authoring cloud rejected actual `socket(AF_UNIX, ...)` with EPERM. That failed
+attempt is retained, the physical bind test remains mandatory in the repository,
+and its local result is BLOCKED rather than passed or silently skipped. The other
+80 measurement contracts and 37 Hosted-adapter contracts passed separately.
+The fix changes no sandbox, network, cache-observation, browser, source, binary or
+fixture pin. The new exact Hosted head still needs an actual three-mode run.

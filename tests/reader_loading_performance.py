@@ -25,6 +25,8 @@ from reader_loading_fixture import Fixture, TOKEN, SCENARIO, admit_build, bound_
 PLAYWRIGHT = '1.63.0'
 CHROMIUM = '153.0.8010.12'
 REVISION = 'chromium-1243'
+UNIX_SOCKET_PATH_BYTES = 107  # Linux sun_path[108], reserving the terminating NUL.
+CHROMIUM_SOCKET_SUFFIX_BYTES = 64  # Conservative allowance for Chromium's child socket path.
 PROBE = """(() => {
   window.__perfProbe = {images:[], prefetch:[], violations:[], longTasks:[]};
   const at=()=>performance.timeOrigin+performance.now();
@@ -68,11 +70,35 @@ def save_new(path, value):
         os.close(root_fd)
 
 
+def private_browser_tmp(parent='/tmp'):
+    parent = checked_directory(parent)
+    info = parent.stat(follow_symlinks=False)
+    require((info.st_uid in (0, os.getuid()) and not info.st_mode & 0o022) or
+            (info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)),
+            'browser temporary parent must have trusted ownership and no unprotected other writers')
+    # mkdtemp currently adds eight ASCII characters. Check both the predicted
+    # and actual path; count filesystem bytes, not Python Unicode characters.
+    require(len(os.fsencode(parent / 'rl-XXXXXXXX')) + CHROMIUM_SOCKET_SUFFIX_BYTES <= UNIX_SOCKET_PATH_BYTES,
+            'browser TMPDIR exceeds AF_UNIX byte budget before launch')
+    result = Path(tempfile.mkdtemp(prefix='rl-', dir=parent))
+    checked_directory(result)
+    info = result.stat(follow_symlinks=False)
+    require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
+            'browser temporary directory must be owned-private')
+    require(len(os.fsencode(result)) + CHROMIUM_SOCKET_SUFFIX_BYTES <= UNIX_SOCKET_PATH_BYTES,
+            'generated browser TMPDIR exceeds AF_UNIX byte budget; directory retained')
+    return result  # No automatic deletion; never reuse a user/browser profile.
+
+
 def browser_env(output):
-    result = {'PATH': '/usr/bin:/bin', 'HOME': str(output/'home'), 'TMPDIR': str(output/'tmp'),
+    output = checked_directory(output)
+    info = output.stat(follow_symlinks=False)
+    require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
+            'browser output directory must be owned-private')
+    result = {'PATH': '/usr/bin:/bin', 'HOME': str(output/'home'), 'TMPDIR': str(private_browser_tmp()),
               'LANG': 'C.UTF-8', 'TZ': 'UTC', 'XDG_CACHE_HOME': str(output/'cache'),
               'XDG_CONFIG_HOME': str(output/'config')}
-    for key in ('HOME','TMPDIR','XDG_CACHE_HOME','XDG_CONFIG_HOME'):
+    for key in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME'):
         Path(result[key]).mkdir(mode=0o700)
     return result
 
@@ -392,6 +418,9 @@ def main():
         fixture=Fixture(files)
         env=browser_env(output)
         report['browser_environment_names']=sorted(env)
+        report['browser_temporary_directory']={'path':env['TMPDIR'],'path_bytes':len(os.fsencode(env['TMPDIR'])),
+            'owner_uid':os.getuid(),'mode':'0700','outer_directory_retained':True,
+            'socket_suffix_budget_bytes':CHROMIUM_SOCKET_SUFFIX_BYTES,'socket_path_budget_bytes':UNIX_SOCKET_PATH_BYTES}
         report['browser_executable_sha256']=hashlib.sha256(executable.read_bytes()).hexdigest()
         browser=pw.chromium.launch(channel='chromium',headless=True,timeout=15000,env=env,chromium_sandbox=True,
             proxy={'server':fixture.base,'bypass':'<-loopback>'},

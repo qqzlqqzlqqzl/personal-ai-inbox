@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import socket
 import stat
 import sys
 import tempfile
@@ -101,6 +102,97 @@ class OutputContract(unittest.TestCase):
             env=browser_env(self.root)
         self.assertEqual(set(env),{'PATH','HOME','TMPDIR','LANG','TZ','XDG_CACHE_HOME','XDG_CONFIG_HOME'})
         self.assertNotIn('synthetic',json.dumps(env))
+
+    def test_long_owned_output_parent_does_not_lengthen_browser_socket_tmp(self):
+        output = self.root / ('a' * 200) / ('页' * 50)
+        output.mkdir(parents=True, mode=0o700)
+        env = browser_env(output)
+        tmp = Path(env['TMPDIR'])
+        self.assertEqual(Path(env['HOME']), output / 'home')
+        self.assertGreater(len(os.fsencode(output)), 400)
+        self.assertFalse(tmp.is_relative_to(output))
+        self.assertEqual(tmp.stat().st_uid, os.getuid())
+        self.assertEqual(stat.S_IMODE(tmp.stat().st_mode), 0o700)
+        self.assertLessEqual(len(os.fsencode(tmp)) + measurement.CHROMIUM_SOCKET_SUFFIX_BYTES,
+                             measurement.UNIX_SOCKET_PATH_BYTES)
+        self.assertTrue(tmp.is_dir())  # Deliberately retained, including empty dirs.
+
+    def maximum_tmp_socket_path(self):
+        base = Path(tempfile.mkdtemp(prefix='t-', dir='/tmp'))
+        max_parent_bytes = measurement.UNIX_SOCKET_PATH_BYTES - measurement.CHROMIUM_SOCKET_SUFFIX_BYTES - len('/rl-XXXXXXXX')
+        name = 'x' * (max_parent_bytes - len(os.fsencode(base)) - 1)
+        self.assertTrue(name)
+        parent = base / name; parent.mkdir(mode=0o700)
+        tmp = measurement.private_browser_tmp(parent)
+        self.assertEqual(len(os.fsencode(tmp)) + measurement.CHROMIUM_SOCKET_SUFFIX_BYTES, 107)
+        pathname = tmp / ('s' * (measurement.CHROMIUM_SOCKET_SUFFIX_BYTES - 1))
+        self.assertEqual(len(os.fsencode(pathname)), 107)
+        return pathname
+
+    def test_exact_maximum_admitted_tmp_parent_has_bounded_path(self):
+        self.maximum_tmp_socket_path()
+
+    def test_actual_af_unix_107_byte_bind_and_108_byte_rejection(self):
+        pathname = self.maximum_tmp_socket_path()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as bound:
+            bound.bind(str(pathname))
+        self.assertTrue(stat.S_ISSOCK(pathname.lstat().st_mode))
+        # The closed synthetic socket node is retained; nothing is unlinked.
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as excessive:
+            with self.assertRaises(OSError):
+                excessive.bind(str(pathname) + 'x')
+
+    def test_one_byte_excess_tmp_parent_is_rejected_before_creation(self):
+        base = Path(tempfile.mkdtemp(prefix='t-', dir='/tmp'))
+        max_parent_bytes = measurement.UNIX_SOCKET_PATH_BYTES - measurement.CHROMIUM_SOCKET_SUFFIX_BYTES - len('/rl-XXXXXXXX')
+        parent = base / ('x' * (max_parent_bytes - len(os.fsencode(base))))
+        parent.mkdir(mode=0o700)
+        with patch.object(measurement.tempfile, 'mkdtemp') as create:
+            with self.assertRaisesRegex(ValueError, 'AF_UNIX byte budget'):
+                measurement.private_browser_tmp(parent)
+            create.assert_not_called()
+        self.assertEqual(list(parent.iterdir()), [])
+
+    def test_nonascii_bytes_cannot_pass_a_character_count_budget(self):
+        base = Path(tempfile.mkdtemp(prefix='t-', dir='/tmp'))
+        max_parent_bytes = measurement.UNIX_SOCKET_PATH_BYTES - measurement.CHROMIUM_SOCKET_SUFFIX_BYTES - len('/rl-XXXXXXXX')
+        parent = base / ('é' * ((max_parent_bytes - len(os.fsencode(base))) // 2 + 1))
+        parent.mkdir(mode=0o700)
+        predicted = parent / 'rl-XXXXXXXX'
+        self.assertLessEqual(len(str(predicted)) + measurement.CHROMIUM_SOCKET_SUFFIX_BYTES, 107)
+        self.assertGreater(len(os.fsencode(predicted)) + measurement.CHROMIUM_SOCKET_SUFFIX_BYTES, 107)
+        with patch.object(measurement.tempfile, 'mkdtemp') as create:
+            with self.assertRaisesRegex(ValueError, 'AF_UNIX byte budget'):
+                measurement.private_browser_tmp(parent)
+            create.assert_not_called()
+
+    def test_short_temporary_parent_symlink_is_refused(self):
+        base = Path(tempfile.mkdtemp(prefix='t-', dir='/tmp'))
+        linked = base / 'l'; linked.symlink_to(base, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'real directory'):
+            measurement.private_browser_tmp(linked)
+
+    def test_unprotected_writable_temporary_parent_refused_without_chmod(self):
+        parent = Path(tempfile.mkdtemp(prefix='t-', dir='/tmp')); parent.chmod(0o777)
+        with self.assertRaisesRegex(ValueError, 'no unprotected other writers'):
+            measurement.private_browser_tmp(parent)
+        self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o777)
+
+    def test_owned_parent_readable_but_not_writable_by_others_keeps_child_private(self):
+        parent = Path(tempfile.mkdtemp(prefix='t-', dir='/tmp')); parent.chmod(0o755)
+        tmp = measurement.private_browser_tmp(parent)
+        self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE(tmp.stat().st_mode), 0o700)
+        self.assertEqual(tmp.stat().st_uid, os.getuid())
+
+    def test_generated_temporary_directory_wrong_mode_is_refused_and_retained(self):
+        parent = Path(tempfile.mkdtemp(prefix='t-', dir='/tmp'))
+        wrong = parent / 'bad'; wrong.mkdir(mode=0o755); wrong.chmod(0o755)
+        with patch.object(measurement.tempfile, 'mkdtemp', return_value=str(wrong)):
+            with self.assertRaisesRegex(ValueError, 'must be owned-private'):
+                measurement.private_browser_tmp(parent)
+        self.assertTrue(wrong.exists())
+        self.assertEqual(stat.S_IMODE(wrong.stat().st_mode), 0o755)
     def test_unsupported_platform_stops_before_any_files_or_browser(self):
         argv=['measure','--build','unused','--manifest','unused','--manifest-sha','unused',
               '--artifact-zip','unused','--artifact-sha','unused','--source-tree','unused',
