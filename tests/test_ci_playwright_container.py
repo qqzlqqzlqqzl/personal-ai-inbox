@@ -225,7 +225,7 @@ class PythonCacheBindingTests(unittest.TestCase):
         text = (workflows / 'reader-container-trial.yml').read_text()
         self.assertLess(text.index(' bind-python-cache '), text.index('uses: actions/setup-python@'))
         self.assertIn("python-version: '3.12.14'\n          cache: pip\n          cache-dependency-path: requirements.dev.lock.txt", text)
-        self.assertIn('PIP_CACHE_DIR: /root/.cache/pip', text)
+        self.assertIn('PIP_CACHE_DIR: ${{ runner.temp }}/reader-pip-cache', text)
         self.assertNotIn('PIP_CACHE_DIR:', (workflows / 'reader-regression.yml').read_text())
 
 
@@ -251,13 +251,13 @@ class PipOwnerCacheTests(unittest.TestCase):
         outside.mkdir()
         home = self.root / 'home-link-case'
         home.mkdir()
-        (home / '.cache').symlink_to(outside, target_is_directory=True)
+        (home / 'reader-pip-cache').symlink_to(outside, target_is_directory=True)
         with self.assertRaises(ValueError):
             trial.prepare_owned_pip_cache(home, os.geteuid())
         self.assertEqual(list(outside.iterdir()), [])
         other = self.root / 'home-file-case'
         other.mkdir()
-        sentinel = other / '.cache'
+        sentinel = other / 'reader-pip-cache'
         sentinel.write_bytes(b'keep file')
         with self.assertRaises(ValueError):
             trial.prepare_owned_pip_cache(other, os.geteuid())
@@ -266,7 +266,23 @@ class PipOwnerCacheTests(unittest.TestCase):
     def test_wrong_owner_is_refused_without_chown_or_creation(self):
         with self.assertRaises(ValueError):
             trial.prepare_owned_pip_cache(self.root, os.geteuid() + 1)
-        self.assertFalse((self.root / '.cache').exists())
+        self.assertFalse((self.root / 'reader-pip-cache').exists())
+        cache = self.root / 'reader-pip-cache'
+        cache.mkdir(mode=0o700)
+        marker = cache / 'existing'
+        marker.write_bytes(b'keep')
+        original_uid = os.geteuid()
+        with patch.object(trial.os, 'geteuid', return_value=original_uid + 1), self.assertRaises(ValueError):
+            trial.prepare_owned_pip_cache(self.root, original_uid + 1)
+        self.assertEqual(marker.read_bytes(), b'keep')
+
+    def test_existing_nonprivate_mode_is_refused_without_chmod(self):
+        cache = self.root / 'reader-pip-cache'
+        cache.mkdir(mode=0o755)
+        before = cache.stat().st_mode
+        with self.assertRaisesRegex(ValueError, 'owner-private'):
+            trial.prepare_owned_pip_cache(self.root, os.geteuid())
+        self.assertEqual(cache.stat().st_mode, before)
 
 
 if __name__ == '__main__':

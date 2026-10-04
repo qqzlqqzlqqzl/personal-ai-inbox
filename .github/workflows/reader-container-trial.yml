@@ -27,9 +27,8 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
-      # The official image runs as root; /github/home belongs to the host runner.
-      # Preserve pip's ownership check and caching in the image's own home.
-      PIP_CACHE_DIR: /root/.cache/pip
+      # Create a private directory owned by the actual job UID; preserve HOME.
+      PIP_CACHE_DIR: ${{ runner.temp }}/reader-pip-cache
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       READER_PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright/python@sha256:96b39581c89131729a7ecb8d532314af54c7f9bcc7a61fe15c7a9e77602acf59
     steps:

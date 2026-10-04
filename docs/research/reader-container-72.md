@@ -104,18 +104,25 @@ Third hosted trial (`cfa2539`, run `37187282911`) confirmed the cached pip's
 missing absolute interpreter prefix. Its receipt observed CPython 3.12.14,
 `/__t/Python/3.12.14/x64`, and the unchanged interpreter and pip hashes before
 creating the exact mapping. Pip then started successfully, but the original
-cache action rejected `/github/home/.cache/pip`: that host-mounted home was not
-owned by the container's root user. Functional tests still did not run. Image
+cache action rejected `/github/home/.cache/pip` for ownership/writability of that
+host-mounted home. The failing log did not print the actual UID. Functional tests still did not run. Image
 initialization took 42 seconds.
 
 The next change sets only the container job's `PIP_CACHE_DIR` to
-`/root/.cache/pip`. This uses the official image user's own home and preserves
+`${{ runner.temp }}/reader-pip-cache`. It records actual UID/GID/HOME and preserves
 pip's ownership validation plus the original setup-python cache restore/save.
 It does not chown, chmod, delete or rewrite the host-mounted cache, and leaves the
 native baseline unchanged. Any initial miss for the different cache path must
 be counted as cold setup cost; cache keys are not churned to manufacture results.
-Before setup-python, the helper requires the actual root UID and verifies that
-the real home/cache components are not symlinks and belong to that UID. It only
-creates missing private directories; conflicting files, links or owners fail
+Before setup-python, the helper validates the real runner temporary directory
+outside checkout and the dedicated cache, with no symlink components. The cache
+must belong to the actual current UID and have owner-private mode. It only
+creates that missing private directory; conflicting files, links, modes or owners fail
 without changing existing ownership, permissions or contents. A partial setup
 never writes a successful combined receipt.
+
+This owner-cache change is the final reasonable environment-compatibility round
+for this experiment. Another environment blocker should end the trial without
+merging, keeping #72 open. A complete functional pass still requires complete
+same-head native/container costs, including initialization and all setup/APT work;
+the pull microbenchmark cannot satisfy that decision.

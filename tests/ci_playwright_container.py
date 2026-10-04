@@ -163,27 +163,24 @@ def bind_python_cache_paths(cache, original_prefix):
             'version_validation': 'The unchanged setup-python action and subsequent exact CI identity guard remain mandatory'}
 
 
-def prepare_owned_pip_cache(home, uid):
+def prepare_owned_pip_cache(runner_temp, uid):
     """Create only a missing owner cache; reject redirects or foreign ownership."""
-    home = Path(home)
-    require(home.is_absolute() and home.is_dir() and home.resolve() == home,
-            'Expected canonical container user home')
-    require(not any(p.is_symlink() for p in (home, *home.parents)), 'Symlink home is refused')
-    paths = (home, home / '.cache', home / '.cache/pip')
-    for path in paths:
-        require(not path.is_symlink(), 'Symlink pip cache component is refused')
-        if path.exists():
-            require(path.is_dir() and path.stat().st_uid == uid,
-                    'Pip cache component is not a current-user-owned directory')
-    created = []
-    for path in paths[1:]:
-        if not path.exists():
-            path.mkdir(mode=0o700)
-            created.append(str(path))
-        require(not path.is_symlink() and path.is_dir() and path.stat().st_uid == uid,
-                'Pip cache ownership changed during preparation')
-    return {'path': str(paths[-1]), 'owner_uid': uid, 'created_directories': created,
-            'mode': oct(paths[-1].stat().st_mode & 0o777), 'symlinks': False,
+    temporary = Path(runner_temp)
+    require(uid == os.geteuid(), 'Expected the actual current job UID')
+    require(temporary.is_absolute() and temporary.is_dir() and temporary.resolve() == temporary
+            and temporary != Path('/') and not temporary.is_relative_to(ROOT),
+            'Expected canonical runner temporary directory outside checkout')
+    require(not any(p.is_symlink() for p in (temporary, *temporary.parents)), 'Symlink temporary directory is refused')
+    path = temporary / 'reader-pip-cache'
+    require(not path.is_symlink(), 'Symlink pip cache component is refused')
+    created = not path.exists()
+    if created:
+        path.mkdir(mode=0o700)
+    require(not path.is_symlink() and path.is_dir() and path.stat().st_uid == uid,
+            'Pip cache is not a current-user-owned directory')
+    require(path.stat().st_mode & 0o077 == 0, 'Pip cache is not owner-private; refusing chmod')
+    return {'path': str(path), 'owner_uid': uid, 'created_directories': [str(path)] if created else [],
+            'mode': oct(path.stat().st_mode & 0o777), 'symlinks': False,
             'existing_owner_mode_or_contents_changed': False}
 
 
@@ -273,12 +270,12 @@ def main():
             require(os.environ.get('GITHUB_ACTIONS') == 'true'
                     and os.environ.get('READER_PLAYWRIGHT_IMAGE') == IMAGE
                     and os.environ.get('RUNNER_TOOL_CACHE') == '/__t'
-                    and os.environ.get('PIP_CACHE_DIR') == '/root/.cache/pip'
-                    and os.geteuid() == 0,
+                    and os.environ.get('PIP_CACHE_DIR') == str(Path(os.environ.get('RUNNER_TEMP', '')) / 'reader-pip-cache'),
                     'Tool-cache binding requires the declared hosted container mount')
             binding = bind_python_cache_paths('/__t', '/opt/hostedtoolcache')
             report.update({k: v for k, v in binding.items() if k != 'passed'})
-            report['pip_cache'] = prepare_owned_pip_cache('/root', os.geteuid())
+            report['runtime_user'] = {'uid': os.geteuid(), 'gid': os.getegid(), 'home': os.environ.get('HOME')}
+            report['pip_cache'] = prepare_owned_pip_cache(os.environ['RUNNER_TEMP'], os.geteuid())
             report['passed'] = True
         else:
             report.update(verify_container() if args.action == 'verify' else measure_pulls())
