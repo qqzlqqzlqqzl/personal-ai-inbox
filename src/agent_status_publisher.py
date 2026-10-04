@@ -2,7 +2,8 @@
 from agent_status_store import InvalidSample, MAX_BYTES, STATES, unique_object, validate, integer, keys, timestamp
 import json
 
-def normalize(raw, now):
+def _canonical_input(raw, now):
+    """Private adapter input, sent only to the store's validation boundary."""
     if not isinstance(raw, bytes) or len(raw) > MAX_BYTES:
         raise InvalidSample("size")
     try:
@@ -41,4 +42,8 @@ def normalize(raw, now):
     if current and (not integer(source['waiting_count']) or source['waiting_count']!=counts['waiting']):raise InvalidSample('waiting_count')
     result = {"schema_version": 1, "sequence": source["revision"], "observed_at": source["observed_at"], "tasks": tasks, "statistics": counts}
     # generated_at, writer metadata, reasoning, limitations and errors are never exposed.
-    return validate(json.dumps(result, ensure_ascii=False).encode("utf-8"), now)
+    return json.dumps(result, ensure_ascii=False).encode("utf-8")
+
+def normalize(raw, now):
+    # Public projection never exposes source-provided display text by default.
+    return validate(_canonical_input(raw, now), now)

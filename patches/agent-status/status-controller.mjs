@@ -15,7 +15,7 @@ function render() {
   time('sample-time',last?.sample?.observed_at); time('pull-time',last?.last_successful_pull_at);
   el('known').textContent = d.counts ? '最后已知统计；调度运行含等待，实际推理活动未知。过期或未知不代表空闲。' : '统计未知';
   el('counts').replaceChildren(...Object.entries(labels).map(([key,label])=>{const item=document.createElement('div');item.className='card';item.append(document.createTextNode(label));const strong=document.createElement('strong');strong.textContent=d.counts?.[key] ?? '—';item.append(strong);return item;}));
-  const items=(last?.sample?.tasks??[]).map(task=>{const item=document.createElement('div');item.className='task';const text=document.createElement('div');const name=document.createElement('strong');name.textContent=task.name;const model=document.createElement('div');model.className='model';model.textContent=task.model;text.append(name,model);const badge=document.createElement('span');badge.className='badge';badge.textContent=states[task.state]??'未知';item.append(text,badge);return item;});
+  const items=(last?.sample?.tasks??[]).map(task=>{const item=document.createElement('div');item.className='task';const text=document.createElement('div');if(Object.hasOwn(task,'name')){const name=document.createElement('strong');name.textContent=task.name;text.append(name);}if(Object.hasOwn(task,'model')){const model=document.createElement('div');model.className='model';model.textContent=task.model;text.append(model);}const badge=document.createElement('span');badge.className='badge';badge.textContent=states[task.state]??'未知';item.append(text,badge);return item;});
   el('tasks').replaceChildren(...items);if(!items.length)el('tasks').textContent=d.counts ? '该有效采样未列出任务' : '暂无有效数据';
 }
 async function refresh() {

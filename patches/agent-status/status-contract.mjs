@@ -3,7 +3,9 @@ const fields=(value,names)=>{
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==names.length||names.some(key=>!Object.hasOwn(value,key)))throw new InvalidStatus('fields');
 };
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
-const label=value=>typeof value==='string'&&Array.from(value).length>0&&Array.from(value).length<=80&&!/[\\/:<>\x00-\x1f]/u.test(value);
+// Empty until specific task/model display names receive explicit approval.
+const APPROVED_TASK_NAMES=new Set([]),APPROVED_MODEL_NAMES=new Set([]);
+const label=value=>typeof value==='string'&&Array.from(value).length>0&&Array.from(value).length<=80&&!/[\\/:<>\x00-\x1f\ud800-\udfff]/u.test(value);
 function timestamp(value){
   if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value))throw new InvalidStatus('time');
   const time=new Date(value);if(!Number.isFinite(+time)||time.toISOString().slice(0,19)!==value.slice(0,19))throw new InvalidStatus('time');return +time;
@@ -26,9 +28,11 @@ export function validateStatus(value,now=Date.now()){
     fields(input.statistics,Object.keys(statistics));if(!integer(statistics.capacity)||statistics.capacity<input.tasks.length||statistics.capacity>128)throw new InvalidStatus('capacity');
     const seen=new Set(),states={running:'active',waiting:'waiting',done:'completed',failed:'failed',unknown:'unknown'};
     const tasks=input.tasks.map(task=>{
-      fields(task,['name','state','model']);if(!label(task.name)||!label(task.model)||seen.has(task.name)||typeof task.state!=='string'||!Object.hasOwn(states,task.state))throw new InvalidStatus('task');
-      seen.add(task.name);statistics[states[task.state]]++;if(task.state==='waiting')statistics.active++;
-      return Object.freeze({name:task.name,state:task.state,model:task.model});
+      if(!task||typeof task!=='object'||Array.isArray(task)||!Object.hasOwn(task,'state')||Object.keys(task).some(key=>!['name','state','model'].includes(key)))throw new InvalidStatus('task');
+      if(['name','model'].some(key=>Object.hasOwn(task,key)&&!label(task[key]))||typeof task.state!=='string'||!Object.hasOwn(states,task.state))throw new InvalidStatus('task');
+      if(Object.hasOwn(task,'name')){if(seen.has(task.name))throw new InvalidStatus('task');seen.add(task.name);}
+      statistics[states[task.state]]++;if(task.state==='waiting')statistics.active++;
+      return Object.freeze({state:task.state,...(APPROVED_TASK_NAMES.has(task.name)?{name:task.name}:{}),...(APPROVED_MODEL_NAMES.has(task.model)?{model:task.model}:{})});
     });
     for(const key of Object.keys(statistics))if(!integer(input.statistics[key])||input.statistics[key]!==statistics[key])throw new InvalidStatus('statistics');
     sample=Object.freeze({schema_version:1,sequence:input.sequence,observed_at:input.observed_at,tasks:Object.freeze(tasks),statistics:Object.freeze(statistics)});

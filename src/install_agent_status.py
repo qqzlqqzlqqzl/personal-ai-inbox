@@ -25,7 +25,7 @@ def install(root):
     panel=web/'src/components/Ai/AiPanel.jsx';panel_base=panel.read_text().replace(LINK_IMPORT,'').replace(LINK,'')
     if hashlib.sha256(panel_base.encode()).hexdigest()!=PANEL_BEFORE or panel_base.count(PANEL_ANCHOR)!=1:raise RuntimeError('Unreviewed settings panel; refusing status entry')
     # Validate all inputs before writing any file. Static test fixtures are excluded.
-    names=['AgentStatus.jsx','status-controller.mjs','status-view.mjs','status-cache.mjs','status-contract.mjs','reader-status-client.mjs','status.css']
+    names=['AgentStatus.jsx','status-controller.mjs','status-view.mjs','status-cache.mjs','status-contract.mjs','status-fingerprint.mjs','reader-status-client.mjs','status.css']
     for name in names:
         if not (source/name).is_file():raise RuntimeError('Missing status authoring file')
     target=web/'src/components/AgentStatus';target.mkdir(parents=True,exist_ok=True)

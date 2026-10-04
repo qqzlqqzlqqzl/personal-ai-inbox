@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
-from agent_status_publisher import normalize
+from agent_status_publisher import _canonical_input
 from agent_status_store import MAX_BYTES, InvalidSample, record_pull, validate
 
 class ReadFailure(Exception): pass
@@ -61,9 +61,11 @@ def pull(source_checkout,cache_dir,ref,state_path,now):
     if state.is_relative_to(source) or state.is_relative_to(Path(cache_dir).resolve()): raise ReadFailure('state_not_isolated')
     try:
         raw=read_file(source_checkout,cache_dir,ref)
-        try: sample=validate(raw,now) # Preferred canonical white-list schema.
-        except InvalidSample: sample=normalize(raw,now) # Existing observed publisher format.
-        payload=json.dumps(sample,ensure_ascii=False).encode('utf-8')
+        try:
+            validate(raw,now) # Preferred canonical white-list schema.
+            payload=raw
+        except InvalidSample:
+            payload=_canonical_input(raw,now) # Private input; store redacts before persistence/output.
     except (ReadFailure,InvalidSample): payload=None
     return record_pull(state_path,payload,now)
 
