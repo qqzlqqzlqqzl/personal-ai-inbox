@@ -17,7 +17,9 @@ const canReturnFocus = node => {
   return style.visibility !== 'hidden' && style.visibility !== 'collapse' && style.display !== 'none' && style.opacity !== '0'
 }
 
-export default function NavigationPalette({ onConsole, launchRef, beforeLaunch, returnFocusRef, compact = false, triggerClassName = "" }) {
+export default function NavigationPalette({ onConsole, launchRef, beforeLaunch, returnFocusRef, triggerClassName = "" }) {
+  // This existing class is the parent's committed responsive presentation.
+  const compact = triggerClassName.split(/\s+/).includes('ai-navigation-hidden')
   const feeds = useStore(visibleFeedsState), categories = useStore(visibleCategoriesState)
   const navigate = useNavigate(), dialog = useRef(null), input = useRef(null), opener = useRef(null)
   const trigger = useRef(null), pendingFocus = useRef(null)
