@@ -100,6 +100,47 @@ class ReaderEvidenceTests(unittest.TestCase):
             self.assertEqual((Path(receipt['retained_at']) / relative / 'result.json').read_bytes(),
                              b'{"old_synthetic":true}')
 
+    def test_console_header_and_native_entries_are_mandatory(self):
+        from ci_reader_contract import BROWSER_TESTS
+        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/reader-regression.yml').read_text()
+        for name, command in [('console_header_browser.py', '600s python tests/'),
+                              ('native_zoom_browser.py', '600s xvfb-run -a python tests/')]:
+            self.assertIn(name, BROWSER_TESTS)
+            self.assertEqual(workflow.count(command + name), 1)
+        self.assertNotIn('continue-on-error:', workflow)
+        self.assertNotIn('if: hashFiles', workflow)
+
+    def test_native_surface_upload_is_explicit_and_prepared(self):
+        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/reader-regression.yml').read_text()
+        native = ('result.json', 'native-metrics.json', 'native-font-coverage.json',
+                  'native-200.png', 'native-200-after300ms.png', 'native-stability.json',
+                  'native-200-corner-probe.png', 'native-200-corner-probe.surface.json',
+                  'native-200-corner-probe.proof.json', 'native-200.surface.json',
+                  'native-200-after300ms.surface.json')
+        for name in native:
+            path = 'runtime/native-zoom/' + name
+            self.assertIn(path, UPLOAD_PATHS)
+            self.assertIn('            ' + path + '\n', workflow)
+        self.assertNotIn('            runtime/native-zoom/\n', workflow)
+        self.assertNotIn('            runtime/native-zoom/*', workflow)
+        self.assertFalse(any(matches('runtime/native-zoom/profile/Default/Cookies', p) for p in UPLOAD_PATHS))
+
+    def test_console_and_native_prior_outputs_retained_before_upload(self):
+        paths = ['runtime/console-header/390x844-light/geometry.json',
+                 'runtime/console-header/844x390-dark/result.json',
+                 'runtime/native-zoom/native-200.png',
+                 'runtime/native-zoom/native-200-corner-probe.png',
+                 'runtime/native-zoom/native-200-corner-probe.proof.json',
+                 'runtime/native-zoom/native-200-after300ms.surface.json']
+        for name in paths:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'old synthetic evidence')
+        receipt = prepare(self.root, self.retained, self.head)
+        for name in paths:
+            self.assertFalse((self.root / name).exists())
+            self.assertEqual((Path(receipt['retained_at']) / name).read_bytes(), b'old synthetic evidence')
+
 
 if __name__ == '__main__':
     unittest.main()

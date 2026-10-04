@@ -22,6 +22,15 @@ UPLOAD_PATHS = (
     'runtime/dev-fixture-workspace-browser/',
     'runtime/navigation-focus-*/',
     'runtime/query-result-ownership/', 'runtime/reading-focus-*/',
+    'runtime/console-header/',
+    'runtime/native-zoom/result.json', 'runtime/native-zoom/native-metrics.json',
+    'runtime/native-zoom/native-font-coverage.json', 'runtime/native-zoom/native-200.png',
+    'runtime/native-zoom/native-200-after300ms.png', 'runtime/native-zoom/native-stability.json',
+    'runtime/native-zoom/native-200-corner-probe.png',
+    'runtime/native-zoom/native-200-corner-probe.surface.json',
+    'runtime/native-zoom/native-200-corner-probe.proof.json',
+    'runtime/native-zoom/native-200.surface.json',
+    'runtime/native-zoom/native-200-after300ms.surface.json',
 )
 
 

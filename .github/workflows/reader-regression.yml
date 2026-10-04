@@ -111,6 +111,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/review_console_browser.py
+      - name: Console sticky header geometry across tabs viewports and themes
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/console_header_browser.py
       - name: Reading recovery and navigation in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -181,6 +185,7 @@ jobs:
             runtime/browser-failure.png
             runtime/cjk-font/
             runtime/review-console/
+            runtime/console-header/
             runtime/review-reading/
             runtime/query-result-ownership/
             runtime/reading-focus-*/
@@ -200,6 +205,11 @@ jobs:
             runtime/native-zoom/native-200.png
             runtime/native-zoom/native-200-after300ms.png
             runtime/native-zoom/native-stability.json
+            runtime/native-zoom/native-200-corner-probe.png
+            runtime/native-zoom/native-200-corner-probe.surface.json
+            runtime/native-zoom/native-200-corner-probe.proof.json
+            runtime/native-zoom/native-200.surface.json
+            runtime/native-zoom/native-200-after300ms.surface.json
             artifacts/browser-admission.json
             runtime/calendar-*/
             runtime/browser-build/

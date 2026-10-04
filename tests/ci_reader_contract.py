@@ -25,6 +25,7 @@ BROWSER_TESTS = (
     'dev_fixture_workspace_browser_acceptance.py',
     'navigation_focus_transition_browser.py',
     'query_result_ownership_browser.py', 'reading_focus_browser.py',
+    'console_header_browser.py', 'native_zoom_browser.py',
 )
 
 
