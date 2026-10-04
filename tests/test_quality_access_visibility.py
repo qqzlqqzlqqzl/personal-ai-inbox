@@ -41,3 +41,25 @@ def test_visible_one_article_payment_is_not_guessed_as_subscription():
     result=assess(url=URL,html_body='<div class="paywall">全文需付费</div>',extraction_state='available')
     assert result['access']=='paid_fulltext'
     assert result['recommendation_eligible'] is False
+
+
+@pytest.mark.parametrize('gate',[
+    '<section style="visibility:hidden"><div style="visibility:visible" class="paywall">This article is for paid subscribers only.</div></section>',
+    '<section style="visibility:hidden!important"><div style="visibility:visible" class="paywall">This article is for paid subscribers only.</div></section>',
+    '<section style="visibility:hidden" class="paywall"><p style="visibility:visible">This article is for paid subscribers only.</p></section>',
+])
+def test_visible_descendant_restores_inherited_visibility(gate):
+    result=assess(url=URL,html_body=PUBLIC+gate,extraction_state='available')
+    assert result['recommendation_eligible'] is False
+    assert result['reason_codes']==['conflicting_access_evidence']
+
+
+@pytest.mark.parametrize('attribute',[
+    'hidden', 'style="display:none"', 'style="visibility:hidden"',
+])
+def test_visibility_cannot_restore_display_none_or_native_hidden(attribute):
+    child_style='visibility:visible' if attribute!='style="visibility:hidden"' else 'visibility:inherit'
+    gate=f'<section {attribute}><div style="{child_style}" class="paywall">This article is for paid subscribers only.</div></section>'
+    result=assess(url=URL,html_body=PUBLIC+gate,extraction_state='available')
+    assert result['recommendation_eligible'] is True
+    assert result['access']=='public'

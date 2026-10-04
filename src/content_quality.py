@@ -74,6 +74,7 @@ def _article_matches(article, url):
 
 def _known_hidden(node):
     """Only markup/inline declarations with known visibility; no CSS guessing."""
+    visibility = None
     for element in [node, *node.parents]:
         if element.name in {'template', 'noscript', 'script', 'style'} or element.has_attr('hidden'):
             return True
@@ -88,9 +89,15 @@ def _known_hidden(node):
             value = value.replace('!important', '').strip()
             if name not in declarations or important or not declarations[name][0]:
                 declarations[name] = (important, value)
-        if declarations.get('display', (False, None))[1] == 'none' or declarations.get('visibility', (False, None))[1] == 'hidden':
+        if declarations.get('display', (False, None))[1] == 'none':
             return True
-    return False
+        # Visibility inherits, but a nearer explicit visible value restores a
+        # descendant even when the ancestor declaration is important. Display
+        # none and native hidden suppress the subtree and cannot be restored.
+        value = declarations.get('visibility', (False, None))[1]
+        if visibility is None and value in {'hidden', 'visible'}:
+            visibility = value
+    return visibility == 'hidden'
 
 
 def _visible_gate_chunks(node):
@@ -128,7 +135,7 @@ def _access(soup, url):
     login_gate = False
     for node in soup.find_all(True):
         tokens = set(node.get("class", [])) | {str(node.get("id", "")), str(node.get("data-testid", ""))}
-        if not GATE_TOKENS.intersection(tokens) or _known_hidden(node):
+        if not GATE_TOKENS.intersection(tokens):
             continue
         for text in _visible_gate_chunks(node):
             free_gate = bool(FREE_ACCESS.search(text))
