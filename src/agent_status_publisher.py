@@ -42,7 +42,12 @@ def _canonical_input(raw, now):
     if current and (not integer(source['waiting_count']) or source['waiting_count']!=counts['waiting']):raise InvalidSample('waiting_count')
     result = {"schema_version": 1, "sequence": source["revision"], "observed_at": source["observed_at"], "tasks": tasks, "statistics": counts}
     # generated_at, writer metadata, reasoning, limitations and errors are never exposed.
-    return json.dumps(result, ensure_ascii=False).encode("utf-8")
+    try:
+        return json.dumps(result, ensure_ascii=False).encode("utf-8")
+    except UnicodeError:
+        # Escaped lone surrogates are malformed labels, not uncaught transport
+        # failures that skip the existing last-attempt/failure bookkeeping.
+        raise InvalidSample('labels') from None
 
 def normalize(raw, now):
     # Public projection never exposes source-provided display text by default.
