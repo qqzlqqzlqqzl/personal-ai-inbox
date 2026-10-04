@@ -5,6 +5,9 @@ export function createStatusCache(){
   return {
     accept(value,now){
       const next=validateStatus(value,now);
+      // No observation is not a new zero-task observation. Retain last-good and
+      // its high-water identity; only explicit auth/session retirement clears it.
+      if(last?.sample&&next.sample===null){failed=true;return;}
       const identity=next.sample?sampleFingerprint(value.sample):null;
       if(last?.sample&&next.sample){
         if(next.sample.sequence<last.sample.sequence||statusInstant(next.sample.observed_at)<statusInstant(last.sample.observed_at))throw new InvalidStatus('regression');

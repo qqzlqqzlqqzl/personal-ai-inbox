@@ -31,6 +31,15 @@ for(const mutation of [v=>v.sample.sequence--,v=>v.sample.observed_at='2026-10-0
 }
 const projected=validateStatus(copy(),now);absent(projected);
 assert.deepEqual(validateStatus(projected,now).sample.tasks,projected.sample.tasks);
+const highWater=createStatusCache();highWater.accept(copy(),now);
+const unknown={sample:null,last_successful_pull_at:null,last_attempt_at:null,pull_status:'unknown',freshness:'unknown',stale_after_seconds:1800,target_interval_seconds:600};
+highWater.accept(unknown,now);assert.equal(highWater.get().last.sample.sequence,raw.sample.sequence);assert.equal(highWater.get().requestFailed,true);absent(highWater.get());
+const lowerAfterUnknown=copy();lowerAfterUnknown.sample.sequence--;assert.throws(()=>highWater.accept(lowerAfterUnknown,now),/regression/);
+const conflictAfterUnknown=copy();conflictAfterUnknown.sample.tasks[0].name+='_CHANGED';assert.throws(()=>highWater.accept(conflictAfterUnknown,now),/sequence_conflict/);
+const empty=copy();empty.sample.sequence++;empty.sample.tasks=[];empty.sample.statistics={total:0,capacity:6,active:0,waiting:0,completed:0,failed:0,unknown:0};
+highWater.accept(empty,now);assert.equal(highWater.get().last.sample.statistics.total,0);assert.equal(highWater.get().requestFailed,false);
+highWater.accept(unknown,now);assert.equal(highWater.get().last.sample.sequence,empty.sample.sequence);assert.equal(highWater.get().requestFailed,true);
+highWater.clearPrivate();assert.equal(highWater.get().last,null);highWater.accept(copy(),now);assert.equal(highWater.get().requestFailed,false);
 for(const status of [401,403]){
   cache.fail({status});assert.equal(cache.get().last,null);
   const next=copy();next.sample.sequence=0;cache.accept(next,now);absent(cache.get());

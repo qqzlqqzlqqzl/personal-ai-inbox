@@ -12,6 +12,8 @@ The persistent store keeps an internal `sample_sha256` of the validated, pre-pro
 
 The reader adapter passes validated canonical input, or the observed publisher's internal canonical input, directly into the store before projection. The public `normalize()` result is redacted; callers must not substitute that projection for the reader's raw-input identity boundary and claim equivalent same-sequence auditing. Pulling never refreshes `observed_at`; transport/malformed/conflicting pulls do not replace last-good or advance successful-pull time.
 
+A valid unknown envelope with `sample:null` carries no newer observation. The browser marks the read unknown while retaining any established last-good and high-water identity. A genuine, valid zero-task sample with a newer sequence still replaces it; explicit auth/session retirement still clears both sample and identity.
+
 The installer runs after all reviewed frontend patch stages and accepts only the pinned public ReactFlux revision and exact reviewed route/toolbar/panel hashes. It adds the lazy route below AuthenticatedApp and an entry in the existing settings panel; it is idempotent and fails before writes on an unknown baseline. The CI builder uses the same stage. No mock file is copied to the built application.
 
 Validation: focused API/installer tests; adversarial contract/cache and actual controller DOM tests; existing view/client tests; pinned frontend preparation repeated successfully; isolated synthetic authentication tests and desktop/mobile mock browser checks. Existing Reader and metadata CI run on the draft PR. Metadata paired-source admission may require separate review because src/api.py changes; do not weaken or regenerate that approval automatically.
