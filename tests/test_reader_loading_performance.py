@@ -3,15 +3,19 @@ import ast
 import copy
 import hashlib
 import http.client
+import io
 import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import reader_loading_fixture as f
+import reader_loading_performance as measurement
 from reader_loading_performance import browser_env, save_new, join_image_network, warm_image_proof, await_warm_image_proof
 from compare_reader_loading import compare
 
@@ -97,6 +101,23 @@ class OutputContract(unittest.TestCase):
             env=browser_env(self.root)
         self.assertEqual(set(env),{'PATH','HOME','TMPDIR','LANG','TZ','XDG_CACHE_HOME','XDG_CONFIG_HOME'})
         self.assertNotIn('synthetic',json.dumps(env))
+    def test_unsupported_platform_stops_before_any_files_or_browser(self):
+        argv=['measure','--build','unused','--manifest','unused','--manifest-sha','unused',
+              '--artifact-zip','unused','--artifact-sha','unused','--source-tree','unused',
+              '--phase','baseline','--output-parent','unused']
+        for platform in ('win32','darwin'):
+            with self.subTest(platform=platform),patch.object(sys,'argv',argv),patch.object(sys,'platform',platform),\
+                 patch.object(measurement,'checked_directory',side_effect=AssertionError('must not touch filesystem')):
+                output=io.StringIO()
+                with redirect_stdout(output):self.assertEqual(measurement.main(),1)
+                self.assertEqual(json.loads(output.getvalue())['status'],'NOT_RUN')
+    def test_chromium_sandbox_is_explicit_and_never_disabled(self):
+        tree=ast.parse(Path(__file__).with_name('reader_loading_performance.py').read_text())
+        launches=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='launch']
+        self.assertEqual(len(launches),1)
+        setting=next(k.value for k in launches[0].keywords if k.arg=='chromium_sandbox')
+        self.assertIsInstance(setting,ast.Constant);self.assertIs(setting.value,True)
+        self.assertNotIn('--no-sandbox',[n.value for n in ast.walk(tree) if isinstance(n,ast.Constant) and isinstance(n.value,str)])
 
 
 class HTTPContract(unittest.TestCase):

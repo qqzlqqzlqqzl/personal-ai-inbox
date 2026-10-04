@@ -364,6 +364,10 @@ def main():
     parser.add_argument('--output-parent',required=True);parser.add_argument('--input',choices=['keyboard','touch'],default='keyboard')
     parser.add_argument('--weak-network',action='store_true')
     args=parser.parse_args()
+    if sys.platform!='linux':
+        print(json.dumps({'status':'NOT_RUN','error':'This entry requires Linux directory-FD/O_NOFOLLOW ownership guards; native Windows/macOS are unsupported.',
+                          'platform':sys.platform,'browser_started':False,'output_created':False},ensure_ascii=False))
+        return 1
     parent=checked_directory(args.output_parent)
     require(not parent.is_relative_to(checked_directory(args.build)), 'output parent must be outside build')
     output=Path(tempfile.mkdtemp(prefix='reader-perf-',dir=parent))
@@ -389,7 +393,7 @@ def main():
         env=browser_env(output)
         report['browser_environment_names']=sorted(env)
         report['browser_executable_sha256']=hashlib.sha256(executable.read_bytes()).hexdigest()
-        browser=pw.chromium.launch(channel='chromium',headless=True,timeout=15000,env=env,
+        browser=pw.chromium.launch(channel='chromium',headless=True,timeout=15000,env=env,chromium_sandbox=True,
             proxy={'server':fixture.base,'bypass':'<-loopback>'},
             args=['--disable-background-networking','--disable-component-update','--disable-quic',
                   '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',

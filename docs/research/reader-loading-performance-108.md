@@ -15,6 +15,20 @@ does not install anything and has no arbitrary browser executable override.
 Preserve the virtual environment's launcher path when invoking Python; resolving
 its symlink to the system interpreter can select a different package environment.
 
+This implementation supports Linux only. Its bound directory descriptors,
+O_NOFOLLOW and UID/mode checks are not a native Windows implementation; on Windows
+or macOS the entry returns NOT_RUN/exit 1 before creating output or launching a
+browser. Do not remove those guards to run it in a Windows focus-probe environment.
+An existing reviewed Linux/Hosted Ubuntu environment with the matching browser can
+run the command below. Windows Chromium 1200/1234/1243 caches are not Linux browser
+inputs, and no browser version/platform fallback is supported.
+
+Chromium is launched with `chromium_sandbox=True` explicitly. There is no
+`--no-sandbox` argument or retry with weaker settings. If the host cannot support
+that launch, preserve the failure and stop; do not change OS security controls,
+permissions, the user's profile or HOME. Browser HOME/cache/config are new private
+directories owned by this run, never permission changes to existing directories.
+
 Supply a reviewed original Reader CI artifact ZIP, its SHA256, the extracted
 `runtime/browser-build` directory, a reviewed JSON manifest of every build file
 (`path`, `bytes`, `sha256`), that manifest's SHA256, and the expected source tree.
