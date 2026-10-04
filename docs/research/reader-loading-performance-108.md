@@ -202,3 +202,90 @@ it does not convert missing browser or production measurements into passing data
 The next retained commit `1331a8b` fixed admission but still allowed its later
 pathname join to select another query's timing. The final follow-up removes that
 warm re-selection and publishes timings directly from each verified proof.
+
+## Hosted baseline job and full regression integration
+
+`.github/workflows/reader-loading-performance.yml` is an executable **baseline**
+measurement candidate for the publisher's reviewed PR. It starts three independent
+Ubuntu 24.04 jobs (`keyboard`, `touch`, `weak-network`); each runs five fresh-context
+cold / same-context warm pairs. Weak network uses the existing keyboard scenario
+with 150 ms latency, 250000 bytes/s download and 125000 bytes/s upload. It does not
+compare a product fix or substitute for the full Reader regression workflow.
+
+The workflow runs automatically on a PR changing its listed measurement paths.
+The publisher can also dispatch `reader-loading-performance.yml` at the reviewed
+branch once GitHub exposes that workflow for dispatch. There are no arbitrary URL,
+artifact, command, browser executable, toolchain, or token inputs. Do not run this
+Linux entry through a native Windows Python/Chromium installation.
+
+Only this new job has the specifically authorized `actions: read` in addition to
+`contents: read`. Its download step uses the repository's existing short-lived
+`github.token` as `GH_TOKEN`, scoped to that step. It calls only:
+
+```
+gh api --hostname github.com --method GET -H 'X-GitHub-Api-Version: 2022-11-28' \
+  repos/qqzlqqzlqqzl/personal-ai-inbox/actions/artifacts/11299074112/zip
+```
+
+The helper bounds this read to 90 seconds and exactly 8,750,880 bytes, then requires
+SHA256 `108536813a6d2e3da2f3801917f082acad2e8271b9a27ef2b2dcf66c7a3b8a85`.
+It checks ZIP CRC, member/expanded-byte caps, unique paths, the original successful
+879ff545 source identity and regular-file types. Only the 125 build members are
+expanded, after their original-order JSON manifest matches SHA256
+`05dd86f9c5face0b31a242f27b5cc25174249cc10d41f2d5bd535575c3c06e1f`.
+Expired/unavailable artifacts, access denial and mismatched bytes fail the job;
+there is no replacement artifact, rebuild, secret, or cross-repository fallback.
+
+The existing setup-python action pin selects Python 3.12.14. The original
+requirements lock is verified at SHA256
+`106373e10b547e80b632c0d584cf5deb85bb5486d60303936f22e3f2aefdbe4f`, and every
+installed package must match it, including Playwright 1.63.0 and Chromium's 1243 /
+153.0.8010.12 descriptors. The unchanged measurement entry verifies the actual full
+Chromium path/version and launches with its sandbox explicitly enabled. The new
+workflow has no weaker launch, alternate executable, increased existing timeout,
+or reused user profile.
+
+Playwright's original `install-deps chromium` refreshes signed APT indexes. Font
+prepare/install calls reuse the existing `ci_cjk_font.py` metadata, size, SHA256,
+cache-admission and `--no-download` installation checks. A narrow process-local
+adapter retains that helper's temporary download/install directories and bounds
+each external font command to 120 seconds. It changes no package verification,
+system permission or existing cache bytes. The full Reader workflow continues to
+perform its existing actual Chinese glyph rendering acceptance.
+
+Every job creates its own private directory under `RUNNER_TEMP`, before dependency
+installation, and records the exact tested workflow HEAD/tree/src. Original input
+archives and extracted builds stay in `inputs/`; browser profiles, driver HOME,
+raw gh errors and retained font staging stay in `work/`. The upload path is only
+the fresh `evidence/` directory. It contains safe source/toolchain/input receipts,
+signed-index font identity, explicit setup/measurement status, synthetic measurement
+stdout/stderr and an allowlisted copy of direct result/pair/boundary JSON files and
+failure screenshots. It never uploads the baseline ZIP, frontend files, cookies,
+browser cache/profile, arbitrary nested files, environment or raw gh redirect text.
+Failed measurement partials remain available. Setup failure explicitly records
+measurement `NOT_RUN`. GitHub job cancellation or loss of the runner can prevent
+finalization/upload; a missing artifact is not a pass.
+
+Artifact names are
+`reader-loading-baseline-<run_id>-<run_attempt>-<keyboard|touch|weak-network>` with
+seven-day retention. `source.json` identifies the current workflow commit while
+`baseline-input.json` identifies the older exact build being measured. Do not
+attribute old 879 CI assertions to the current workflow commit or combine the
+three five-pair samples into a p95/p99 or production performance claim.
+
+The full `.github/workflows/reader-regression.yml` separately adds mandatory
+`query_result_ownership_browser.py` and `reading_focus_browser.py` steps. Both use
+`AI_NEWS_TEST_BUILD=runtime/browser-build` and the existing 600-second limit. Their
+files are required by `ci_reader_contract.py`; missing entries fail instead of
+skipping. Evidence preparation retains previous `runtime/query-result-ownership/`
+and `runtime/reading-focus-*/` output before any dependency step, and the final
+guarded upload includes the new synthetic result directories. All earlier Reader
+steps, action pins, permissions and required suites remain present.
+
+These two browser entry files belong to the separately reviewed UX candidate.
+This CI-only branch intentionally does not copy or merge that product branch.
+The publisher must combine the reviewed source commits and this CI candidate,
+then verify the resulting exact HEAD/tree and run the full workflow. This branch
+alone is not a complete product acceptance candidate and its full identity gate
+will reject the absent two inputs. New Hosted browser measurements and the final
+combined-product acceptance remain **NOT RUN** until real runs produce receipts.

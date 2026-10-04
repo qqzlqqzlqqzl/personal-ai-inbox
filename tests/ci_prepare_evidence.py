@@ -21,6 +21,7 @@ UPLOAD_PATHS = (
     'runtime/calendar-*/', 'runtime/browser-build/',
     'runtime/dev-fixture-workspace-browser/',
     'runtime/navigation-focus-*/',
+    'runtime/query-result-ownership/', 'runtime/reading-focus-*/',
 )
 
 
