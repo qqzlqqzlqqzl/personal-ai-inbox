@@ -213,7 +213,7 @@ def probe_script(sentinel):
   save();
   (async () => {
     const deadline = Date.now() + 12000;
-    while (![...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'AI 精选')) {
+    while (![...document.querySelectorAll('button')].some(e => e.getAttribute('aria-label') === 'AI 精选' && e.isConnected && e.offsetWidth > 0 && e.offsetHeight > 0)) {
       check(Date.now() < deadline, 'real Reader toolbar did not mount');
       await sleep(50);
     }
