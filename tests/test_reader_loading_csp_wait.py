@@ -70,7 +70,7 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual(len(observations),2 if name=='open_article' else 1)
             if name=='open_article':
                 self.assertEqual(observations[0].args[2].value,"e=>(e.innerText.length>100 && !e.getAttribute('aria-busy'))")
-                self.assertEqual(observations[1].args[2].value,'e=>window.__readerBodySnapshot().ready')
+                self.assertEqual(observations[1].args[2].value,'e=>Boolean(window.__readerBodyObservation.opens.at(-1)?.first_prose && window.__readerBodySnapshot().ready)')
             for observation in observations:
                 expression=observation.args[2].value
                 self.assertTrue(expression.startswith('e=>'))

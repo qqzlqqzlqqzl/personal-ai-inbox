@@ -50,11 +50,11 @@ BODY_OBSERVER = r'''(() => {
   const snapshot=__SNAPSHOT__;
   const record={contract:'exact-fixture-prose-first-dom-v2',samples:[],opens:[],truncated:false,paint_observed:false,
     animationFramesObserved:0,lastNonreadyFrame:null};
-  let active=null,frame=null;
+  let active=null,frame=null,observationSequence=0;
   window.__readerBodyObservation=record;
   window.__readerBodySnapshot=snapshot;
   function observe(kind,detail=null){
-    const value={kind,detail,...snapshot()};
+    const value={kind,detail,...snapshot(),observationSequence:++observationSequence};
     if(kind==='driver-before-open'){
       active={sequence:record.opens.length+1,entryId:String(detail.entry),input:detail.input,
         driver_start:value,activation:null,first_prose:null};record.opens.push(active);
@@ -62,9 +62,11 @@ BODY_OBSERVER = r'''(() => {
     if(active&&!active.activation&&detail&&detail.entryId===active.entryId&&detail.isTrusted===true&&
        ((active.input==='touch'&&kind==='user-click')||(active.input==='keyboard'&&kind==='user-keydown'&&detail.key==='Enter'))){
       active.activation=value;
-      frame=requestAnimationFrame(poll);
+      if(value.ready===false)frame=requestAnimationFrame(poll);
     }
-    if(active?.activation&&!active.first_prose&&value.ready&&value.at>=active.activation.at){
+    if(active?.activation&&active.activation.ready===false&&!active.first_prose&&value.ready&&
+       ['mutation','animation-frame-dom-observation'].includes(kind)&&value.at>active.activation.at&&
+       value.observationSequence>active.activation.observationSequence){
       active.first_prose=value;
     }
     if(kind==='animation-frame-dom-observation')record.animationFramesObserved++;
@@ -73,7 +75,7 @@ BODY_OBSERVER = r'''(() => {
     return {...value,openSequence:active?.sequence??null};
   }
   function poll(){
-    if(!active?.activation||active.first_prose||record.truncated)return;
+    if(!active?.activation||active.activation.ready!==false||active.first_prose||record.truncated)return;
     observe('animation-frame-dom-observation');
     if(!active.first_prose&&!record.truncated)frame=requestAnimationFrame(poll);
   }
@@ -143,6 +145,11 @@ def validate_open_observation(observation):
     require(activation['kind'] in ('user-click','user-keydown') and activation['detail']['isTrusted'] is True and
             activation['kind']==expected_kind and activation['detail']['entryId']=='1',
             'timing lacks the actual requested user activation')
+    require(activation.get('ready') is False,'original prose was visible before the activation handler')
+    require(first.get('kind') in ('mutation','animation-frame-dom-observation') and
+            type(first.get('observationSequence')) is int and type(activation.get('observationSequence')) is int and
+            first['observationSequence']>activation['observationSequence'] and first['at']>activation['at'],
+            'first prose must come from a later independent DOM observation')
     require(activation['kind']!='user-keydown' or activation['detail']['key']=='Enter','wrong activation key')
     times=[observation['before']['at'],activation['at'],first['at'],current['at']]
     require(all(type(value) in (int,float) and math.isfinite(value) and value>=0 for value in times) and times==sorted(times),

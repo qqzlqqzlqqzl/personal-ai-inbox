@@ -81,4 +81,19 @@ check(`<div style="opacity:0"><p>${text}</p></div>`,{},false)
   controls++
  } finally {dom.window.__readerBodyStop?.();dom.window.close()}
 }
+{
+ const dom=setup('<p>not the original prose</p>')
+ try {
+  const w=dom.window;w.eval(script)
+  const before=w.__readerBodyMark('driver-before-open',{entry:1,input:'keyboard'})
+  assert.equal(before.ready,false)
+  w.document.querySelector('.article-body p').textContent=text
+  // Reproduce the reviewed counterexample: prose appears before activation.
+  const activation=w.__readerBodyMark('user-keydown',{entryId:'1',key:'Enter',isTrusted:true})
+  assert.equal(activation.ready,true)
+  await new Promise(resolve=>w.setTimeout(resolve,25))
+  assert.equal(w.__readerBodyOpenResult(before.openSequence).first_prose,null)
+  controls++
+ } finally {dom.window.__readerBodyStop?.();dom.window.close()}
+}
 console.log(JSON.stringify({synthetic_observer_controls:controls,real_jsdom:true,actual_browser:false,paint_claim:false}))

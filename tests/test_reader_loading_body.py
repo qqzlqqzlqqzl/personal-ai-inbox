@@ -12,9 +12,9 @@ def ready_snapshot():
 
 
 def open_observation(duration):
-    first=ready_snapshot();first['at']=1000+duration
+    first=ready_snapshot();first.update(at=1000+duration,kind='mutation',observationSequence=2)
     current=ready_snapshot();current['at']=2000
-    return {'contract':BODY_CONTRACT,'before':{'at':999,'ready':False,'detail':{'input':'keyboard','entry':1}},'activation':{'at':1000,'kind':'user-keydown',
+    return {'contract':BODY_CONTRACT,'before':{'at':999,'ready':False,'detail':{'input':'keyboard','entry':1}},'activation':{'at':1000,'ready':False,'observationSequence':1,'kind':'user-keydown',
             'detail':{'entryId':'1','isTrusted':True,'key':'Enter'}},'first_prose':first,'prose_ready':current,
             'container_ready_ms':900,'legacy_driver_wait_ms':1000,'prose_dom_ready_ms':duration}
 
@@ -24,7 +24,7 @@ class ProseAdmission(unittest.TestCase):
         row=open_observation(320)
         self.assertEqual(validate_open_observation(row),320)
         self.assertEqual(row['container_ready_ms'],900)
-        for kind in ('untrusted','wrong-entry','reverse','late-poll-time','preexisting','wrong-input'):
+        for kind in ('untrusted','wrong-entry','reverse','late-poll-time','preexisting','wrong-input','ready-at-activation','activation-as-first','same-clock','reused-sequence'):
             with self.subTest(kind=kind),self.assertRaises(ValueError):
                 value=copy.deepcopy(row)
                 if kind=='untrusted':value['activation']['detail']['isTrusted']=False
@@ -33,6 +33,10 @@ class ProseAdmission(unittest.TestCase):
                 if kind=='late-poll-time':value['prose_dom_ready_ms']=900
                 if kind=='preexisting':value['before']['ready']=True
                 if kind=='wrong-input':value['before']['detail']['input']='touch'
+                if kind=='ready-at-activation':value['activation']['ready']=True
+                if kind=='activation-as-first':value['first_prose']['kind']='user-keydown'
+                if kind=='same-clock':value['first_prose']['at']=1000;value['prose_dom_ready_ms']=0
+                if kind=='reused-sequence':value['first_prose']['observationSequence']=1
                 validate_open_observation(value)
     def test_exact_fixture_paragraph_is_the_required_original_text(self):
         from reader_loading_fixture import Fixture

@@ -194,7 +194,7 @@ def open_article(page, input_kind, number=1, observation=None):
     wait_for_observation(page,page.locator('.article-body'),"e=>(e.innerText.length>100 && !e.getAttribute('aria-busy'))")
     observation['container_ready_ms']=(time.monotonic()-before)*1000
     observation['container_ready']=body_mark(page,'container-ready-not-prose-proof')
-    wait_for_observation(page,page.locator('.article-body'),"e=>window.__readerBodySnapshot().ready")
+    wait_for_observation(page,page.locator('.article-body'),"e=>Boolean(window.__readerBodyObservation.opens.at(-1)?.first_prose && window.__readerBodySnapshot().ready)")
     observation['prose_ready']=body_mark(page,'prose-dom-ready')
     validate_ready(observation['prose_ready'])
     opening=page.evaluate('(sequence)=>window.__readerBodyOpenResult(sequence)',observation['before']['openSequence'])
