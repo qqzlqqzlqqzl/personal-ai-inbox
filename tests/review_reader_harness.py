@@ -29,7 +29,7 @@ class Harness:
         self.ctx.add_init_script("if(!localStorage.getItem('auth')){"+auth_script+"}" if persist_auth else auth_script)
         self.errors=[];self.calls=[];self.writes=[];self.checks={};self.custom=None
         self.categories=[{'id':1,'title':'技术博客'},{'id':2,'title':'设计'}]
-        self.feeds=[{'id':7,'user_id':1,'title':'已订阅技术源','feed_url':'https://example.test/existing.xml','site_url':'https://example.test','category':self.categories[0]}]
+        self.feeds=[{'id':7,'user_id':1,'title':'已订阅技术源','feed_url':'https://example.test/existing.xml','site_url':'https://example.test','category':self.categories[0],'icon':{'feed_id':7,'icon_id':0,'external_icon_id':''}}]
         self.catalog=[{'name':'已订阅技术源','url':self.feeds[0]['feed_url'],'category':'技术博客','status':'subscribed','subscribed':True,'feed_id':7}]+[{'name':f'技术候选{i:02d}','url':f'https://example.test/tech{i}.xml','category':'技术博客','status':'ok','subscribed':False} for i in range(28)]+[{'name':'设计候选','url':'https://example.test/design.xml','category':'设计','status':'ok','subscribed':False},{'name':'错误来源','url':'https://example.test/broken.xml','category':'设计','status':'blocked','live_error':'HTTP 403'}]
         self.settings={'enabled':False,'translation_enabled':False,'base_url':'https://example.test/v1','model':'fixture-model','prompt':'初始测试提示词','minimum_score':6,'daily_articles':80,'daily_tokens':500000,'max_chars':40000,'json_mode':True}
         self.status={'counts':{},'coverage':{'total_articles':0,'source_count':1},'usage':[],'events':[],'resources':{},'kaggle':{'enabled':False}}
@@ -62,7 +62,7 @@ class Harness:
             body={'note':self.notes.get(eid,''),'note_count':len(self.notes.get(eid,'')),'updated_at':'2026-10-01T12:00:00Z'}
         elif path.endswith('/ai/subscribe'):
             item=request.post_data_json;fid=len(self.feeds)+7
-            feed={'id':fid,'user_id':1,'title':item['url'],'feed_url':item['url'],'site_url':'https://example.test','category':next(c for c in self.categories if c['id']==item['category_id'])};self.feeds.append(feed)
+            feed={'id':fid,'user_id':1,'title':item['url'],'feed_url':item['url'],'site_url':'https://example.test','category':next(c for c in self.categories if c['id']==item['category_id']),'icon':{'feed_id':fid,'icon_id':0,'external_icon_id':''}};self.feeds.append(feed)
             for source in self.catalog:
                 if source['url']==item['url']:source.update(subscribed=True,feed_id=fid,status='subscribed')
             body=feed
