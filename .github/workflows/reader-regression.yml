@@ -127,6 +127,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/reading_focus_browser.py
+      - name: Quality and access badges across raw detail and recommended consumers
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/quality_consumer_browser.py
       - name: Session-owned note privacy and explicit logout regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -189,6 +193,7 @@ jobs:
             runtime/review-reading/
             runtime/query-result-ownership/
             runtime/reading-focus-*/
+            runtime/quality-consumer/
             runtime/note-session-privacy/
             runtime/note-request-recovery/
             runtime/note-legacy-*/
