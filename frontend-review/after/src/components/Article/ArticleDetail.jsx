@@ -650,10 +650,10 @@ const ArticleDetail = forwardRef((_, ref) => {
             <Typography.Text className="article-date">
               {generateReadingTime(activeContent.reading_time)}
             </Typography.Text>
-            <ReadingControls key={activeContent.id} />
             <AiBadge entry={activeContent} detailed />
             <Divider />
           </div>
+          <ReadingControls key={activeContent.id} scrollContainerRef={scrollContainerRef} maxWidth={responsiveMaxWidth} />
           <div
             key={activeContent.id}
             aria-busy={isArticleBodyPending || undefined}

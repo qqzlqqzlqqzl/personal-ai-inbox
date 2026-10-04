@@ -6,11 +6,13 @@ ROOT = Path(os.environ.get("AI_NEWS_ROOT", "/home/ubuntu/ai-news"))
 WEB = ROOT / "upstream/reactflux"
 
 
-def patch(name, old, new):
+def patch(name, old, new, previous=None):
     path = WEB / name
     text = path.read_text()
     if new in text:
         return
+    if text.count(old) != 1 and previous is not None and text.count(previous) == 1:
+        old = previous
     if text.count(old) != 1:
         raise RuntimeError(f"reader-entry patch anchor mismatch: {name}")
     path.write_text(text.replace(old, new, 1))
@@ -104,6 +106,12 @@ patch(
     '  return <Navigate replace to={targetExists ? getHomeTargetPath(target) : "/today"} />',
 )
 
+patch(
+    "src/components/Sidebar/Sidebar.jsx",
+    'import { settingsState, updateSettings } from "@/store/settingsState"',
+    'import { settingsState, updateSettings } from "@/store/settingsState"\nimport { articleListResultReadyState } from "@/store/contentState"',
+)
+
 # The selected sidebar item represents the visible result set. Keep native unread
 # counts for inactive scopes, but show the active filtered total for AI/search/date.
 patch(
@@ -125,6 +133,11 @@ patch(
 
   return (''',
     '''  const unreadTotal = useStore(unreadTotalState)
+  const scopedCount = (scope, nativeCount) =>
+    infoFrom === scope ? activeScopeCount : nativeCount
+
+  return (''',
+    previous='''  const unreadTotal = useStore(unreadTotalState)
   const scopedCount = (scope, nativeCount) =>
     activeScopeCount !== null && infoFrom === scope ? activeScopeCount : nativeCount
 
@@ -167,13 +180,13 @@ patch(
     "submenu-inactive": !isCategoryActive,
   })
   const displayCount =
-    activeScopeCount !== null &&
     activeScope === "category" &&
     Number(activeScopeId) === Number(category.id)
       ? activeScopeCount
       : unreadCount
 
   return (''',
+    previous='  const categoryClassName = classNames("category-title", {\n    "submenu-active": isCategoryActive,\n    "submenu-inactive": !isCategoryActive,\n  })\n  const displayCount =\n    activeScopeCount !== null &&\n    activeScope === "category" &&\n    Number(activeScopeId) === Number(category.id)\n      ? activeScopeCount\n      : unreadCount\n\n  return (',
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
@@ -213,13 +226,13 @@ patch(
     '''  const feedTarget = createEntityHomeTarget("feed", feed.id)
   const isHomePage = isSameHomeTarget(homeTarget, feedTarget)
   const displayCount =
-    activeScopeCount !== null &&
     activeScope === "feed" &&
     Number(activeScopeId) === Number(feed.id)
       ? activeScopeCount
       : feed.unreadCount
 
   return (''',
+    previous='  const feedTarget = createEntityHomeTarget("feed", feed.id)\n  const isHomePage = isSameHomeTarget(homeTarget, feedTarget)\n  const displayCount =\n    activeScopeCount !== null &&\n    activeScope === "feed" &&\n    Number(activeScopeId) === Number(feed.id)\n      ? activeScopeCount\n      : feed.unreadCount\n\n  return (',
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
@@ -233,11 +246,12 @@ patch(
               {feed.unreadCount}
             </Typography.Ellipsis>
           )}''',
-    '''          {displayCount !== 0 && (
+    '''          {displayCount > 0 && (
             <Typography.Ellipsis className="item-count" expandable={false}>
               {displayCount}
             </Typography.Ellipsis>
           )}''',
+    previous='          {displayCount !== 0 && (\n            <Typography.Ellipsis className="item-count" expandable={false}>\n              {displayCount}\n            </Typography.Ellipsis>\n          )}',
 )
 
 patch(
@@ -297,14 +311,23 @@ patch(
     "src/components/Sidebar/Sidebar.jsx",
     '''  const { infoFrom, infoId } = useStore(contentState, { keys: ["infoFrom", "infoId"] })
   const {''',
-    '''  const { infoFrom, infoId } = useStore(contentState, { keys: ["infoFrom", "infoId"] })
-  const activeScopeCount = useStore(dynamicCountState)
+    r'''  const { infoFrom, infoId } = useStore(contentState, { keys: ["infoFrom", "infoId"] })
+  const resultCount = useStore(dynamicCountState)
+  const resultReady = useStore(articleListResultReadyState)
+  // React Router selects a route before Content commits its store scope.
+  const routeScope = currentPath.match(/^\/(all|today|starred|history|feed|category)(?:\/(\d+))?(?:\/|$)/)
+  const activeScope = routeScope?.[1] ?? null
+  const activeScopeId = ["feed", "category"].includes(activeScope) ? routeScope?.[2] ?? null : null
+  const activeScopeCount = resultReady && infoFrom === activeScope && String(infoId ?? "") === String(activeScopeId ?? "")
+    ? resultCount : null
   const {''',
+    previous='  const { infoFrom, infoId } = useStore(contentState, { keys: ["infoFrom", "infoId"] })\n  const activeScopeCount = useStore(dynamicCountState)\n  const {',
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
     '          <SidebarMenuItems />',
-    '          <SidebarMenuItems activeScopeCount={activeScopeCount} infoFrom={infoFrom} />',
+    '          <SidebarMenuItems activeScopeCount={activeScopeCount} infoFrom={activeScope} />',
+    previous='          <SidebarMenuItems activeScopeCount={activeScopeCount} infoFrom={infoFrom} />',
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
@@ -312,9 +335,10 @@ patch(
                   homePageReady={homePageReady}''',
     '''                <CategoryGroup
                   activeScopeCount={activeScopeCount}
-                  activeScope={infoFrom}
-                  activeScopeId={infoId}
+                  activeScope={activeScope}
+                  activeScopeId={activeScopeId}
                   homePageReady={homePageReady}''',
+    previous='                <CategoryGroup\n                  activeScopeCount={activeScopeCount}\n                  activeScope={infoFrom}\n                  activeScopeId={infoId}\n                  homePageReady={homePageReady}',
 )
 
 print("Reader entry defaults and active sidebar counts applied.")
