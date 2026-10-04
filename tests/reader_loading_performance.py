@@ -327,6 +327,71 @@ def decoded_reopen_observation(rows,start_ms,end_ms):
                 'same-page observation cannot publish unbound network timing')
 
 
+LIST_SCROLL_ROOT='.entry-list[data-native-scroll="true"], .entry-list .simplebar-content-wrapper'
+LIST_GEOMETRY="""e=>{
+  const r=e.getBoundingClientRect(),native=e.matches('.entry-list[data-native-scroll="true"]');
+  const rows=[...e.querySelectorAll('[data-entry-id]')].map(n=>{const b=n.getBoundingClientRect();return {
+    id:Number(n.dataset.entryId),top:b.top,bottom:b.bottom,
+    visible:Math.min(b.right,r.right,innerWidth)>Math.max(b.left,r.left,0)&&
+      Math.min(b.bottom,r.bottom,innerHeight)>Math.max(b.top,r.top,0)}});
+  return {kind:native?'native':e.matches('.simplebar-content-wrapper')?'simplebar':'unknown',
+    scrollTop:e.scrollTop,scrollHeight:e.scrollHeight,clientHeight:e.clientHeight,
+    rect:{top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height},
+    rows,loadedCount:Number(document.querySelector('.load-more-container')?.dataset.loadedCount),
+    at:performance.timeOrigin+performance.now()};
+}"""
+
+
+def seek_list_entry(page,target,trace,timeout_ms=15000):
+    """Materialize a virtual row by scrolling only the real list root.
+
+    Root discovery, bounded scrolls and the original target alignment share the
+    same 15s deadline. No virtualizer/store API or direct pagination request.
+    """
+    require(type(target) is int and 1<=target<=72,'unexpected list target')
+    require(type(timeout_ms) is int and 0<timeout_ms<=15000,'invalid list seek deadline')
+    deadline=time.monotonic()+timeout_ms/1000
+    def remaining():
+        value=deadline-time.monotonic()
+        if value<=0:raise TimeoutError('virtual list target readiness deadline exceeded')
+        return max(1,math.ceil(value*1000))
+    root=page.locator(LIST_SCROLL_ROOT)
+    root.wait_for(state='visible',timeout=remaining())
+    require(root.count()==1,'ambiguous list scroll root')
+    for step in range(1024):
+        state=root.evaluate(LIST_GEOMETRY,timeout=remaining())
+        remaining()
+        require(state['kind'] in ('native','simplebar'),'unrecognized list scroll root')
+        for key in ('scrollTop','scrollHeight','clientHeight'):finite_nonnegative(state[key],key)
+        require(state['clientHeight']>0 and state['scrollHeight']>=state['clientHeight'],'invalid list scroll geometry')
+        ids=sorted(set(row['id'] for row in state['rows']))
+        require(len(state['rows'])<=144 and all(type(n) is int and 1<=n<=72 for n in ids),'unexpected rendered row identity')
+        sample={'target':target,'step':step,**state};trace.append(sample)
+        if target in ids:
+            page.locator(f'.entry-list [data-entry-id="{target}"]').first.evaluate(
+                "e=>e.scrollIntoView({block:'start',behavior:'instant'})",timeout=remaining())
+            remaining()
+            sample['aligned']=root.evaluate(LIST_GEOMETRY,timeout=remaining())
+            remaining()
+            require(any(row['id']==target and row['visible'] is True
+                        for row in sample['aligned']['rows']),
+                    'aligned list target is not visibly mounted')
+            return root
+        if ids:
+            require(target<ids[0] or target>ids[-1],'missing target within rendered identity range')
+            direction=-1 if target<ids[0] else 1
+            distance=direction*max(1,state['clientHeight']*.7)
+            sample['scroll_delta']=distance
+            root.evaluate("(e,delta)=>e.scrollBy({top:delta,behavior:'instant'})",distance,timeout=remaining())
+        # A bounded two-frame wait lets the real scroll event/React virtualizer
+        # commit. Its timer only rejects the shared deadline, never fabricates a row.
+        root.evaluate("""(e,ms)=>new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>reject(Error('list frame deadline exceeded')),ms);
+          requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(timer);resolve(true)}));
+        })""",remaining(),timeout=remaining())
+    raise TimeoutError('virtual list seek observation budget exceeded')
+
+
 def one_pair(browser, fixture, output, index, input_kind, weak):
     from playwright.sync_api import expect
     options = {'viewport': {'width':390,'height':844} if input_kind=='touch' else {'width':1440,'height':960},
@@ -373,14 +438,17 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         require(pair['warm_image_http_requests']==0, 'warm image issued another HTTP GET despite fresh cache')
         close_article(page,input_kind)
         pair['next_pages']=[]
+        pair['list_scroll_trace']=[]
         for target, expected in [(7,48),(31,72)]:
             start=time.monotonic()
-            page.locator(f'.entry-list [data-entry-id="{target}"]').first.evaluate("e=>e.scrollIntoView({block:'start',behavior:'instant'})")
-            page.locator('.entry-list').evaluate("root=>{const scroll=root.querySelector('.simplebar-content-wrapper,.scroll-container')||root;scroll.scrollTop=scroll.scrollHeight}")
+            scroll_root=seek_list_entry(page,target,pair['list_scroll_trace'])
+            sought=time.monotonic()
+            scroll_root.evaluate("root=>{root.scrollTop=root.scrollHeight}")
             bottom=time.monotonic()
             expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count',str(expected))
             finished=time.monotonic()
             pair['next_pages'].append({'target_entry':target,'loaded':expected,'trigger_to_append_ms':(finished-start)*1000,
+                                       'seek_to_rendered_row_ms':(sought-start)*1000,
                                        'fast_scroll_bottom_wait_ms':(finished-bottom)*1000})
         expect(page.locator('.load-more-container')).to_have_attribute('data-more','false')
         pair['list_http_offsets']=[r['label'] for r in fixture.records[start_record:] if r['label'].startswith('list:')]
