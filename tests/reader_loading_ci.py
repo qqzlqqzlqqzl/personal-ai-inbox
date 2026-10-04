@@ -25,6 +25,7 @@ import zipfile
 
 from reader_loading_fixture import checked_directory, bound_read, require, admit_build
 from reader_loading_performance import save_new, browser_env
+from reader_loading_transport import GZIP
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = 'qqzlqqzlqqzl/personal-ai-inbox'
@@ -247,7 +248,8 @@ def measure(root, mode):
             '--build', str(root / 'inputs/build'), '--manifest', str(root / 'inputs/manifest.json'),
             '--manifest-sha', MANIFEST_SHA, '--artifact-zip', str(root / 'inputs/baseline.zip'),
             '--artifact-sha', ARTIFACT_SHA, '--source-tree', BUILD_TREE, '--phase', 'baseline',
-            '--input', 'touch' if mode == 'touch' else 'keyboard', '--output-parent', str(parent)]
+            '--input', 'touch' if mode == 'touch' else 'keyboard', '--output-parent', str(parent),
+            '--transport-profile', GZIP]
     if mode == 'weak-network':
         args.append('--weak-network')
     driver = root / 'work/driver'

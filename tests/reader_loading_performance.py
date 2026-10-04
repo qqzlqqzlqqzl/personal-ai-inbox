@@ -22,6 +22,7 @@ import zipfile
 
 from reader_loading_fixture import Fixture, TOKEN, SCENARIO, admit_build, bound_read, checked_directory, require
 from reader_loading_navigation import NavigationObservation
+from reader_loading_transport import IDENTITY, PROFILES, profile_identity
 
 PLAYWRIGHT = '1.63.0'
 CHROMIUM = '153.0.8010.12'
@@ -146,7 +147,7 @@ def install_network_observer(context, page, events, base):
             out.update(status=response['status'], from_disk_cache=response.get('fromDiskCache',False),
                        from_service_worker=response.get('fromServiceWorker',False), timing=response.get('timing'),
                        headers={k:v for k,v in response.get('headers',{}).items() if k.lower() in
-                                ('cache-control','etag','content-length','content-type','age','last-modified')})
+                                ('cache-control','etag','content-length','content-type','age','last-modified','content-encoding','vary')})
         elif kind == 'finished': out['encoded_bytes'] = row.get('encodedDataLength')
         elif kind == 'failed': out.update(error=row.get('errorText'), canceled=row.get('canceled',False))
         events.append(out)
@@ -401,7 +402,7 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
     context = browser.new_context(**options)
     events=[]; errors=[]; page=None
     pair={'pair':index,'status':'FAILED','input':input_kind,'hover_dwell':False,'weak_network':weak,
-          'measurement_contract':MEASUREMENT_CONTRACT}
+          'measurement_contract':MEASUREMENT_CONTRACT,'transport_profile':fixture.transport_profile}
     start_record=len(fixture.records)
     try:
         context.add_init_script("localStorage.setItem('auth',JSON.stringify({server:location.origin+'/mf',token:"+json.dumps(TOKEN)+",username:'',password:''}));localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all',theme:'light',markReadOnScroll:false}));localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:6,sort:'score',direction:'desc',auxiliary:'none'}));")
@@ -572,6 +573,7 @@ def main():
     parser.add_argument('--phase',choices=['baseline','candidate'],required=True)
     parser.add_argument('--output-parent',required=True);parser.add_argument('--input',choices=['keyboard','touch'],default='keyboard')
     parser.add_argument('--weak-network',action='store_true')
+    parser.add_argument('--transport-profile',choices=PROFILES,default=IDENTITY)
     args=parser.parse_args()
     if sys.platform!='linux':
         print(json.dumps({'status':'NOT_RUN','error':'This entry requires Linux directory-FD/O_NOFOLLOW ownership guards; native Windows/macOS are unsupported.',
@@ -581,7 +583,7 @@ def main():
     require(not parent.is_relative_to(checked_directory(args.build)), 'output parent must be outside build')
     output=Path(tempfile.mkdtemp(prefix='reader-perf-',dir=parent))
     report={'status':'FAILED','phase':args.phase,'pairs_requested':5,'pairs':[], 'production':False,
-            'measurement_contract':MEASUREMENT_CONTRACT,
+            'measurement_contract':MEASUREMENT_CONTRACT,'transport_profile':profile_identity(args.transport_profile),
             'warm_semantics':{'warm_click_to_body_ms':'same-page user reopen; no HTTP cache-hit claim',
                               'http_cache_page':'separate new document in the same cache context; strict six-request cache proof'},
             'physical_device':False,'http_cache_routing_disabled':False,'scenario':SCENARIO,'output':str(output),
@@ -601,7 +603,7 @@ def main():
         if not executable.is_file(): raise NotRun('Pinned full Chromium is missing: '+str(executable))
         checked_directory(executable.parent)
         require(REVISION in executable.parts and not executable.is_symlink(),'unexpected browser path')
-        fixture=Fixture(files)
+        fixture=Fixture(files,transport_profile=args.transport_profile)
         env=browser_env(output)
         report['browser_environment_names']=sorted(env)
         report['browser_temporary_directory']={'path':env['TMPDIR'],'path_bytes':len(os.fsencode(env['TMPDIR'])),

@@ -13,6 +13,7 @@ import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
 import zlib
+from reader_loading_transport import IDENTITY, profile_identity, static_representation
 
 TOKEN = 'synthetic-reader-performance-token'
 MAX_BUILD_BYTES = 32 * 1024 * 1024
@@ -103,8 +104,9 @@ def png(seed):
 
 
 class Fixture:
-    def __init__(self, build_files, *, failures=False):
+    def __init__(self, build_files, *, failures=False, transport_profile=IDENTITY):
         self.files = build_files
+        self.transport_profile = profile_identity(transport_profile)
         self.failures = failures
         self.records = []
         self.lock = threading.Lock()
@@ -127,14 +129,15 @@ class Fixture:
             def do_PUT(self): self.dispatch()
             def do_CONNECT(self): self.respond(403, b'no forwarding', 'text/plain', 'blocked-connect')
             def do_DELETE(self): self.respond(405, b'unsupported', 'text/plain', 'blocked-method')
-            def respond(self, status, body, media, label, cache='no-store', etag=None, started=None):
+            def respond(self, status, body, media, label, cache='no-store', etag=None, started=None, representation=None):
                 at = time.monotonic()
                 with outer.lock:
                     if len(outer.records) <= MAX_REQUESTS:
                         outer.records.append({'seq': len(outer.records)+1, 'at': at,
                             'elapsed_ms': (at - (started or at))*1000, 'method': self.command,
                             'label': label, 'status': status, 'bytes': len(body),
-                            'conditional': bool(self.headers.get('If-None-Match')), 'cache_control': cache})
+                            'conditional': bool(self.headers.get('If-None-Match')), 'cache_control': cache,
+                            **({'transport':{k:v for k,v in representation.items() if k!='body'}} if representation else {})})
                 self.send_response(status)
                 self.send_header('Content-Type', media)
                 self.send_header('Content-Length', str(len(body)))
@@ -143,10 +146,22 @@ class Fixture:
                 self.send_header('X-Content-Type-Options', 'nosniff')
                 self.send_header('Referrer-Policy', 'no-referrer')
                 if etag: self.send_header('ETag', etag)
+                if representation and representation['vary']: self.send_header('Vary','Accept-Encoding')
+                if representation and representation['encoding']: self.send_header('Content-Encoding',representation['encoding'])
                 self.end_headers()
                 if self.command != 'HEAD':
                     try: self.wfile.write(body)
                     except (BrokenPipeError, ConnectionResetError): pass
+            def respond_static(self,body,media,label,cache,started):
+                values=self.headers.get_all('Accept-Encoding')
+                header=None if values is None else ','.join(values)
+                representation=static_representation(body,media,header,outer.transport_profile['name'])
+                representation.update(accept_encoding=header[:2048] if header is not None else None,
+                                      accept_encoding_truncated=header is not None and len(header)>2048)
+                status=representation['status']
+                return self.respond(status,representation['body'],media if status==200 else 'text/plain',
+                    label if status==200 else 'transport-negotiation',cache if status==200 else 'no-store',
+                    started=started,representation=representation)
             def dispatch(self):
                 started = time.monotonic()
                 if len(outer.records) >= MAX_REQUESTS or started > outer.deadline:
@@ -197,9 +212,9 @@ class Fixture:
                     content = outer.files[relative]
                     media = mimetypes.guess_type(relative)[0] or 'application/octet-stream'
                     cache = 'public, max-age=31536000, immutable' if relative.startswith('assets/') else 'no-store'
-                    return self.respond(200, content, media, 'asset:' + relative, cache, started=started)
+                    return self.respond_static(content, media, 'asset:' + relative, cache, started)
                 if re.fullmatch(r'/inbox(?:/(?:all|today|starred)(?:/\d+)?)?/?', path):
-                    return self.respond(200, outer.files['index.html'], 'text/html; charset=utf-8', 'document', started=started)
+                    return self.respond_static(outer.files['index.html'], 'text/html; charset=utf-8', 'document', 'no-store', started)
                 return self.respond(404, b'unknown fixture resource', 'text/plain', 'unknown')
         self.server = Server(('127.0.0.1', 0), Handler)
         self.server.fixture = self

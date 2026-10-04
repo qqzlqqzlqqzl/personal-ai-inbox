@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import reader_loading_fixture as f
 import reader_loading_performance as measurement
+from reader_loading_transport import IDENTITY, profile_identity
 from reader_loading_performance import browser_env, save_new, join_image_network, warm_image_proof, await_warm_image_proof
 from compare_reader_loading import compare
 
@@ -295,9 +296,9 @@ class SamplingContract(unittest.TestCase):
                 'identity':{'target_id':'new','browser_context_id':'same'},'origin':WarmCacheContract.base,
                 'bootstrap_ms':4,'click_to_body_ms':3,'image_event_start':0,'cdp':events,
                 'images':images,'image_cache_proof':proof,'start_wall_ms':900,'end_wall_ms':1500,'image_http_requests':0}
-        return {'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,'phase':phase,'scenario':f.SCENARIO,'input':'keyboard','weak_network':False,
+        return {'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,'transport_profile':profile_identity(IDENTITY),'phase':phase,'scenario':f.SCENARIO,'input':'keyboard','weak_network':False,
                 'browser_version':'synthetic-test','identity':{'head':'synthetic'},
-                'pairs':[{'pair':i,'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,
+                'pairs':[{'pair':i,'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,'transport_profile':profile_identity(IDENTITY),
                           'warm_observation_class':'SAME_PAGE_DECODED_REOPEN; HTTP_CACHE_HIT_NOT_CLAIMED',
                           'warm_start_wall_ms':900,'warm_end_wall_ms':1500,'warm_image_http_requests':0,
                           'http_cache_page':cache_fixture(),

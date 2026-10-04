@@ -6,6 +6,7 @@ from pathlib import Path
 from reader_loading_performance import (save_new, finite_nonnegative, MEASUREMENT_CONTRACT,
     decoded_reopen_observation, require_new_page_same_cache, warm_image_proof)
 from reader_loading_fixture import bound_read, require
+from reader_loading_transport import validate_profile
 
 
 def compare(before, after):
@@ -13,6 +14,9 @@ def compare(before, after):
     require(before['phase']=='baseline' and after['phase']=='candidate', 'phase labels do not match')
     require(before.get('measurement_contract')==after.get('measurement_contract')==MEASUREMENT_CONTRACT,
             'same instrumentation contract required; old warm meanings cannot be compared')
+    for side in (before,after):
+        validate_profile(side.get('transport_profile'))
+    require(before['transport_profile']==after['transport_profile'],'transport profiles differ')
     for key in ('scenario','input','weak_network','browser_version'):
         require(before[key]==after[key], 'measurement conditions differ: '+key)
     require(len(before['pairs'])==len(after['pairs'])==5,'exactly five complete pairs required')
@@ -20,6 +24,7 @@ def compare(before, after):
         require([row.get('pair') for row in side['pairs']]==list(range(1,6)) and
                 all(type(row.get('pair')) is int for row in side['pairs']), 'expected unique pair IDs 1 through 5 in order')
         for row in side['pairs']:
+            require(validate_profile(row.get('transport_profile'))==side['transport_profile'],'pair transport profile mismatch')
             require(row.get('measurement_contract')==MEASUREMENT_CONTRACT,'pair uses a different measurement contract')
             require(row.get('warm_observation_class')=='SAME_PAGE_DECODED_REOPEN; HTTP_CACHE_HIT_NOT_CLAIMED',
                     'same-page reopen was mislabeled as an HTTP cache hit')
@@ -74,7 +79,7 @@ def compare(before, after):
             for key in ('scroll_to_visible_ms','request_to_visible_ms','request_to_finished_ms','encoded_bytes')}}
             for a,b in zip(left['http_cache_page']['images'],right['http_cache_page']['images'])]
         rows.append(row)
-    return {'status':'COMPARED','measurement_contract':MEASUREMENT_CONTRACT,
+    return {'status':'COMPARED','measurement_contract':MEASUREMENT_CONTRACT,'transport_profile':before['transport_profile'],
             'warm_milliseconds_meaning':'same-page reopen, not HTTP-cache hit latency; new-page costs are separate',
             'before_identity':before['identity'],'after_identity':after['identity'],
             'conditions':{k:before[k] for k in ('scenario','input','weak_network','browser_version')},
