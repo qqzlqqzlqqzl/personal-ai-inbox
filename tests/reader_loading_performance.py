@@ -294,6 +294,39 @@ def await_warm_image_proof(page, events, event_start, rows, base, start_ms):
             page.wait_for_timeout(10)
 
 
+MEASUREMENT_CONTRACT='same-page-reopen-and-new-page-http-cache-v2'
+
+
+def page_identity(session):
+    info=session.send('Target.getTargetInfo')['targetInfo']
+    require(info.get('type')=='page' and isinstance(info.get('targetId'),str) and info['targetId'] and
+            isinstance(info.get('browserContextId'),str) and info['browserContextId'], 'missing isolated page identity')
+    return {'target_id':info['targetId'],'browser_context_id':info['browserContextId']}
+
+
+def require_new_page_same_cache(original, current):
+    require(all(isinstance(identity.get(key),str) and identity[key]
+                for identity in (original,current) for key in ('target_id','browser_context_id')),
+            'missing isolated page/context identity')
+    require(original['target_id']!=current['target_id'], 'HTTP-cache probe reused the original page')
+    require(original['browser_context_id']==current['browser_context_id'], 'HTTP-cache probe changed browser context')
+
+
+def decoded_reopen_observation(rows,start_ms,end_ms):
+    finite_nonnegative(start_ms,'reopen start');finite_nonnegative(end_ms,'reopen end')
+    require(end_ms>=start_ms,'reversed reopen window')
+    require([row.get('image') for row in rows]==list(range(1,7)) and
+            all(type(row.get('image')) is int for row in rows),'wrong reopen image identities')
+    for row in rows:
+        require(start_ms<=finite_nonnegative(row['at'],'reopen visible time')<=end_ms and
+                row.get('visible') is True and finite_nonnegative(row['naturalWidth'],'natural width')>0 and
+                finite_nonnegative(row['naturalHeight'],'natural height')>0,'reopen decode/visibility not established')
+        require(not any(key in row for key in ('request_id','from_disk_cache','browser_cache_event')),
+                'same-page observation cannot claim a network cache identity')
+        require(all(row.get(key) is None for key in ('request_to_visible_ms','request_to_finished_ms')),
+                'same-page observation cannot publish unbound network timing')
+
+
 def one_pair(browser, fixture, output, index, input_kind, weak):
     from playwright.sync_api import expect
     options = {'viewport': {'width':390,'height':844} if input_kind=='touch' else {'width':1440,'height':960},
@@ -301,7 +334,8 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
                'locale':'zh-CN','service_workers':'block','accept_downloads':False}
     context = browser.new_context(**options)
     events=[]; errors=[]; page=None
-    pair={'pair':index,'status':'FAILED','input':input_kind,'hover_dwell':False,'weak_network':weak}
+    pair={'pair':index,'status':'FAILED','input':input_kind,'hover_dwell':False,'weak_network':weak,
+          'measurement_contract':MEASUREMENT_CONTRACT}
     start_record=len(fixture.records)
     try:
         context.add_init_script("localStorage.setItem('auth',JSON.stringify({server:location.origin+'/mf',token:"+json.dumps(TOKEN)+",username:'',password:''}));localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all',theme:'light',markReadOnScroll:false}));localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:6,sort:'score',direction:'desc',auxiliary:'none'}));")
@@ -310,6 +344,7 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         page.on('pageerror',lambda error:errors.append(str(error)))
         page.on('download', lambda download: download.cancel())
         session=install_network_observer(context,page,events,fixture.base)
+        original_page=page_identity(session)
         if weak:
             session.send('Network.emulateNetworkConditions',{'offline':False,'latency':150,'downloadThroughput':250000,'uploadThroughput':125000,'connectionType':'cellular3g'})
         began=time.monotonic();page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
@@ -328,14 +363,14 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         pair['warm_start_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
         pair['warm_click_to_body_ms']=open_article(page,input_kind)
         pair['warm_images']=image_sweep(page)
-        proof,pair['warm_end_wall_ms']=await_warm_image_proof(page,events,event_start,pair['warm_images'],fixture.base,pair['warm_start_wall_ms'])
+        pair['warm_end_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
+        decoded_reopen_observation(pair['warm_images'],pair['warm_start_wall_ms'],pair['warm_end_wall_ms'])
+        pair['warm_observation_class']='SAME_PAGE_DECODED_REOPEN; HTTP_CACHE_HIT_NOT_CLAIMED'
+        pair['warm_page_identity']=original_page
+        pair['warm_cdp_event_range']=[event_start,len(events)]
         pair['warm_image_http_requests']=count_images(fixture.records[warm_start:])
-        pair['warm_image_cache_proof']=proof
-        pair['warm_cdp_cache_events']=sum(x['cache_event'] for x in proof)
-        pair['warm_cdp_image_disk_hits']=sum(x['from_disk_cache'] for x in proof)
         pair['warm_detail_http_requests']=sum(r['label']=='detail:1' for r in fixture.records[warm_start:])
         require(pair['warm_image_http_requests']==0, 'warm image issued another HTTP GET despite fresh cache')
-        require(len(proof)==6, 'six individual image cache proofs are required')
         close_article(page,input_kind)
         pair['next_pages']=[]
         for target, expected in [(7,48),(31,72)]:
@@ -351,6 +386,46 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         pair['list_http_offsets']=[r['label'] for r in fixture.records[start_record:] if r['label'].startswith('list:')]
         require(pair['list_http_offsets']==['list:0:24','list:24:24','list:48:24'], 'pagination refetched or skipped a bounded page')
         pair['probe']=page.evaluate('window.__perfProbe')
+        pair['original_page_http_record_count']=len(fixture.records)-start_record
+        # A same-page reopen may reuse decoded images without a new network
+        # request. Keep that user timing above, but do not call it HTTP-cache
+        # evidence. A separate new document in this SAME context must satisfy
+        # the original strict six-image request/cache/completion proof below.
+        page.close()
+        cache_events=[];cache_start=len(fixture.records)
+        page=context.new_page();page.set_default_timeout(15000);page.set_default_navigation_timeout(15000)
+        page.on('pageerror',lambda error:errors.append(str(error)))
+        page.on('download',lambda download:download.cancel())
+        cache_session=install_network_observer(context,page,cache_events,fixture.base)
+        cache_identity=page_identity(cache_session)
+        require_new_page_same_cache(original_page,cache_identity)
+        cache={'scope':'NEW_PAGE_SAME_BROWSER_CONTEXT_HTTP_CACHE','identity':cache_identity,
+               'previous_page_identity':original_page,'http_record_start':cache_start,
+               'origin':fixture.base,'cdp':cache_events,'status':'FAILED'}
+        pair['http_cache_page']=cache
+        if weak:
+            cache_session.send('Network.emulateNetworkConditions',{'offline':False,'latency':150,'downloadThroughput':250000,'uploadThroughput':125000,'connectionType':'cellular3g'})
+        began=time.monotonic();page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
+        expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')
+        cache['bootstrap_ms']=(time.monotonic()-began)*1000
+        page.mouse.move(0,0)
+        cache['image_http_before_activation']=count_images(fixture.records[cache_start:])
+        require(cache['image_http_before_activation']==0,'cache probe loaded article images before user activation')
+        cache_event_start=len(cache_events);cache_image_start=len(fixture.records)
+        cache['image_event_start']=cache_event_start;cache['image_http_record_start']=cache_image_start
+        cache['start_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
+        cache['click_to_body_ms']=open_article(page,input_kind)
+        cache['images']=image_sweep(page)
+        proof,cache['end_wall_ms']=await_warm_image_proof(page,cache_events,cache_event_start,cache['images'],fixture.base,cache['start_wall_ms'])
+        cache['image_http_requests']=count_images(fixture.records[cache_image_start:])
+        cache['image_cache_proof']=proof
+        cache['cdp_cache_events']=sum(x['cache_event'] for x in proof)
+        cache['cdp_image_disk_hits']=sum(x['from_disk_cache'] for x in proof)
+        cache['detail_http_requests']=sum(r['label']=='detail:1' for r in fixture.records[cache_image_start:])
+        cache['http_records']=fixture.records[cache_start:]
+        require(cache['image_http_requests']==0, 'new-page warm image issued another HTTP GET despite fresh cache')
+        require(len(proof)==6, 'six individual image cache proofs are required')
+        cache['status']='PASSED'
         require(not errors, 'browser emitted a page error')
         require(not any(r['label'] in ('unsupported-api','budget') for r in fixture.records[start_record:]), 'unsupported API or budget exhaustion')
         pair.update(status='PASSED',http_records=fixture.records[start_record:],cdp=events,errors=errors)
@@ -419,6 +494,9 @@ def main():
     require(not parent.is_relative_to(checked_directory(args.build)), 'output parent must be outside build')
     output=Path(tempfile.mkdtemp(prefix='reader-perf-',dir=parent))
     report={'status':'FAILED','phase':args.phase,'pairs_requested':5,'pairs':[], 'production':False,
+            'measurement_contract':MEASUREMENT_CONTRACT,
+            'warm_semantics':{'warm_click_to_body_ms':'same-page user reopen; no HTTP cache-hit claim',
+                              'http_cache_page':'separate new document in the same cache context; strict six-request cache proof'},
             'physical_device':False,'http_cache_routing_disabled':False,'scenario':SCENARIO,'output':str(output),
             'started_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()), 'input':args.input,'weak_network':args.weak_network}
     report['python']=sys.version
