@@ -106,3 +106,48 @@ def test_processing_preserves_other_states_and_stops(state,error,expected):
     evidence={'local_observed_at':100,'configs':{k:{'schedule_enabled':False} for k in processing_status.LANES}}
     value=processing_status.for_entry({'entry_id':1,'state':state,'error':error},evidence,now=100)
     assert value['reason_code']==expected
+
+
+@pytest.mark.asyncio
+async def test_new_restricted_feed_never_reaches_local_translation_budget(db,entry,monkeypatch):
+    entry['feed']['feed_url']='https://www.kicktraq.com/categories/technology/latest.rss'
+    core.discover([entry]);card_translation.migrate()
+    budget=__import__('unittest.mock',fromlist=['Mock']).Mock(return_value=None)
+    monkeypatch.setattr(core,'reserve_budget',budget)
+    monkeypatch.setenv('ARK_API_KEY','synthetic-only-never-sent')
+    result=await card_translation.translate_once(SimpleNamespace(post=AsyncMock(side_effect=AssertionError('no model'))))
+    budget.assert_not_called()
+    assert result=={'processed':0}
+
+
+@pytest.mark.parametrize('binding', ['analysis_marker','observed_feed_dto'])
+@pytest.mark.asyncio
+async def test_existing_pending_card_is_preserved_but_not_billed(db,entry,monkeypatch,binding):
+    core.discover([entry]);card_translation.migrate()
+    with core.connect() as conn:
+        before=dict(conn.execute('SELECT * FROM card_translations WHERE entry_id=1').fetchone())
+    if binding=='analysis_marker':
+        core.update(1,state='requires_fulltext_adapter',error=SUMMARY)
+    else:
+        entry['feed']['feed_url']='https://www.kicktraq.com/categories/design/latest.rss'
+        card_translation.enqueue([entry])
+    budget=__import__('unittest.mock',fromlist=['Mock']).Mock(return_value=None)
+    monkeypatch.setattr(core,'reserve_budget',budget)
+    monkeypatch.setenv('ARK_API_KEY','synthetic-only-never-sent')
+    result=await card_translation.translate_once(SimpleNamespace(post=AsyncMock(side_effect=AssertionError('no model'))))
+    assert result=={'processed':0};budget.assert_not_called()
+    with core.connect() as conn:
+        after=dict(conn.execute('SELECT * FROM card_translations WHERE entry_id=1').fetchone())
+    assert after=={**before,**({'error':SUMMARY} if binding=='observed_feed_dto' else {})}
+
+
+@pytest.mark.parametrize('mismatch', ['user_id','url'])
+def test_observed_feed_cannot_mark_another_owner_or_url_card(db,entry,mismatch):
+    core.discover([entry]);card_translation.migrate()
+    with core.connect() as conn:
+        before=dict(conn.execute('SELECT * FROM card_translations WHERE entry_id=1').fetchone())
+    entry['feed']['feed_url']='https://www.kicktraq.com/categories/design/latest.rss'
+    entry[mismatch]=2 if mismatch=='user_id' else 'https://example.org/other'
+    card_translation.enqueue([entry])
+    with core.connect() as conn:
+        assert dict(conn.execute('SELECT * FROM card_translations WHERE entry_id=1').fetchone())==before
