@@ -106,19 +106,28 @@ Each phase runs five complete pairs. Each pair starts a new isolated context:
 2. Activate article 1 without hover; record click to meaningful, non-busy body
 3. Scroll through six images; record decode/visibility, source dimensions,
    request timing, bytes and cache events
-4. Close and reopen the same article in the same context, then repeat image scroll
+4. Close and reopen the same article in the same page, then repeat image scroll;
+   report decoded visibility and user latency without claiming an HTTP cache hit
 5. Trigger the next two pages, immediately scroll to the old list bottom, and
    record append timing/bottom waiting and the exact 0/24/48 offset sequence
+6. Close that page, create a new page in the **same browser context**, and record
+   its independent bootstrap and article activation costs. Its six images must
+   pass the original strict HTTP-cache request/completion proof
 
 “Cold” means a new browser context. It does not mean a cold OS page cache,
-restarted production service or uncached external CDN. “Warm” means same-context
-reopen, with no cache clear and no cache-busting URL. APIs remain `no-store`, so
-warm article data can legitimately issue another HTTP request. The tool records
-that fact separately from cached JavaScript and images.
+restarted production service or uncached external CDN. The existing
+`warm_click_to_body_ms` and `warm_images` describe the same-page user reopen.
+That page may reuse decoded image resources without issuing a new CDP network
+request; absence of HTTP traffic alone is not labeled a cache hit. The separate
+`http_cache_page` has a different target ID, the same browser-context ID, its own
+network event window, and independently reported bootstrap/click/image costs.
+Its traffic does not enter the original page's pagination or reopen numbers.
+Neither phase clears caches or changes image URLs. APIs remain `no-store`, so
+article data can legitimately issue another HTTP request in either phase.
 
 No `context.route`, `page.route`, HAR routing or fetch interception is used:
 [Playwright routing disables HTTP cache](https://playwright.dev/python/docs/api/class-browsercontext#browser-context-route).
-Image warmth requires both zero second-phase image HTTP GETs at the server and
+The new-page HTTP-cache audit requires zero image HTTP GETs at the server and
 separate proof for each of the six exact image URLs. Each must have one Image
 request ID started inside the warm window, a successful PNG response, a completed
 loading event before decoded visibility, and that same ID's memory/disk cache
@@ -129,12 +138,29 @@ the measurement fails instead of inferring a hit from unrelated JavaScript.
 Server conditional-GET unit tests alone are not browser-cache evidence. CDP
 request wall time and monotonic response timing are joined by exact request ID;
 missing events stay missing, never zero-filled.
-The validated warm proof directly writes the published image timings. There is
+The validated HTTP-cache proof directly writes that new page's image timings. There is
 no second pathname-based join. A same-path request with another query cannot
 replace the verified ID or improve its measured duration. Optional cold timing
 also requires one exact fixture URL, otherwise it remains explicitly unavailable.
 Request-to-visible includes deliberate scrolling to that image; download and
 scroll-to-visible durations are retained separately.
+
+Both runs and every pair must declare
+`same-page-reopen-and-new-page-http-cache-v2`. The comparator refuses old warm
+semantics, replays the exact new-page cache proof, and verifies the published
+metrics still belong to that proof. It reports the new-page costs separately.
+The same-page observations retain decoded visibility, time-window and zero-image-
+HTTP checks, but cannot publish an unbound cache request ID or network timing.
+
+This distinction follows the retained J first-pair trace: touch decoded all six
+images during a same-page reopen but emitted no new image request events. That
+failed the original strict cache gate. The failure is retained; the v2 contract
+requires a separate new-page audit rather than turning missing events into hits.
+The v2 browser behavior is **NOT RUN** until its exact candidate is run on Hosted.
+The original five pairs, 24-entry pages, five-second list readiness, CSP, sandbox,
+egress boundary, request budget and every strict six-image cache negative control
+remain mandatory. Synchronous DOM observations replace page-side eval polling for
+body/image readiness, retaining their original single 15-second deadlines.
 
 The server emits real HTTP cache headers for generated images and hashed assets.
 It does not model the production gateway's buffering, auth fan-out, gzip, media
@@ -208,7 +234,8 @@ warm re-selection and publishes timings directly from each verified proof.
 `.github/workflows/reader-loading-performance.yml` is an executable **baseline**
 measurement candidate for the publisher's reviewed PR. It starts three independent
 Ubuntu 22.04 jobs (`keyboard`, `touch`, `weak-network`); each runs five fresh-context
-cold / same-context warm pairs. Weak network uses the existing keyboard scenario
+pairs with cold, same-page-reopen and separate shared-context HTTP-cache stages.
+Weak network uses the existing keyboard scenario
 with 150 ms latency, 250000 bytes/s download and 125000 bytes/s upload. It does not
 compare a product fix or substitute for the full Reader regression workflow.
 

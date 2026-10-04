@@ -228,6 +228,24 @@ class Fixture:
         if method == 'GET':
             if path in ('/mf/version', '/mf/v1/version'): return 200, {'version': '2.3.3'}, 'synthetic-version', 0
             if path == '/mf/v1/me': return 200, {'id': 1, 'username': 'synthetic-fixture', 'is_admin': False}, 'me', 0
+            if path == '/mf/v1/integrations/status':
+                require(not query and body is None, 'unexpected integration status input')
+                return 200, {'has_integrations': False}, 'integrations-status', 0
+            if path == '/mf/v1/entries/ids':
+                require(body is None and set(query) <= {'status','starred','limit','offset'}, 'unknown entry IDs input')
+                require(all(isinstance(v,list) and len(v)==1 and isinstance(v[0],str) for v in query.values()), 'entry IDs values must be singular')
+                status, starred = query.get('status',[None])[0], query.get('starred',[None])[0]
+                require(status in (None,'read','unread') and starred in (None,'true','false'), 'unsupported entry IDs filter')
+                limit, offset = int(query.get('limit',['10000'])[0]), int(query.get('offset',['0'])[0])
+                require(1 <= limit <= 10000 and 0 <= offset <= 2147483647, 'unbounded entry IDs request')
+                # Native endpoint sorts by ID DESC, counts the filtered scope
+                # before pagination, and returns entry_ids (never entry bodies).
+                # Derive from the same 72 synthetic rows used by list/detail.
+                entries = (self.entry(n, True) for n in range(1, SCENARIO['entries']+1))
+                ids = sorted((row['id'] for row in entries
+                    if (status is None or row['status']==status)
+                    and (starred is None or row['starred']==(starred=='true'))), reverse=True)
+                return 200, {'total':len(ids),'entry_ids':ids[offset:offset+limit]}, 'entry-ids', 0
             if path == '/mf/v1/entries':
                 require(set(query) <= {'ai_view','ai_min','ai_sort','status','order','direction','limit','offset','globally_visible','starred','search','published_after','published_before','before','after','has_note'}, 'unknown query')
                 limit, offset = int(query.get('limit', ['24'])[0]), int(query.get('offset', ['0'])[0])

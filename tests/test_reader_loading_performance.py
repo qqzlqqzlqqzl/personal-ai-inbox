@@ -286,11 +286,24 @@ class HTTPContract(unittest.TestCase):
 
 class SamplingContract(unittest.TestCase):
     def row(self,phase):
-        return {'status':'PASSED','phase':phase,'scenario':f.SCENARIO,'input':'keyboard','weak_network':False,
+        def cache_fixture():
+            events,images=WarmCacheContract().fixture()
+            for row in images:row['scroll_to_visible_ms']=1
+            proof=warm_image_proof(events,images,WarmCacheContract.base,900,1500)
+            return {'status':'PASSED','scope':'NEW_PAGE_SAME_BROWSER_CONTEXT_HTTP_CACHE',
+                'previous_page_identity':{'target_id':'old','browser_context_id':'same'},
+                'identity':{'target_id':'new','browser_context_id':'same'},'origin':WarmCacheContract.base,
+                'bootstrap_ms':4,'click_to_body_ms':3,'image_event_start':0,'cdp':events,
+                'images':images,'image_cache_proof':proof,'start_wall_ms':900,'end_wall_ms':1500,'image_http_requests':0}
+        return {'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,'phase':phase,'scenario':f.SCENARIO,'input':'keyboard','weak_network':False,
                 'browser_version':'synthetic-test','identity':{'head':'synthetic'},
-                'pairs':[{'pair':i,'status':'PASSED','list_initial_ms':2,'cold_click_to_body_ms':3,'warm_click_to_body_ms':1,
+                'pairs':[{'pair':i,'status':'PASSED','measurement_contract':measurement.MEASUREMENT_CONTRACT,
+                          'warm_observation_class':'SAME_PAGE_DECODED_REOPEN; HTTP_CACHE_HIT_NOT_CLAIMED',
+                          'warm_start_wall_ms':900,'warm_end_wall_ms':1500,'warm_image_http_requests':0,
+                          'http_cache_page':cache_fixture(),
+                          'list_initial_ms':2,'cold_click_to_body_ms':3,'warm_click_to_body_ms':1,
                           'cold_images':[{'image':j,'scroll_to_visible_ms':1} for j in range(1,7)],
-                          'warm_images':[{'image':j,'scroll_to_visible_ms':1} for j in range(1,7)],
+                          'warm_images':[{'image':j,'scroll_to_visible_ms':1,'at':1300,'visible':True,'naturalWidth':960,'naturalHeight':640} for j in range(1,7)],
                           'next_pages':[{'loaded':48,'fast_scroll_bottom_wait_ms':2},{'loaded':72,'fast_scroll_bottom_wait_ms':2}]} for i in range(1,6)]}
     def test_five_pairs_compare(self): self.assertEqual(len(compare(self.row('baseline'),self.row('candidate'))['pairs']),5)
     def test_not_run_never_compares(self):
