@@ -82,10 +82,15 @@ are generated or persisted for real accounts. Existing remote/feed integration
 suites that require their own TEST_MINIFLUX_* configuration remain skipped; the
 new metadata integration requires no remote feed or external account.
 
-The final Go build uses `-trimpath`, `-buildvcs=false`, a distinct candidate version,
-fixed upstream commit and no wall-clock build date. Binary checksum and build/module
-identity are retained. Hosted runner OS state is recorded but is not claimed to be
-an immutable runtime image or a complete deployment/SBOM artifact.
+The final Go build uses `-trimpath`, `-buildvcs=false`, the stable compatibility
+version `2.3.3`, the fixed upstream commit and no wall-clock build date. A custom
+version suffix blocked Reader's supported-release gate in the real browser. The
+private downstream build is identified by its pinned binary checksum, patch and
+build/module receipts; the authenticated metadata capability probe remains
+independent of the ordinary version string. This is not an unpatched upstream
+binary. Paired acceptance checks the actual `/v1/version` response. Hosted runner
+OS state is recorded but is not claimed to be an immutable runtime image or a
+complete deployment/SBOM artifact.
 
 ## Acceptance coverage
 

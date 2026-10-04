@@ -28,7 +28,7 @@ ISSUE73_POSTGRES_URL= ISSUE73_REQUIRE_POSTGRES=0 go test -race -count=1 -timeout
 ISSUE73_REQUIRE_POSTGRES=1 go test -race -count=1 -v -timeout=2m ./internal/api -run '^TestMetadataPostgres$' 2>&1 | tee "$evidence/postgres-auth-tests.txt"
 # Record the full, explicit protocol matrix, including injected storage failures.
 ISSUE73_POSTGRES_URL= ISSUE73_REQUIRE_POSTGRES=0 go test -race -count=1 -v ./internal/api ./internal/storage -run '^TestMetadata' 2>&1 | tee "$evidence/metadata-tests.txt"
-CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w -X miniflux.app/v2/internal/version.Version=2.3.3-issue73-metadata-v1 -X miniflux.app/v2/internal/version.Commit=c4d54f87a81b30aa173fddf05d7ff83ae7da5796' -o "$evidence/miniflux-issue73-linux-amd64" .
+CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w -X miniflux.app/v2/internal/version.Version=2.3.3 -X miniflux.app/v2/internal/version.Commit=c4d54f87a81b30aa173fddf05d7ff83ae7da5796' -o "$evidence/miniflux-issue73-linux-amd64" .
 # Preserve upstream notices with the candidate binary, including optional NOTICE.
 cp LICENSE "$evidence/LICENSE"
 if [[ -f NOTICE ]]; then

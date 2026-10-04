@@ -255,6 +255,11 @@ def main():
                     [str(args.binary.resolve())], mf_env, evidence / 'miniflux.log') as mf:
                 wait_http(client, MINIFLUX + '/healthcheck', mf)
                 require_process_identity(mf,BINARY_SHA)
+                version = client.get(MINIFLUX + '/v1/version', auth=ADMIN)
+                require(version.status_code == 200 and version.json().get('version') == '2.3.3',
+                        'actual Miniflux must pass Reader supported-release version gate')
+                results.append({'case': 'stable-release-version', 'passed': True,
+                                'http_status': version.status_code, 'version': version.json()['version']})
                 owner = client.get(MINIFLUX + '/v1/me', auth=ADMIN).json()['id']
                 response = client.post(MINIFLUX + '/v1/users', auth=ADMIN,
                                        json={'username': SECOND[0], 'password': SECOND[1]})
