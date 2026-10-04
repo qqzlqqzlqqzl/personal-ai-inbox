@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {execFileSync} from 'node:child_process'
 import {createRequire} from 'node:module'
 import {fileURLToPath} from 'node:url'
-const require=createRequire(import.meta.url)
+const require=createRequire(new URL('../runtime/history-test-tools/package.json',import.meta.url))
 const {JSDOM}=require('jsdom')
 const tests=fileURLToPath(new URL('./',import.meta.url))
 const {script,snapshot,text}=JSON.parse(execFileSync(process.env.PYTHON||'python',
