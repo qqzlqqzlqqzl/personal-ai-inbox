@@ -1,7 +1,8 @@
 """Refs #105/#106: real built consumer, synthetic APIs; never production history.
 
 AI_NEWS_TEST_BUILD=runtime/browser-build python tests/quality_consumer_browser.py
-Fresh outputs: runtime/quality-consumer/run-<ns>/<width>x<height>/.
+Fresh outputs: runtime/quality-consumer/run-<ns>/<width>x<height>[-dark]/.
+Both original light flows run first; then the same seven cases run in dark mode.
 """
 import hashlib
 import json
@@ -15,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import expect
 from review_reader_harness import Harness
 from quality_consumer_fixture import CASES, MINIMUM, RECOMMENDED_IDS, QualityConsumerFixture, make_entries, validate_badge, validate_capture_png
+from pending_label_contrast import verify_pending_labels
 
 ROOT = Path(__file__).resolve().parents[1]
 VIEWPORTS = ((1440, 960), (390, 844))
@@ -86,14 +88,15 @@ def card_for(h, entry_id):
     raise AssertionError("virtual row did not become available: " + str(entry_id))
 
 
-def run_case(width, height, run_name, identity):
-    h = Harness(f"{run_name}/{width}x{height}", viewport={"width": width, "height": height})
+def run_case(width, height, run_name, identity, theme="light"):
+    suffix = "" if theme == "light" else "-dark"
+    h = Harness(f"{run_name}/{width}x{height}{suffix}", viewport={"width": width, "height": height})
     p = h.page
     h.settings["minimum_score"] = MINIMUM
     h.feeds[0]["icon"] = {"feed_id": 7, "icon_id": 0}
     h.entries = make_entries(h.feeds[0])
     fixture = QualityConsumerFixture(h.entries)
-    captures, views = [], []
+    captures, views, contrasts = [], [], []
     initial = json.dumps(h.entries, sort_keys=True)
     delegated_gets = {"/mf/v1/version", "/mf/version", "/mf/v1/me", "/mf/v1/ai/settings",
                       "/mf/v1/ai/status", "/mf/v1/feeds", "/mf/v1/categories", "/mf/v1/feeds/counters"}
@@ -119,7 +122,7 @@ def run_case(width, height, run_name, identity):
 
     h.custom = intercept
     p.add_init_script("localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all',"
-                      "markReadBy:'manually',markReadOnScroll:false,openSourceOnCardClick:false,themeMode:'light',pageSize:24}));"
+                      "markReadBy:'manually',markReadOnScroll:false,openSourceOnCardClick:false,themeMode:" + json.dumps(theme) + ",pageSize:24}));"
                       "localStorage.setItem('ai-view-state',JSON.stringify({mode:'all',auxiliary:'none',minimum:8,sort:'score',direction:'desc'}));")
     try:
         h.goto('/inbox/all')
@@ -135,6 +138,9 @@ def run_case(width, height, run_name, identity):
             views.append({"view": "raw", "entry_id": entry_id, "text": text})
             h.check(f'{case["key"]}_raw_badge', True)
             capture(h, card, case['key'] + '-raw', captures)
+            if entry_id in (702, 703, 705):
+                verify_pending_labels(h, card, entry_id, 'raw', theme, contrasts,
+                    (lambda: capture(h, card, case['key'] + '-raw-legacy', captures)) if entry_id == 702 else None)
             card.click()
             detail = p.locator('.article-content')
             expect(detail).to_be_visible()
@@ -153,6 +159,9 @@ def run_case(width, height, run_name, identity):
             views.append({"view": "detail", "entry_id": entry_id, "text": text, "original_url": expected_url})
             badge.scroll_into_view_if_needed()
             capture(h, badge, case['key'] + '-detail', captures)
+            if entry_id in (702, 703, 705):
+                verify_pending_labels(h, detail, entry_id, 'detail', theme, contrasts,
+                    (lambda: capture(h, badge, case['key'] + '-detail-legacy', captures)) if entry_id == 702 else None)
             p.get_by_role('button', name='关闭文章', exact=True).click()
             expect(p.locator('.article-body')).to_have_count(0)
 
@@ -192,7 +201,7 @@ def run_case(width, height, run_name, identity):
             h.errors.append('failure capture: ' + type(capture_error).__name__)
         raise
     finally:
-        save(h.out / 'consumer-evidence.json', {"identity": identity, "viewport": [width, height],
+        save(h.out / 'consumer-evidence.json', {"identity": identity, "viewport": [width, height], "theme": theme, "contrasts": contrasts,
              "synthetic_api": True, "real_backend_classifier_tested": False, "private_history_used": False,
              "public_metadata_visible_paywall_observed": False, "views": views, "captures": captures,
              "requests": fixture.requests, "violations": fixture.violations, "telemetry_count": len(fixture.telemetry),
@@ -215,13 +224,14 @@ def main():
                    for p in sorted(build.rglob('*')) if p.is_file()]
     save(out / 'build-input.json', {"identity": identity, "files": build_files})
     outcomes = []
-    for width, height in VIEWPORTS:
-        try:
-            run_case(width, height, run_name, identity)
-            outcomes.append({"viewport": [width, height], "status": "PASSED"})
-        except Exception as exc:
-            outcomes.append({"viewport": [width, height], "status": "FAILED_OR_BLOCKED",
-                             "error": type(exc).__name__ + ': ' + str(exc)})
+    for theme in ('light', 'dark'):
+        for width, height in VIEWPORTS:
+            try:
+                run_case(width, height, run_name, identity, theme)
+                outcomes.append({"viewport": [width, height], "theme": theme, "status": "PASSED"})
+            except Exception as exc:
+                outcomes.append({"viewport": [width, height], "theme": theme, "status": "FAILED_OR_BLOCKED",
+                                 "error": type(exc).__name__ + ': ' + str(exc)})
     save(out / 'execution.json', {"identity": identity, "outcomes": outcomes})
     if any(item['status'] != 'PASSED' for item in outcomes):
         raise AssertionError(outcomes)
