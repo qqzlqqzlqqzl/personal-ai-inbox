@@ -34,6 +34,9 @@ frames; `painted` remains null. No history/navigation API is replaced and no URL
 stability wait is added. The original fast close/reopen sequence can still expose
 the current baseline's empty-body race. At most 512 samples per page are retained;
 missing/truncated observations fail the candidate instead of silently passing.
+The full action/mutation trace stays in each immutable pair JSON. Summary/result
+JSON retains the precise container/prose admission snapshots without duplicating
+all traces across the five pairs; the collector still preserves every pair file.
 
 The actual 2c930 failure remains independent from a controlled React router-seam
 reproduction performed by the component owner. This instrumentation changes no

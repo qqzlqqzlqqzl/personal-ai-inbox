@@ -697,7 +697,7 @@ def main(argv=None, *, pair_index=None):
         if fixture: report['server_records']=list(fixture.records)
         report['finished_utc']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
         # Detailed pairs have their own immutable files; avoid duplicating large event lists.
-        report['pairs']=[{k:v for k,v in p.items() if k not in ('cdp','http_records','probe')} for p in report['pairs']]
+        report['pairs']=[{k:v for k,v in p.items() if k not in ('cdp','http_records','probe','body_observations')} for p in report['pairs']]
         save_new(output/'result.json',report)
         print(json.dumps(report,ensure_ascii=False,indent=2))
     return 0 if report['status']=='PASSED' else 1
