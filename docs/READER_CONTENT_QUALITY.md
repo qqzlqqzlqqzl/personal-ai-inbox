@@ -20,11 +20,17 @@ An article-level publisher nonfree declaration must match the requested article 
 
 Known GitHub release download templates are stripped before information judgment. `release_template_only` and `release_subject_without_explanation` exclude template-only or unexplained change-subject entries. Meaningful short security/actionable notices and explanations remain eligible; there is no new general character-count exclusion. Unknown or failed extraction produces `source_unassessed` or `extraction_failed`, not a low-value/paywall assertion.
 
+Short content with a concrete risk and mitigation, or technical action and effect, may pass the old extraction-length guard to be analyzed. This does not assign a high score or guarantee AI selection. A security keyword or generic release label alone does not satisfy that exception. Known native-hidden/template/inline-hidden gate nodes are ignored; a free newsletter in a different local statement cannot cancel an explicit article payment requirement.
+
 ## Durable identity and correction
 
 Schema migration adds nullable `analyses.content_quality`. Existing rows retain null. Each JSON receipt stores the policy version, observed source hash/time and exact entry/user/URL/content-hash/source-text-hash binding. A stale or malformed receipt projects null with `quality_source_changed` or `quality_unverified`. Raw page/body evidence is not returned in the added API fields.
 
 Fulltext preparation writes the source and receipt in the same existing owner/source compare-and-swap transaction. Import keeps valid exclusions and records a legacy assessment inside its existing result/import transaction; duplicate imports remain idempotent. `core.record_content_quality` supports a reviewed null→false or false→true correction only when the current identity/source and expected previous receipt still match. It does not scan history or fetch a page. No production migration or historical repair is performed by building this change.
+
+Before recommendation totals and page selection, source-bound exclusions are checked against one authenticated Miniflux metadata statement containing each entry's current URL. The same existing read/unread user and parent scope applies. A changed URL invalidates the old receipt and projects unknown; an omitted ID is excluded only from that response and never deletes a note or receipt. Only the selected page needs ordinary body hydration. This removes the rejected 64-body-request design and its 65-entry failure boundary. The existing metadata admission limit remains 10,000 candidate IDs and 256 KiB, with a five-second database deadline and eight-second Reader request timeout; excess or protocol/auth failure returns an explicit 503, never a partial total or a fallback to full-body scanning.
+
+The metadata DTO has exact fields `id,user_id,feed_id,title,url,published_at`. URL is the current stored string, with no canonicalization or truncation; missing, non-string or whitespace-only values fail closed. The capability header remains `1`, so the exact compiled Miniflux checksum and a nonempty six-field paired check are required. An old five-field binary with the same capability fails explicitly. `changed_at` is not a URL revision. Selected-body URL disagreement triggers at most one complete refresh and then 503; the separate reader/metadata/body snapshots do not constitute a distributed transaction. Details also compare the actual current entry identity before displaying an old receipt.
 
 ## Processing reasons
 

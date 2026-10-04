@@ -627,7 +627,7 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
     return {"total": total, "entries": result}
 
 
-async def ai_entries(request, uid, *, feed_id=None, category_id=None):
+async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_retry=True):
     p = request.query_params
     if p.get("ai_view") not in ["recommended", "pending", "notes"]:
         raise HTTPException(400, "Invalid AI view")
@@ -751,11 +751,6 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
         + f" {sql_direction},entry_id {sql_direction}",
         values,
     )
-    if p.get("ai_view") == "recommended":
-        from content_quality import public_for_row
-        # Preserve legacy null eligibility. Filter explicit exclusions before
-        # total and slicing so badges, counts and every page share one policy.
-        candidates = [row for row in candidates if public_for_row(row)['recommendation_eligible'] is not False]
     feeds_response = await app.state.client.get(
         MF + "/v1/feeds", headers=upstream_headers
     )
@@ -781,21 +776,65 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None):
         and (p.get("globally_visible") != "true" or x["feed_id"] not in hidden)
     ]
     semaphore = asyncio.Semaphore(8)
+    quality_metadata = {}
+    if p.get('ai_view') == 'recommended':
+        from content_quality import public_for_row
+        scoped_ids = set(ids)
+        exclusions = [row for row in candidates if row['entry_id'] in scoped_ids
+                      and public_for_row(row)['recommendation_eligible'] is False]
+
+        if exclusions:
+            # One body-free database snapshot contains current URLs. Do not use
+            # changed_at as a URL revision or fall back to N full-body reads.
+            try:
+                requested_ids, body = await reader_work.run(notes_metadata.request_body, exclusions, scoped_ids)
+                response = await app.state.client.post(MF + '/v1/entries/metadata',
+                    headers={**upstream_headers, 'Content-Type': 'application/json'}, content=body, timeout=8)
+                response.raise_for_status()
+                if response.headers.get('X-Reader-Entry-Metadata') != '1':
+                    raise ValueError('metadata capability unavailable')
+                metadata = await reader_work.run(notes_metadata.decode_metadata, response.content, uid, requested_ids)
+                quality_metadata = {entry['id']: entry for entry in metadata}
+            except (httpx.HTTPError, ValueError, TypeError):
+                raise HTTPException(503, '推荐资格元数据不可用或服务版本不兼容，需要当前文章URL')
+            excluded_ids = {row['entry_id'] for row in exclusions
+                if row['entry_id'] not in quality_metadata
+                or public_for_row(row, current_entry=quality_metadata[row['entry_id']])['recommendation_eligible'] is False}
+            # An omitted ID is outside the current readable metadata snapshot.
+            # It affects this response only; no note, article or receipt is deleted.
+            ids = [eid for eid in ids if eid not in excluded_ids]
 
     async def fetch_entry(eid):
         async with semaphore:
-            r = await app.state.client.get(
-                MF + f"/v1/entries/{eid}", headers=upstream_headers
-            )
-            r.raise_for_status()
-            return r.json()
+            try:
+                current = await require_readable_entry(request, uid, eid,
+                    upstream_headers=upstream_headers, strict_auth=True)
+            except HTTPException as exc:
+                if exc.status_code == 404:
+                    raise HTTPException(503, '推荐文章身份正在变化，请稍后重试')
+                raise
+            if type(current.get('user_id')) is not int or current['user_id'] != uid:
+                raise HTTPException(503, '推荐文章身份暂时无法核实')
+            return current
 
     raw_entries = await asyncio.gather(
         *(fetch_entry(eid) for eid in ids[offset : offset + limit])
     )
+    identity_changed = any(entry['id'] in quality_metadata and any(
+        entry.get(key) != quality_metadata[entry['id']][key] for key in ('id','user_id','url'))
+        for entry in raw_entries)
+    if p.get('ai_view') == 'recommended' and identity_changed:
+        if _quality_retry:
+            return await ai_entries(request, uid, feed_id=feed_id, category_id=category_id, _quality_retry=False)
+        raise HTTPException(503, '推荐资格正在变化，请稍后重试')
     entries = await reader_work.run(
         enrich_reader_entries, raw_entries, uid, recommended=p.get("ai_view") == "recommended"
     )
+    if p.get('ai_view') == 'recommended' and any(
+            entry.get('ai',{}).get('content_quality',{}).get('recommendation_eligible') is False for entry in entries):
+        if _quality_retry:
+            return await ai_entries(request, uid, feed_id=feed_id, category_id=category_id, _quality_retry=False)
+        raise HTTPException(503, '推荐资格正在变化，请稍后重试')
     return {"total": len(ids), "entries": entries}
 
 

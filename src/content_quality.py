@@ -21,10 +21,24 @@ PAID_PROMPT = re.compile(
 )
 LOGIN_PROMPT = re.compile(r"\b(?:sign in|log in|register) to (?:continue reading|read (?:this|the full) (?:article|story))\b|登录后(?:可)?阅读全文", re.I)
 FREE_ACCESS = re.compile(r"\b(?:free (?:account|registration|subscription)|(?:subscribe|register|sign up) for free|it(?:'s| is) free)\b|免费(?:注册|订阅|账号)", re.I)
-HIGH_VALUE_SHORT = re.compile(
-    r"\bCVE-\d{4}-\d+\b|\b(?:security|vulnerabilit\w*|remote code execution|data loss|data corruption|breaking change|backward.incompatible|workaround)\b"
-    r"|\b(?:users? (?:must|should)|upgrade to|affects? versions?)\b|安全漏洞|数据丢失|不兼容|缓解措施|受影响版本", re.I,
-)
+PAID_SUBSCRIBERS = re.compile(r'\b(?:this|the rest of this) (?:article|story|post) is (?:for )?(?:paid|paying|premium) (?:subscribers|members)(?: only)?\b|(?:全文|完整正文|剩余内容)(?:需要|需|仅限)付费订阅|付费订阅后', re.I)
+PAID_ARTICLE = re.compile(r'\b(?:pay to read|purchase this article|buy this article)\b|(?:全文|完整正文|剩余内容)(?:需要|需|仅限)付费(?!订阅)', re.I)
+
+
+def meaningful_short(text):
+    """Allow a concrete risk/mitigation or technical action/effect, not a label.
+
+    This only permits analysis of a short captured body; it does not assign a
+    score or guarantee recommendation. A generic release subject stays excluded.
+    """
+    text = re.sub(r'\s+', ' ', text).strip()
+    risk = re.search(r'\bCVE-\d{4}-\d+\b|remote code execution|data (?:loss|corruption)|安全漏洞|数据丢失', text, re.I)
+    action = re.search(r'\b(?:fix\w*|upgrad\w*|updat\w*|disable|enable|avoid|prevent\w*|affect\w*|permit\w*|workaround)\b|升级|修复|避免|受影响|缓解', text, re.I)
+    if risk and action:
+        return True
+    instruction = re.search(r'^(?:use|call|set|enable|disable|avoid|users? (?:must|should))\b|^(?:使用|设置|禁用|启用|避免)', text, re.I)
+    effect = re.search(r'\b(?:before|after|because|so that|to (?:prevent|avoid|preserve|reduce|ensure))\b|以便|确保|从而|防止', text, re.I)
+    return bool(instruction and effect)
 
 
 def _url(value):
@@ -58,6 +72,45 @@ def _article_matches(article, url):
     return isinstance(declared, str) and bool(_url(declared)) and _url(declared) == _url(url)
 
 
+def _known_hidden(node):
+    """Only markup/inline declarations with known visibility; no CSS guessing."""
+    for element in [node, *node.parents]:
+        if element.name in {'template', 'noscript', 'script', 'style'} or element.has_attr('hidden'):
+            return True
+        declarations = {}
+        for declaration in str(element.get('style', '')).split(';'):
+            name, separator, value = declaration.partition(':')
+            name = name.strip().lower()
+            if not separator or name not in {'display', 'visibility'}:
+                continue
+            value = value.strip().lower()
+            important = '!important' in value
+            value = value.replace('!important', '').strip()
+            if name not in declarations or important or not declarations[name][0]:
+                declarations[name] = (important, value)
+        if declarations.get('display', (False, None))[1] == 'none' or declarations.get('visibility', (False, None))[1] == 'hidden':
+            return True
+    return False
+
+
+def _visible_gate_chunks(node):
+    """Keep an article requirement separate from a nearby newsletter offer."""
+    blocks = {'p', 'div', 'section', 'aside', 'form', 'li', 'blockquote'}
+    groups = {}
+    for string in node.strings:
+        if _known_hidden(string.parent) or not str(string).strip():
+            continue
+        scope = node
+        for parent in string.parents:
+            if parent is node:
+                break
+            if parent.name in blocks:
+                scope = parent
+                break
+        groups.setdefault(id(scope), []).append(str(string).strip())
+    return [' '.join(parts) for parts in groups.values()]
+
+
 def _access(soup, url):
     flags = set()
     canonical = {_url(link.get('href')) for link in soup.find_all('link', rel='canonical') if link.get('href')}
@@ -71,19 +124,25 @@ def _access(soup, url):
             if identity_matches and _article_matches(article, url) and type(article.get("isAccessibleForFree")) is bool:
                 flags.add(article["isAccessibleForFree"])
     paid_gate = False
+    article_gate = False
     login_gate = False
     for node in soup.find_all(True):
         tokens = set(node.get("class", [])) | {str(node.get("id", "")), str(node.get("data-testid", ""))}
-        if not GATE_TOKENS.intersection(tokens):
+        if not GATE_TOKENS.intersection(tokens) or _known_hidden(node):
             continue
-        text = node.get_text(" ", strip=True)
-        free_gate = bool(FREE_ACCESS.search(text))
-        paid_gate |= bool(PAID_PROMPT.search(text)) and not free_gate
-        login_gate |= bool(LOGIN_PROMPT.search(text)) or free_gate
-    if paid_gate:
+        for text in _visible_gate_chunks(node):
+            free_gate = bool(FREE_ACCESS.search(text))
+            # An explicit paid-subscriber statement cannot be cancelled by a
+            # free newsletter or unrelated free offer, even in the same block.
+            direct_article = bool(PAID_ARTICLE.search(text))
+            explicit_subscription = bool(PAID_SUBSCRIBERS.search(text))
+            article_gate |= direct_article
+            paid_gate |= explicit_subscription or (bool(PAID_PROMPT.search(text)) and not free_gate and not direct_article)
+            login_gate |= bool(LOGIN_PROMPT.search(text)) or free_gate
+    if paid_gate or article_gate:
         if True in flags:
             return 'unknown', 'conflicting_access_evidence'
-        return "paid_subscription", "explicit_paid_gate"
+        return ('paid_subscription' if paid_gate else 'paid_fulltext'), 'explicit_paid_gate'
     if flags == {False}:
         return "unknown", "publisher_nonfree_pending_review"
     if login_gate:
@@ -122,7 +181,7 @@ def _release_information(url, html_body, text):
     material = " ".join(lines).strip()
     if template and not material:
         return "low_information", "release_template_only"
-    if template and len(lines) == 1 and re.search(r"\(#\d+\)$", material) and not HIGH_VALUE_SHORT.search(material):
+    if template and len(lines) == 1 and re.search(r"\(#\d+\)$", material) and not meaningful_short(material):
         return "low_information", "release_subject_without_explanation"
     return ("substantive", None) if material else ("unknown", "source_missing")
 
@@ -185,9 +244,13 @@ def bind(record, *, entry_id, user_id, url, content_hash, source_text):
             'source_text_sha256': hashlib.sha256((source_text or '').encode()).hexdigest()}}
 
 
-def public_for_row(row):
+def public_for_row(row, current_entry=None):
     """Invalid, stale or legacy receipts are null, never reused across sources."""
     row = dict(row)
+    if current_entry is not None and any(
+            current_entry.get(key) != row.get(column) or (key in {'id','user_id'} and type(current_entry.get(key)) is not int)
+            for key,column in (('id','entry_id'),('user_id','user_id'),('url','url'))):
+        return unknown('quality_source_changed')
     raw = row.get('content_quality')
     if not raw:
         return unknown()

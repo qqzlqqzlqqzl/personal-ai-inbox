@@ -203,7 +203,11 @@ class URLImportTests(unittest.TestCase):
         api_text=api_path.read_text();node=next(n for n in ast.parse(api_text).body if isinstance(n,ast.AsyncFunctionDef) and n.name=='ai_entries')
         route=ast.get_source_segment(api_text,node)
         self.assertIn('"state=\'done\'", "score>=?"',route)
-        self.assertNotIn('source_text',route)
+        # Eligibility may validate a source-bound receipt, but legacy curated
+        # done rows must not require a captured body to remain recommendations.
+        self.assertNotIn('source_text IS NOT NULL',route)
+        self.assertNotIn('length(source_text)',route)
+        self.assertNotIn('source_chars>=',route)
     def test_real_backup_and_receipt(self):
         out=urlimp.import_batch(self.config,self.packet,self.results,lambda:copy.deepcopy(self.upstream),batch_limit=12,apply=True)
         folder=self.f.root/'dot-article-imports'/out['batch_id'];receipt=json.loads((folder/'backup-receipt.json').read_text())

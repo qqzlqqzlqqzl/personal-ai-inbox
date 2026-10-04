@@ -285,7 +285,7 @@ def decorate(entry, user_id, include_source_fallback=False, processing_evidence=
     has_note = bool(row.pop("has_note", 0))
     note_updated_at = row.pop("note_updated_at", None)
     metadata = {
-        "content_quality": public_for_row(row),
+        "content_quality": public_for_row(row, current_entry=entry),
         "processing": for_entry(row, processing_evidence),
         **{
             k: row[k]

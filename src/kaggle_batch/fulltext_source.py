@@ -264,9 +264,9 @@ def _extract_html(raw,url,selector,remove,repeated):
         node.clear()
         node.append(literal)
     text = body.get_text(' ', strip=True)
-    from content_quality import assess
+    from content_quality import assess, meaningful_short
     quality = assess(url=url, html_body=str(soup), text=text, extraction_state='available')
-    if len(text) < 120 and quality['recommendation_eligible'] is not False:
+    if len(text) < 120 and quality['recommendation_eligible'] is not False and not meaningful_short(text):
         raise FulltextUnavailable('body_too_short_requires_review')
     return {'source_text': text, 'html': str(body), 'image_count': len(body.find_all('img')),
             'content_quality': quality,
@@ -299,9 +299,9 @@ def extract_reader(raw,url):
         footer=re.search(r'^\[!\[.*?\]\([^\n]+\)\]\(https://arstechnica\.com/author/[^\n]+\)',text,re.M)
         if not footer:raise FulltextUnavailable('reader_author_boundary_missing')
         text=text[:footer.start()].strip()
-    from content_quality import assess
+    from content_quality import assess, meaningful_short
     quality=assess(url=url,text=text,extraction_state='available')
-    if len(text)<500 and quality['recommendation_eligible'] is not False:raise FulltextUnavailable('reader_body_too_short')
+    if len(text)<500 and quality['recommendation_eligible'] is not False and not meaningful_short(text):raise FulltextUnavailable('reader_body_too_short')
     return {'source_text':text,'html':'<article>'+html.escape(text)+'</article>',
             'content_quality':quality,
             'image_count':len(re.findall(r'!\[',text)),

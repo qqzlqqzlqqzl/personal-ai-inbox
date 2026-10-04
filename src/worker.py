@@ -175,11 +175,11 @@ async def process_one(client, row, cfg, *,admission=None):
                     cover_source = "enclosure"
                     break
         text, images = content_text(current)
-        from content_quality import assess, serialized
+        from content_quality import assess, serialized, meaningful_short
         quality = assess(url=entry['url'], html_body=current, text=text,
                          extraction_state='available', observed_at=time.time())
         excluded = quality['recommendation_eligible'] is False
-        if len(text) < (8 if social else 120) and not excluded:
+        if len(text) < (8 if social else 120) and not excluded and not meaningful_short(text):
             mutate(update,
                 entry_id,
                 state="insufficient_content",

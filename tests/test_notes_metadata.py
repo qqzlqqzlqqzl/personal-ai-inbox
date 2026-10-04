@@ -19,6 +19,7 @@ import notes_metadata as nm
 class Upstream:
     def __init__(self, n=200):
         self.entries = {i: dict(id=i, user_id=1, feed_id=1, title=f'Article {i}',
+             url=f'https://example.test/article/{i}',
              published_at='2026-09-28T00:00:00Z', changed_at='2026-09-28T00:00:00Z',
              status='unread', starred=False, content='<p>body</p>',
              feed=dict(id=1, title='Feed', category=dict(id=10))) for i in range(1,n+1)}
@@ -221,6 +222,9 @@ async def test_note_only_unicode_literal_truncation_and_empty_sql_rule(notes):
     lambda rows:[dict(rows[0],content='forbidden')],
     lambda rows:[dict(rows[0],id=True)],
     lambda rows:[dict(rows[0],title=None)],
+    lambda rows:[{key:value for key,value in rows[0].items() if key!='url'}],
+    lambda rows:[dict(rows[0],url=None)],
+    lambda rows:[dict(rows[0],url='')],
 ])
 async def test_untrusted_metadata_fails_closed(notes,mutation):
     notes.transform=mutation

@@ -224,18 +224,18 @@ func metadataIDs(t *testing.T, w *httptest.ResponseRecorder, userID int64) []int
 	}
 	ids := make([]int64, 0, len(rows))
 	for _, row := range rows {
-		if len(row) != 5 {
+		if len(row) != 6 {
 			t.Fatalf("wrong field count: %v", row)
 		}
-		for _, key := range []string{"id", "user_id", "feed_id", "title", "published_at"} {
+		for _, key := range []string{"id", "user_id", "feed_id", "title", "url", "published_at"} {
 			if row[key] == nil {
 				t.Fatalf("missing field %q", key)
 			}
 		}
 		var id, uid int64
-		var title string
+		var title, articleURL string
 		var published time.Time
-		if json.Unmarshal(row["id"], &id) != nil || json.Unmarshal(row["user_id"], &uid) != nil || json.Unmarshal(row["title"], &title) != nil || json.Unmarshal(row["published_at"], &published) != nil || uid != userID {
+		if json.Unmarshal(row["id"], &id) != nil || json.Unmarshal(row["user_id"], &uid) != nil || json.Unmarshal(row["title"], &title) != nil || json.Unmarshal(row["url"], &articleURL) != nil || articleURL == "" || json.Unmarshal(row["published_at"], &published) != nil || uid != userID {
 			t.Fatalf("invalid metadata types/ownership: %v", row)
 		}
 		if len(ids) > 0 && id <= ids[len(ids)-1] {
@@ -390,6 +390,26 @@ func TestMetadataPostgres(t *testing.T) {
 		w := f.call(http.MethodPost, endpoint, body, f.tokens[0], "", "", nil)
 		if !strings.Contains(w.Body.String(), "fresh title without changed_at") {
 			t.Fatal("stale metadata title")
+		}
+	})
+
+	t.Run("current-url-without-changed-at-preserves-business-state", func(t *testing.T) {
+		var beforeChanged, afterChanged time.Time
+		var beforeStatus, afterStatus string
+		var beforeStarred, afterStarred bool
+		if err := f.db.QueryRow(`SELECT changed_at,status,starred FROM entries WHERE id=1`).Scan(&beforeChanged, &beforeStatus, &beforeStarred); err != nil {
+			t.Fatal(err)
+		}
+		f.exec(t, `UPDATE entries SET url='https://example.invalid/current-url-without-changed-at' WHERE id=1`)
+		f.audit.reset("")
+		w := f.call(http.MethodPost, endpoint, `{"entry_ids":[1]}`, f.tokens[0], "", "", nil)
+		metadataIDs(t, w, f.users[0].ID)
+		if !strings.Contains(w.Body.String(), `"url":"https://example.invalid/current-url-without-changed-at"`) {
+			t.Fatal("metadata did not expose the current URL")
+		}
+		f.assertQueryAudit(t, 1, 2)
+		if err := f.db.QueryRow(`SELECT changed_at,status,starred FROM entries WHERE id=1`).Scan(&afterChanged, &afterStatus, &afterStarred); err != nil || !beforeChanged.Equal(afterChanged) || beforeStatus != afterStatus || beforeStarred != afterStarred {
+			t.Fatal("metadata changed article business state")
 		}
 	})
 
