@@ -219,17 +219,17 @@ class SamplingContract(unittest.TestCase):
         self.assertNotIn('clearBrowserCache',source)
     def test_network_clocks_join_by_exact_request(self):
         rows=[{'image':1,'at':1250}]
-        events=[{'kind':'request','path':'/fixture-images/1.png','request_id':'exact','wall_time':1,'timestamp':10},
+        events=[{'kind':'request','path':'/fixture-images/1.png','url':'http://127.0.0.1:9999/fixture-images/1.png','type':'Image','request_id':'exact','wall_time':1,'timestamp':10},
                 {'kind':'finished','request_id':'other','timestamp':999,'encoded_bytes':999},
                 {'kind':'finished','request_id':'exact','timestamp':10.1,'encoded_bytes':12},
                 {'kind':'cache-hit','request_id':'exact'}]
-        joined=join_image_network(rows,events)[0]
+        joined=join_image_network(rows,events,'http://127.0.0.1:9999')[0]
         self.assertEqual(joined['request_to_visible_ms'],250)
         self.assertAlmostEqual(joined['request_to_finished_ms'],100)
         self.assertEqual(joined['encoded_bytes'],12);self.assertTrue(joined['browser_cache_event'])
     def test_missing_network_timing_not_invented(self):
-        row=join_image_network([{'image':1,'at':1000}],[])[0]
-        self.assertEqual(row['network_timing'],'NO_REQUEST_EVENT_OBSERVED')
+        row=join_image_network([{'image':1,'at':1000}],[],'http://127.0.0.1:9999')[0]
+        self.assertEqual(row['network_timing'],'NO_UNIQUE_REQUEST_EVENT_OBSERVED')
         self.assertNotIn('request_to_visible_ms',row)
 
 
@@ -317,6 +317,31 @@ class WarmCacheContract(unittest.TestCase):
             def wait_for_timeout(self,ms):events.extend(finished)
         proof,end=await_warm_image_proof(Page(),events,0,rows,self.base,900)
         self.assertEqual((len(proof),end),(6,1500))
+    def test_different_query_cannot_replace_proof_or_published_timing(self):
+        events,rows=self.fixture()
+        events.extend([
+            {'kind':'request','url':self.base+'/fixture-images/1.png?other=1','path':'/fixture-images/1.png','request_id':'different-query','type':'Image','wall_time':1.2,'timestamp':11},
+            {'kind':'response','request_id':'different-query','status':200,'timestamp':11.01,'from_disk_cache':True,'headers':{'content-type':'image/png'}},
+            {'kind':'finished','request_id':'different-query','timestamp':11.025,'encoded_bytes':0}])
+        proof=self.check(events,rows)
+        self.assertEqual(rows[0]['request_id'],proof[0]['request_id'])
+        self.assertEqual(rows[0]['request_to_visible_ms'],300)
+        self.assertAlmostEqual(rows[0]['request_to_finished_ms'],100)
+        self.assertEqual(rows[0]['request_to_visible_ms'],proof[0]['published_metrics']['request_to_visible_ms'])
+        cold=join_image_network([{'image':1,'at':1300}],events,self.base)[0]
+        self.assertEqual(cold['request_id'],'warm-1')
+        self.assertEqual(cold['request_to_visible_ms'],300)
+    def test_ambiguous_cold_exact_requests_do_not_choose_last(self):
+        events,rows=self.fixture();duplicate=copy.deepcopy(events[0]);duplicate['request_id']='second';events.append(duplicate)
+        cold=join_image_network([{'image':1,'at':1300}],events,self.base)[0]
+        self.assertEqual(cold['network_timing'],'NO_UNIQUE_REQUEST_EVENT_OBSERVED')
+        self.assertNotIn('request_to_visible_ms',cold)
+    def test_only_cold_path_calls_optional_join(self):
+        tree=ast.parse(Path(__file__).with_name('reader_loading_performance.py').read_text())
+        function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='one_pair')
+        calls=[n for n in ast.walk(function) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='join_image_network']
+        self.assertEqual(len(calls),1)
+        self.assertIn('cold_images',ast.unparse(calls[0]))
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

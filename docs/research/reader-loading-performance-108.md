@@ -115,6 +115,10 @@ the measurement fails instead of inferring a hit from unrelated JavaScript.
 Server conditional-GET unit tests alone are not browser-cache evidence. CDP
 request wall time and monotonic response timing are joined by exact request ID;
 missing events stay missing, never zero-filled.
+The validated warm proof directly writes the published image timings. There is
+no second pathname-based join. A same-path request with another query cannot
+replace the verified ID or improve its measured duration. Optional cold timing
+also requires one exact fixture URL, otherwise it remains explicitly unavailable.
 Request-to-visible includes deliberate scrolling to that image; download and
 scroll-to-visible durations are retained separately.
 
@@ -181,3 +185,6 @@ duplicate pair IDs/nonfinite durations were accepted by the comparator. Its
 original source and independent counterexamples are retained. The follow-up
 changes only those evidence gates and adds synthetic positive/negative controls;
 it does not convert missing browser or production measurements into passing data.
+The next retained commit `1331a8b` fixed admission but still allowed its later
+pathname join to select another query's timing. The final follow-up removes that
+warm re-selection and publishes timings directly from each verified proof.

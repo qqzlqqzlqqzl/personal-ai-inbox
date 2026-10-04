@@ -159,13 +159,14 @@ def image_sweep(page):
     return rows
 
 
-def join_image_network(rows, events):
+def join_image_network(rows, events, base):
     for image in rows:
-        matches=[event for event in events if event['kind']=='request' and event.get('path')==f"/fixture-images/{image['image']}.png"]
-        if not matches:
-            image['network_timing']='NO_REQUEST_EVENT_OBSERVED'
+        expected=f"{base}/fixture-images/{image['image']}.png"
+        matches=[event for event in events if event['kind']=='request' and event.get('url')==expected and event.get('type')=='Image']
+        if len(matches)!=1:
+            image['network_timing']='NO_UNIQUE_REQUEST_EVENT_OBSERVED'
             continue
-        request=matches[-1]
+        request=matches[0]
         related=[event for event in events if event.get('request_id')==request['request_id']]
         finishes=[event for event in related if event['kind']=='finished']
         responses=[event for event in related if event['kind']=='response']
@@ -223,9 +224,16 @@ def warm_image_proof(events, rows, base, start_ms, end_ms):
         cached=any(event['kind']=='cache-hit' for event in related)
         disk=response.get('from_disk_cache') is True
         require(cached or disk,'this image has no cache evidence')
+        metrics={'request_id':request_id,'request_to_visible_ms':visible_ms-wall_ms,
+                 'request_to_finished_ms':(finish_time-request_time)*1000,'encoded_bytes':bytes_received,
+                 'response_status':response['status'],'from_disk_cache':disk,'browser_cache_event':cached,
+                 'http_timing':response.get('timing')}
+        # The gate and published timing use this same verified record. No later
+        # pathname search is allowed to replace the request with a different URL.
+        row.update(metrics)
         proof.append({'image':number,'url':expected,'request_id':request_id,'cache_event':cached,
                       'from_disk_cache':disk,'request_wall_ms':wall_ms,'finished_wall_ms':finish_wall_ms,
-                      'visible_wall_ms':visible_ms,'encoded_bytes':bytes_received})
+                      'visible_wall_ms':visible_ms,'encoded_bytes':bytes_received,'published_metrics':metrics})
     return proof
 
 
@@ -265,7 +273,7 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         pair['before_activation_detail_requests']=sum(r['label'].startswith('detail:') for r in fixture.records[start_record:])
         pair['cold_click_to_body_ms']=open_article(page,input_kind)
         pair['cold_images']=image_sweep(page)
-        join_image_network(pair['cold_images'],events)
+        join_image_network(pair['cold_images'],events,fixture.base)
         pair['cold_image_http_requests']=count_images(fixture.records[start_record:])
         require(pair['cold_image_http_requests']>=6, 'cold context did not issue all six image requests')
         close_article(page,input_kind)
@@ -275,7 +283,6 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         pair['warm_images']=image_sweep(page)
         proof,pair['warm_end_wall_ms']=await_warm_image_proof(page,events,event_start,pair['warm_images'],fixture.base,pair['warm_start_wall_ms'])
         pair['warm_image_http_requests']=count_images(fixture.records[warm_start:])
-        join_image_network(pair['warm_images'],events[event_start:])
         pair['warm_image_cache_proof']=proof
         pair['warm_cdp_cache_events']=sum(x['cache_event'] for x in proof)
         pair['warm_cdp_image_disk_hits']=sum(x['from_disk_cache'] for x in proof)
