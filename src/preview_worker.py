@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import core
+from feed_consumption import summary_feed_policy, SUMMARY_SOURCE
 from content_input import discover_original_cover, is_our_social_feed, first_image_src
 from worker import MF, worker_headers, discover_pending
 from media_repair import repair_entry, needs_repair
@@ -46,6 +47,17 @@ async def prepare_one(client, row):
         with core.connect() as db:
             saved = db.execute("SELECT cover_url FROM analyses WHERE entry_id=?", (entry_id,)).fetchone()
         existing_cover = saved[0] if saved else None
+        policy = summary_feed_policy(entry)
+        if policy:
+            if policy == "identity_unverified":
+                core.update(entry_id, preview_checked_at=time.time(), preview_error="UnverifiedFeedIdentity")
+                return {"entry_id": entry_id, "result": "failed", "error": "UnverifiedFeedIdentity"}
+            # Use only an image already present in the cached RSS description.
+            # No page lookup, image probing, enrichment or body repair is allowed.
+            cover = first_image_src(entry.get("content", ""))
+            core.update(entry_id, cover_url=cover, cover_source=SUMMARY_SOURCE if cover else None,
+                        preview_checked_at=time.time(), preview_error=None)
+            return {"entry_id": entry_id, "result": "updated" if cover else "text_only"}
         if is_product_entry(entry["url"]):
             from product_source import enrich_product_entry
             prepared = await enrich_product_entry(client, entry, MF, worker_headers())

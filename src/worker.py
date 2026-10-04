@@ -1,5 +1,6 @@
 """Background original-content extraction and structured AI evaluation."""
 from work_admission import check,options,async_call,AdmissionStopped
+from feed_consumption import summary_feed_policy, restricted_analysis_fields
 
 import asyncio, os, json, time, re, logging
 import httpx
@@ -102,6 +103,12 @@ async def process_one(client, row, cfg, *,admission=None):
     phase = "fetch_error"
     try:
         entry = await async_call(admission,mf_get,client, f"/v1/entries/{entry_id}")
+        policy = summary_feed_policy(entry)
+        if policy:
+            # RSS is a preview input, not evidence of complete project content.
+            # Keep existing quality/score evidence untouched; no model or fetch.
+            mutate(update, entry_id, **restricted_analysis_fields(policy))
+            return
         from urllib.parse import urlsplit
 
         original = urlsplit(entry["url"])

@@ -113,6 +113,7 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
     core,worker,cards=load_inbox(source,**options(admission))
     from content_input import content_text,is_our_social_feed
     from product_source import is_product_entry
+    from feed_consumption import summary_feed_policy, restricted_analysis_fields
     from prepared_content import apply as apply_prepared
     check(admission)
     cfg=core.settings()
@@ -167,7 +168,10 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
             analysis_needed=(row['state'] in ('pending','waiting_model','budget_paused','fetch_error','ai_error')
                              and row['attempts']<3 and row['next_try']<=time.time())
         refreshed=row
-        entry=apply_prepared(await async_call(admission,worker.mf_get,client,f"/v1/entries/{row['entry_id']}"),**options(admission))
+        entry=await async_call(admission,worker.mf_get,client,f"/v1/entries/{row['entry_id']}")
+        feed_policy=summary_feed_policy(entry)
+        if not feed_policy:
+            entry=apply_prepared(entry,**options(admission))
         # Publishers edit headlines after RSS discovery. Refresh an unclaimed,
         # unfinished row only when the article ID, owner and URL still match.
         # The caller backs up the database before extraction; the new body is
@@ -186,7 +190,7 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
                 skipped.append({'entry_id':row['entry_id'],'state':'source_changed_during_title_refresh'})
                 return
             row['title']=entry['title']
-        if (entry['user_id']!=row['user_id'] or (analysis_needed and
+        if ((feed_policy and entry['id']!=row['entry_id']) or entry['user_id']!=row['user_id'] or (analysis_needed and
             (entry['title']!=row['title'] or entry['url']!=row['url']))):
             skipped.append({'entry_id':row['entry_id'],'state':'upstream_identity_changed'})
             check(admission)
@@ -197,6 +201,27 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
                 if entry['user_id']!=row['user_id']:
                     db.execute("UPDATE card_translations SET status='requires_source_review' WHERE entry_id=? AND user_id=? AND status NOT IN ('done','native')",
                         (row['entry_id'],row['user_id']))
+            return
+        if feed_policy:
+            # Do not turn a third-party RSS preview into a complete project body,
+            # including via cached prepared content or independent card batches.
+            # Owner/URL checks above and the existing source snapshot stay binding.
+            fields=restricted_analysis_fields(feed_policy)
+            if analysis_needed:
+                check(admission)
+                with core.connect() as db:
+                    changed=db.execute("""UPDATE analyses SET state=?,error=?,content_source=?,updated_at=?
+                        WHERE entry_id=? AND user_id=? AND url=? AND title=? AND state=?
+                        AND content_hash IS ? AND source_text IS ?""",
+                        (fields['state'],fields['error'],fields['content_source'],time.time(),
+                         row['entry_id'],row['user_id'],row['url'],row['title'],row['state'],
+                         row['content_hash'],row['source_text'])).rowcount
+                if changed!=1:
+                    skipped.append({'entry_id':row['entry_id'],'state':'source_changed_during_feed_review'})
+                    return
+            skipped.append({'entry_id':row['entry_id'],
+                            'state':fields['state'] if analysis_needed else row['state'],
+                            'reason':'rss_summary_only' if feed_policy=='summary_only' else 'rss_feed_identity_unverified'})
             return
         specialized=is_our_social_feed(entry.get('feed',{}).get('feed_url','')) or is_product_entry(entry)
         if analysis_needed and specialized:
