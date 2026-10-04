@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 import zipfile
 
 from reader_loading_fixture import Fixture, TOKEN, SCENARIO, admit_build, bound_read, checked_directory, require
+from reader_loading_navigation import NavigationObservation
 
 PLAYWRIGHT = '1.63.0'
 CHROMIUM = '153.0.8010.12'
@@ -412,9 +413,18 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         original_page=page_identity(session)
         if weak:
             session.send('Network.emulateNetworkConditions',{'offline':False,'latency':150,'downloadThroughput':250000,'uploadThroughput':125000,'connectionType':'cellular3g'})
-        began=time.monotonic();page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
-        expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')
-        pair['list_initial_ms']=(time.monotonic()-began)*1000
+        navigation=NavigationObservation(session,fixture.base+'/inbox/all')
+        pair['navigation']=navigation.record
+        began=navigation.mark('goto_start')
+        try:
+            try: page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
+            finally: navigation.mark('goto_end')
+            navigation.mark('assert_start')
+            try: expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')
+            finally: navigation.mark('assert_end')
+            pair['list_initial_ms']=(time.monotonic()-began)*1000
+        finally: navigation.finish()
+        require(navigation.record['status']=='COMPLETE','navigation observation incomplete')
         page.mouse.move(0,0)
         pair['before_activation_requests']=len(fixture.records)-start_record
         pair['before_activation_detail_requests']=sum(r['label'].startswith('detail:') for r in fixture.records[start_record:])
@@ -473,9 +483,18 @@ def one_pair(browser, fixture, output, index, input_kind, weak):
         pair['http_cache_page']=cache
         if weak:
             cache_session.send('Network.emulateNetworkConditions',{'offline':False,'latency':150,'downloadThroughput':250000,'uploadThroughput':125000,'connectionType':'cellular3g'})
-        began=time.monotonic();page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
-        expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')
-        cache['bootstrap_ms']=(time.monotonic()-began)*1000
+        navigation=NavigationObservation(cache_session,fixture.base+'/inbox/all')
+        cache['navigation']=navigation.record
+        began=navigation.mark('goto_start')
+        try:
+            try: page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
+            finally: navigation.mark('goto_end')
+            navigation.mark('assert_start')
+            try: expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')
+            finally: navigation.mark('assert_end')
+            cache['bootstrap_ms']=(time.monotonic()-began)*1000
+        finally: navigation.finish()
+        require(navigation.record['status']=='COMPLETE','navigation observation incomplete')
         page.mouse.move(0,0)
         cache['image_http_before_activation']=count_images(fixture.records[cache_start:])
         require(cache['image_http_before_activation']==0,'cache probe loaded article images before user activation')
