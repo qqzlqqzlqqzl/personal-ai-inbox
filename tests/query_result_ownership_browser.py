@@ -1,5 +1,6 @@
 """Refs #109: real built Reader, held synthetic responses, no production context."""
 import json
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect
@@ -20,15 +21,8 @@ request_trace = []
 fail_requests = False
 p.add_init_script("""localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all'}));
 localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:8,sort:'score',direction:'desc',auxiliary:'none'}));
-window.queryFrames=[];
-window.queryFrame=()=>{
- const selected=[...document.querySelectorAll('.arco-menu-selected .custom-menu-item')].find(e=>e.getClientRects().length);
- const rows=[...document.querySelectorAll('.entry-list [data-entry-id]')].filter(e=>e.getClientRects().length);
- const item={scope:location.pathname.split('/')[2],count:selected?.querySelector('.item-count')?.textContent.trim()??'',ids:rows.map(e=>e.dataset.entryId)};
- if(window.queryFrames.length<2400)window.queryFrames.push(item);return item;
-};
-document.addEventListener('DOMContentLoaded',()=>new MutationObserver(()=>{window.queryFrame();requestAnimationFrame(window.queryFrame)}).observe(document.body,{subtree:true,childList:true,attributes:true,characterData:true}));
 """)
+p.add_init_script(Path(__file__).with_name("query_frame_observer.js").read_text())
 
 
 def entries(start, count):
@@ -130,6 +124,8 @@ finally:
                             "expected_scopes": [scope for scope, _ in expected_requests]}
     try:
         trace["last_frames"] = p.evaluate("window.queryFrames || []")
+        trace["observation_diagnostics"] = p.evaluate("window.queryObservation || null")
+        p.evaluate("window.stopQueryObservation?.()")
     except Exception as capture_error:
         trace["frame_capture_error"] = type(capture_error).__name__
     (h.out / "query-frames.json").write_text(json.dumps(trace, ensure_ascii=False, indent=2))
