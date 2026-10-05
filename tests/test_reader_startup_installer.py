@@ -98,12 +98,15 @@ class StartupInstallerTests(unittest.TestCase):
 
     def test_drift_in_each_startup_input_refuses_before_any_write(self):
         paths = ['src/routes.jsx', 'src/pages/AuthenticatedApp.jsx', 'src/pages/ContentPages.jsx',
-                 'src/components/Main/Main.jsx', 'src/components/DeferredComponent.jsx']
+                 'src/components/Main/Main.jsx', 'src/components/DeferredComponent.jsx',
+                 'src/pages/LoadedContentPages.jsx']
         for index, name in enumerate(paths):
             with self.subTest(name=name):
                 root, web = self.make_root(str(index))
                 path = web / name
-                original = path.read_text(encoding='utf-8') if path.exists() else installer.DEFERRED_COMPONENT
+                original = path.read_text(encoding='utf-8') if path.exists() else (
+                    installer.LOADED_CONTENT_PAGES if name.endswith('/LoadedContentPages.jsx') else installer.DEFERRED_COMPONENT
+                )
                 path.write_text(original + '\n// another collaborator\n', encoding='utf-8')
                 before = self.snapshot(root)
                 with self.assertRaisesRegex(RuntimeError, 'Unreviewed'):
@@ -111,7 +114,7 @@ class StartupInstallerTests(unittest.TestCase):
                 self.assertEqual(before, self.snapshot(root))
 
     def test_drift_after_install_and_duplicate_generated_fragments_are_refused(self):
-        for index, name in enumerate(['src/routes.jsx', 'src/pages/AuthenticatedApp.jsx', 'src/pages/ContentPages.jsx', 'src/components/Main/Main.jsx']):
+        for index, name in enumerate(['src/routes.jsx', 'src/pages/AuthenticatedApp.jsx', 'src/pages/ContentPages.jsx', 'src/components/Main/Main.jsx', 'src/pages/LoadedContentPages.jsx']):
             with self.subTest(name=name):
                 root, web = self.make_root(str(index))
                 installer.install(root)
@@ -138,11 +141,63 @@ class StartupInstallerTests(unittest.TestCase):
         self.assertIn('const App = deferComponent(() => import("@/App"))', auth)
         self.assertIn('<AppDataProvider>\n    <App />\n  </AppDataProvider>', auth)
         pages = (web / 'src/pages/ContentPages.jsx').read_text(encoding='utf-8')
-        self.assertEqual(pages.count('deferComponent(() => import('), 6)
+        self.assertEqual(pages.count('deferComponent('), 1)
+        self.assertIn('await import("./LoadedContentPages")', pages)
         self.assertNotIn('import All from', pages)
+        loaded = (web / 'src/pages/LoadedContentPages.jsx').read_text(encoding='utf-8')
+        self.assertEqual(loaded, FIXTURE['files']['src/pages/ContentPages.jsx']['text'])
         self.assertIn('const Deferred = lazy(loadComponent)', installer.DEFERRED_COMPONENT)
         self.assertIn('<Suspense fallback={<LoadingSurface />}>', installer.DEFERRED_COMPONENT)
         self.assertNotIn('prefetch', installer.DEFERRED_COMPONENT)
+
+    def test_legacy_early_overlay_upgrades_without_moving_auth_or_provider(self):
+        root, web = self.make_root()
+        routes = web / 'src/routes.jsx'
+        auth = web / 'src/pages/AuthenticatedApp.jsx'
+        main = web / 'src/components/Main/Main.jsx'
+        routes.write_text(installer._routes_apply(routes.read_text(encoding='utf-8')), encoding='utf-8')
+        auth.write_text(installer._authenticated_apply(auth.read_text(encoding='utf-8')), encoding='utf-8')
+        main.write_text(installer._main_apply(main.read_text(encoding='utf-8')), encoding='utf-8')
+        (web / 'src/pages/ContentPages.jsx').write_text(installer.LEGACY_CONTENT_PAGES, encoding='utf-8')
+        (web / 'src/components/DeferredComponent.jsx').write_text(installer.DEFERRED_COMPONENT, encoding='utf-8')
+        auth_before = auth.read_bytes()
+        installer.install(root)
+        self.assertEqual(auth_before, auth.read_bytes())
+        self.assertEqual((web / 'src/pages/ContentPages.jsx').read_text(encoding='utf-8'), installer.CONTENT_PAGES)
+        self.assertEqual((web / 'src/pages/LoadedContentPages.jsx').read_text(encoding='utf-8'),
+                         FIXTURE['files']['src/pages/ContentPages.jsx']['text'])
+
+    def test_shared_selector_keeps_one_lazy_identity_and_original_page_types(self):
+        root, web = self.make_root()
+        installer.install(root)
+        pages = (web / 'src/pages/ContentPages.jsx').read_text(encoding='utf-8')
+        self.assertLess(pages.index('const SharedContentPage = deferComponent('), pages.index('const contentRoute ='))
+        self.assertEqual(pages.count('deferComponent('), 1)
+        self.assertEqual(pages.count('await import('), 1)
+        self.assertIn('const Page = pages[pageKey]\n    return <Page {...props} />', pages)
+        self.assertIn('return <SharedContentPage {...props} pageKey={pageKey} />', pages)
+        self.assertNotIn('key={', pages)
+        self.assertNotIn('contentState', pages)
+        self.assertNotIn('dynamicCount', pages)
+        self.assertNotIn('page-info', pages)
+        for scope in ('all', 'category', 'feed', 'history', 'starred', 'today'):
+            self.assertIn(f'{scope}: contentRoute("{scope}")', pages)
+        routes = (web / 'src/routes.jsx').read_text(encoding='utf-8')
+        self.assertEqual(routes.count('Component: contentPageComponents[pageKey]'), 2)
+
+    def test_loaded_page_authoring_and_duplicate_selector_refuse_before_write(self):
+        root, web = self.make_root('authoring')
+        before = self.snapshot(root)
+        with patch.object(installer, 'LOADED_CONTENT_PAGES', installer.LOADED_CONTENT_PAGES + '\n// drift\n'):
+            with self.assertRaisesRegex(RuntimeError, 'Unreviewed loaded page authoring'):
+                installer.install(root)
+        self.assertEqual(before, self.snapshot(root))
+        root, web = self.make_root('duplicate-selector')
+        (web / 'src/pages/ContentPages.jsx').write_text(installer.CONTENT_PAGES + installer.CONTENT_PAGES, encoding='utf-8')
+        before = self.snapshot(root)
+        with self.assertRaisesRegex(RuntimeError, 'Unreviewed content pages'):
+            installer.install(root)
+        self.assertEqual(before, self.snapshot(root))
 
     def test_settings_keep_original_modal_and_only_render_content_when_visible(self):
         root, web = self.make_root()

@@ -76,7 +76,7 @@ const deferComponent = (loadComponent) => {
 
 export default deferComponent
 '''
-CONTENT_PAGES='''import deferComponent from "@/components/DeferredComponent"
+LEGACY_CONTENT_PAGES='''import deferComponent from "@/components/DeferredComponent"
 
 const contentPageComponents = {
   all: deferComponent(() => import("./All")),
@@ -85,6 +85,54 @@ const contentPageComponents = {
   history: deferComponent(() => import("./History")),
   starred: deferComponent(() => import("./Starred")),
   today: deferComponent(() => import("./Today")),
+}
+
+export default contentPageComponents
+'''
+LOADED_CONTENT_PAGES='''import All from "./All"
+import Category from "./Category"
+import Feed from "./Feed"
+import History from "./History"
+import Starred from "./Starred"
+import Today from "./Today"
+
+const contentPageComponents = {
+  all: All,
+  category: Category,
+  feed: Feed,
+  history: History,
+  starred: Starred,
+  today: Today,
+}
+
+export default contentPageComponents
+'''
+CONTENT_PAGES='''import deferComponent from "@/components/DeferredComponent"
+
+// This single lazy identity loads the original, bounded page map once. After
+// any content page mounts, switching scope does not suspend on another module.
+// Keep real page types/params: All -> Today changes Page, while a detail route
+// within one page keeps Page's identity and the original route/context lifecycle.
+const SharedContentPage = deferComponent(async () => {
+  const { default: pages } = await import("./LoadedContentPages")
+  const ContentPageSelection = ({ pageKey, ...props }) => {
+    const Page = pages[pageKey]
+    return <Page {...props} />
+  }
+  return { default: ContentPageSelection }
+})
+
+const contentRoute = (pageKey) => function ContentRoute(props) {
+  return <SharedContentPage {...props} pageKey={pageKey} />
+}
+
+const contentPageComponents = {
+  all: contentRoute("all"),
+  category: contentRoute("category"),
+  feed: contentRoute("feed"),
+  history: contentRoute("history"),
+  starred: contentRoute("starred"),
+  today: contentRoute("today"),
 }
 
 export default contentPageComponents
@@ -160,8 +208,13 @@ def install(root):
     auth_base=_reviewed_base(authenticated.read_text(),AUTHENTICATED_BEFORE,_authenticated_apply,
                              _authenticated_undo,'authenticated shell')
     content_pages=web/'src/pages/ContentPages.jsx';content_before=content_pages.read_text()
-    if _sha(content_before)!=CONTENT_PAGES_BEFORE and content_before!=CONTENT_PAGES:
+    if _sha(content_before)!=CONTENT_PAGES_BEFORE and content_before not in (CONTENT_PAGES,LEGACY_CONTENT_PAGES):
         raise RuntimeError('Unreviewed content pages; refusing startup overlay')
+    loaded_pages=web/'src/pages/LoadedContentPages.jsx'
+    if _sha(LOADED_CONTENT_PAGES)!=CONTENT_PAGES_BEFORE:
+        raise RuntimeError('Unreviewed loaded page authoring; refusing startup overlay')
+    if loaded_pages.exists() and loaded_pages.read_text()!=LOADED_CONTENT_PAGES:
+        raise RuntimeError('Unreviewed loaded content pages; refusing startup overlay')
     main=web/'src/components/Main/Main.jsx'
     main_base=_reviewed_base(main.read_text(),MAIN_BEFORE,_main_apply,_main_undo,'settings modal')
     helper=web/'src/components/DeferredComponent.jsx'
@@ -178,6 +231,7 @@ def install(root):
     routes.write_text(_routes_apply(base))
     authenticated.write_text(_authenticated_apply(auth_base))
     content_pages.write_text(CONTENT_PAGES)
+    loaded_pages.write_text(LOADED_CONTENT_PAGES)
     main.write_text(_main_apply(main_base))
     helper.write_text(DEFERRED_COMPONENT)
     panel.write_text(LINK_IMPORT+panel_base.replace(PANEL_ANCHOR,LINK+PANEL_ANCHOR,1))
