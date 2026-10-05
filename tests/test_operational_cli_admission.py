@@ -356,6 +356,24 @@ def test_backup_deployment_git_identity_does_not_swallow_deadline(online_backup,
         ns['git_identity'](ns['time'].monotonic()+1)
 
 
+def test_backup_reads_hardlinked_configs_into_independent_snapshot_files(online_backup):
+    import os
+    ns, root, configs, pause, calls = online_backup
+    retained = root/'retained-source'
+    retained.mkdir()
+    for path in configs[1:]:
+        os.link(path, retained/path.name)
+    original = {path: path.read_bytes() for path in configs}
+    result = ns['create_backup'](configs, pause)
+    point = root/'backups'/result['snapshot']
+    assert result['completed'] and ns['point_manifest'](point, ns['time'].monotonic()+30)
+    for path in configs:
+        copied = point/'files'/path.relative_to(root)
+        assert copied.read_bytes() == original[path] == path.read_bytes()
+        assert copied.stat().st_nlink == 1 and copied.stat().st_ino != path.stat().st_ino
+    assert all(path.stat().st_nlink == 2 for path in configs[1:])
+
+
 @pytest.mark.parametrize('source_kind', ['external_existing', 'relative', 'missing'])
 def test_backup_deployment_primary_source_is_independent_from_database_scope(online_backup, source_kind):
     import json

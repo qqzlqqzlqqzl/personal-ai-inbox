@@ -96,7 +96,8 @@ def allowance(deadline):
 
 def identity(path):
     value = path.lstat()
-    if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1:
+    # Reading a regular file with other hard links does not modify those links.
+    if not stat.S_ISREG(value.st_mode):
         raise BackupRefused('non_regular_or_linked_file')
     return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
 
