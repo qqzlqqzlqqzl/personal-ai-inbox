@@ -13,6 +13,13 @@ from reader_loading_ab_ci import unpack_one
 ROOT = Path(__file__).resolve().parents[1]
 BASE = '44d2c203b3a8734cdad890d1ca02306f3e29ab2e'
 STEP = '      - name: Retain immutable build input separately from full regression evidence\n'
+CATALOG_STEP = (
+    '      - name: Source catalog ownership across list and detail consumers\n'
+    '        env:\n'
+    '          AI_NEWS_TEST_BUILD: runtime/browser-build\n'
+    '        run: timeout --signal=TERM --kill-after=10s 600s python tests/source_catalog_browser.py\n'
+)
+CATALOG_UPLOAD = '            runtime/source-catalog/\n'
 
 
 def workflow_step():
@@ -28,7 +35,18 @@ class BuildArtifactWiring(unittest.TestCase):
         workflow, _, start, end = workflow_step()
         original = subprocess.check_output(['git', 'show', BASE + ':.github/workflows/reader-regression.yml'],
                                            cwd=ROOT, text=True, timeout=15)
-        self.assertEqual(workflow[:start] + workflow[end:], original)
+        without_build_upload = workflow[:start] + workflow[end:]
+        # The reviewed catalog integration adds one browser gate and its evidence.
+        # Every earlier workflow byte remains protected by the original baseline.
+        self.assertEqual(without_build_upload.count(CATALOG_STEP), 1)
+        self.assertEqual(without_build_upload.count(CATALOG_UPLOAD), 1)
+        without_extensions = without_build_upload.replace(CATALOG_STEP, '', 1).replace(CATALOG_UPLOAD, '', 1)
+        # Reuse the verified Ubuntu 22.04 sandbox host used by Reader A/B.
+        # Normalize this one reviewed runner change; all other baseline bytes match.
+        self.assertEqual(without_extensions.count('    runs-on: ubuntu-22.04\n'), 1)
+        self.assertEqual(original.count('    runs-on: ubuntu-24.04\n'), 1)
+        without_extensions = without_extensions.replace('    runs-on: ubuntu-22.04\n', '    runs-on: ubuntu-24.04\n', 1)
+        self.assertEqual(without_extensions, original)
         self.assertTrue(workflow[:start].endswith(
             '      - name: Build isolated reader\n'
             '        run: timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py\n'))

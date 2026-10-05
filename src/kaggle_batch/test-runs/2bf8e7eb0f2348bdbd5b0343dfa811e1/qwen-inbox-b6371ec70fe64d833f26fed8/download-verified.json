@@ -1,9 +1,0 @@
-{
-  "batch_id": "qwen-inbox-b6371ec70fe64d833f26fed8",
-  "result_sha256": "a9304d393067b15885305b0dd2a4df5b8b8b567de2c9205f4502465bae289a58",
-  "downloaded_items": 1,
-  "missing_ids": [],
-  "interrupted_partial_record": true,
-  "remote_status": "ERROR",
-  "verified_at": 1790196058.5267615
-}

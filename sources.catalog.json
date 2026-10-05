@@ -1098,7 +1098,7 @@
   },
   {
     "name": "Kickstarter 设计与科技精选（邮件归档）",
-    "category": "产品灵感",
+    "category": "产品与众筹",
     "url": "http://127.0.0.1:8092/internal/vendor-feeds/kickstarter.xml",
     "status": "ok",
     "original_text_verified": false,
@@ -1151,5 +1151,31 @@
     "status": "ok",
     "original_text_verified": false,
     "transport": "direct HTTP"
+  },
+  {
+    "name": "Kicktraq 科技众筹项目（RSS 摘要）",
+    "category": "产品与众筹",
+    "url": "https://www.kicktraq.com/categories/technology/latest.rss",
+    "status": "ok",
+    "checked_at": "2026-10-04T22:00:44.159135+00:00",
+    "original_text_verified": false,
+    "provider": "Kicktraq",
+    "source_kind": "third_party_project_feed",
+    "rss_summary_only": true,
+    "analysis_supported": false,
+    "note": "Kicktraq 独立第三方公开 RSS；本次为最近15条项目摘要，项目链接指向 Kicktraq 页面，未取得 Kickstarter 直达链接或完整项目正文；原源部分标题存在编码异常，持续更新与完整覆盖尚未验证。"
+  },
+  {
+    "name": "Kicktraq 设计众筹项目（RSS 摘要）",
+    "category": "产品与众筹",
+    "url": "https://www.kicktraq.com/categories/design/latest.rss",
+    "status": "ok",
+    "checked_at": "2026-10-04T22:00:44.206187+00:00",
+    "original_text_verified": false,
+    "provider": "Kicktraq",
+    "source_kind": "third_party_project_feed",
+    "rss_summary_only": true,
+    "analysis_supported": false,
+    "note": "Kicktraq 独立第三方公开 RSS；本次为最近15条项目摘要，项目链接指向 Kicktraq 页面，未取得 Kickstarter 直达链接或完整项目正文；原源部分标题存在编码异常，持续更新与完整覆盖尚未验证。"
   }
 ]

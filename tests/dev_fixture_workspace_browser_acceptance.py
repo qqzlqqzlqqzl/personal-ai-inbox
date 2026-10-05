@@ -34,8 +34,10 @@ import dev_fixture_workspace as tool
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = Path(__file__).with_name("dev_fixture_workspace.py")
 TOOL_SHA = "068ba17339b5e40c82c0a87a719ea95b72b464ac75974abc2ff656c440c89ba4"
-HARNESS_SHA = "dd92c06dd9bfdeaeb78d98934106350c56863f383ff03be3aebb931b8db938a6"
-SRC = "3f13dba5dee642a8dd1d5d3a6df87fa5a2a7ee12"
+HARNESS_SHA = "ea87eb224e3e0d1f5b42087783e867672ce46db68878c04f19ff7cf29c9948bf"
+# Exact integrated source tree; the original mismatch refusal
+# and same-head build identity checks remain required for this experiment.
+SRC = "3465da1dd9e09176efb83afe278227c9268cb1ab"
 KEY = "reader.fixture.browser.acceptance.v1"
 NOTE_ID = 987654321
 # The in-page probe has a 12s app deadline and bounded local requests. This

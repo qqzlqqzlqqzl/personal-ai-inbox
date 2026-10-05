@@ -386,10 +386,10 @@ class MeasurementEnvironmentContracts(unittest.TestCase):
                     ci.identity(self.root)
         self.assertFalse((self.root / 'evidence/toolchain.json').exists())
 
-    def test_standard_reader_runner_is_still_ubuntu_2404(self):
+    def test_standard_reader_runner_matches_sandboxed_measurement_ubuntu_2204(self):
         workflow = (ci.ROOT / '.github/workflows/reader-regression.yml').read_text()
-        self.assertIn('runs-on: ubuntu-24.04', workflow)
-        self.assertNotIn('runs-on: ubuntu-22.04', workflow)
+        self.assertIn('runs-on: ubuntu-22.04', workflow)
+        self.assertNotIn('runs-on: ubuntu-24.04', workflow)
 
 
 if __name__ == '__main__':

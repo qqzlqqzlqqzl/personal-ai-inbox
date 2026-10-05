@@ -29,6 +29,8 @@ def visual_state(page):
       while(scroll&&!(scroll.scrollHeight>scroll.clientHeight&&/(auto|scroll)/.test(getComputedStyle(scroll).overflowY)))scroll=scroll.parentElement;
       if(!scroll)throw Error('Missing actual overflowing article ancestor');
       const v=visualViewport,a=document.activeElement,toggle=bar.querySelector('button[aria-pressed]');
+      const layout=bar.querySelector('.review-reading-controls'),opener=layout?.querySelector('summary');
+      const outline=opener?getComputedStyle(opener):null;
       const barRect=bar.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();
       const ownsPoint=x=>{const hit=document.elementFromPoint(x,barRect.top+barRect.height/2);return !!hit&&(hit===bar||bar.contains(hit))};
       return {url:location.href,path:location.pathname,theme:document.body.getAttribute('arco-theme'),
@@ -38,6 +40,10 @@ def visual_state(page):
         toggle:{text:toggle?.textContent,pressed:toggle?.getAttribute('aria-pressed')},
         title:info(article.querySelector('.article-title')),meta:info(article.querySelector('.article-meta')),
         ai:info(article.querySelector('.article-header>.ai-verdict,.article-header>.ai-pending')),
+        layout:{open:layout?.open,opener:{...info(opener),focused:a===opener,
+          focusVisible:opener?.matches(':focus-visible')??false,outlineStyle:outline?.outlineStyle,
+          outlineWidth:parseFloat(outline?.outlineWidth)||0,outlineColor:outline?.outlineColor,
+          outlineOffset:parseFloat(outline?.outlineOffset)||0}},
         toolbar:info(bar),body:info(body),toolbarCoverage:{
           left:barRect.left<=bodyRect.left+1,right:barRect.right>=bodyRect.right-1,
           leftHit:ownsPoint(bodyRect.left+2),rightHit:ownsPoint(bodyRect.right-2)},
@@ -71,7 +77,17 @@ def validate_visual_state(state, width, height, theme, focus):
         assert state['toolbarCoverage']['leftHit'] and state['toolbarCoverage']['rightHit'], 'body paints through sticky toolbar edges'
 
 
-def capture_visual(h, name, focus, width, height, theme, captures):
+def validate_layout_return_focus(state):
+    opener = state['layout']['opener']
+    assert not state['layout']['open'], 'reading layout popup remained open after Escape'
+    assert opener['focused'] and opener['focusVisible'], 'summary lacks keyboard focus-visible state'
+    assert opener['display'] != 'none' and opener['visibility'] == 'visible' and opener['effectiveOpacity'] == 1, 'summary is not visually available'
+    assert opener['rect']['width'] > 0 and opener['rect']['height'] > 0, 'summary has no rendered box'
+    assert opener['outlineStyle'] not in ('none', 'hidden') and opener['outlineWidth'] > 0, 'summary has no computed visible focus outline'
+    assert opener['outlineColor'] not in ('transparent', 'rgba(0, 0, 0, 0)'), 'summary focus outline is transparent'
+
+
+def capture_visual(h, name, focus, width, height, theme, captures, *, require_layout_focus=False):
     # Observations only: no scrolling, focus changes, URL wait, CSS injection,
     # animation suppression or product state updates. Original actions stay below.
     h.page.evaluate('document.fonts.ready')
@@ -87,6 +103,8 @@ def capture_visual(h, name, focus, width, height, theme, captures):
         if time.monotonic() >= deadline:
             raise AssertionError('reading capture did not stabilize: ' + name)
     validate_visual_state(after, width, height, theme, focus)
+    if require_layout_focus:
+        validate_layout_return_focus(after)
     target = h.out / name
     assert not target.exists(), 'do not replace retained screenshot'
     h.page.screenshot(path=str(target))
@@ -95,7 +113,8 @@ def capture_visual(h, name, focus, width, height, theme, captures):
     raw = target.read_bytes()
     pixels = validate_capture_png(raw, [round(width * after['viewport'][2]), round(height * after['viewport'][2])])
     captures.append({'file': name, 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw),
-                     'focus': focus, 'stable_ms': stable_ms, 'normal_animations': True,
+                     'focus': focus, 'layout_return_focus_required': require_layout_focus,
+                     'stable_ms': stable_ms, 'normal_animations': True,
                      'before': before, 'after': final, 'png': pixels})
 
 
@@ -172,6 +191,33 @@ for width, height in [(1440, 960), (390, 844)]:
             h.check('no_read_or_favorite_mutation', all(path.endswith('/ai/reading-session') for _, path, _ in h.writes))
             capture_visual(h, 'reading.png', False, width, height, theme, captures)
             p.get_by_role('button', name='关闭文章', exact=True).click()
+            # Reopen the real article route. Verify native details keyboard
+            # activation and the production article-close hotkey together.
+            h.goto('/inbox/all/entry/101')
+            layout = p.locator('.review-reading-controls')
+            summary = layout.locator('summary')
+            for target in ['summary', 'slider', 'reset']:
+                summary.press('Enter')
+                expect(layout).to_have_attribute('open', '')
+                if target == 'summary':
+                    capture_visual(h, 'keyboard-layout-open.png', False, width, height, theme, captures)
+                    control = summary
+                elif target == 'slider':
+                    control = p.get_by_label('正文字号', exact=True)
+                else:
+                    control = p.get_by_role('button', name='恢复默认排版', exact=True)
+                control.press('Escape')
+                expect(layout).not_to_have_attribute('open', '')
+                expect(summary).to_be_focused()
+                expect(p.locator('.article-title')).to_have_text('Synthetic long reading fixture')
+                h.check('keyboard_' + target + '_escape_closes_layout_only', p.url.endswith('/inbox/all/entry/101'))
+                if target == 'summary':
+                    # Observe the real returned focus; do not focus, scroll or add CSS.
+                    capture_visual(h, 'keyboard-layout-escape-focus.png', False, width, height,
+                                   theme, captures, require_layout_focus=True)
+            p.keyboard.press('Escape')
+            expect(p.locator('.article-content')).to_have_count(0)
+            h.check('second_escape_keeps_native_article_close', p.url.endswith('/inbox/all'))
         except Exception as exc:
             h.errors.append(str(exc))
             failure = h.out / 'failure.png'
@@ -182,7 +228,7 @@ for width, height in [(1440, 960), (390, 844)]:
         finally:
             with (h.out/'visual-evidence.json').open('x') as stream:
                 json.dump({'identity': IDENTITY, 'viewport': [width, height], 'theme': theme,
-                           'captures': captures, 'expected_capture_count': 5,
+                           'captures': captures, 'expected_capture_count': 7,
                            'initial_state_note': 'Initial/top means before the explicit mid-article scroll; actual scroll values are retained without forcing zero.',
                            'stability_scope': '300ms DOM endpoints and same state after a single PNG; not continuous rAF or two-image equality.'}, stream, ensure_ascii=False, indent=2)
             (h.out/'measurements.json').write_text(json.dumps(measurements, indent=2))

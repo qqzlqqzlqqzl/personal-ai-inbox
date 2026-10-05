@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react"
 import apiClient from "@/apis/ofetch"
 import useAppData from "@/hooks/useAppData"
 import SourceHistory from "./SourceHistory"
+import SourceCatalogMetadata from "./SourceCatalogMetadata"
 import { kaggleLaneStatus, kaggleQuotaText, kaggleStatus } from "./kaggle-status"
-import {filterCatalog,normalizeDraft,settingsDelta,subscriptionQueue,uniqueSources,validateSettings} from "./review-utils"
+import {canSubscribeSource,manualSubscriptionCandidate,filterCatalog,normalizeDraft,settingsDelta,subscriptionQueue,uniqueSources,validateSettings} from "./review-utils"
 import "./ReviewWorkflows.css"
 import { aiState } from "@/store/aiState"
 import { invalidateArticleList } from "@/store/contentState"
@@ -97,7 +98,7 @@ export default function AiPanel({ onClose, returnFocusRef }) {
   }
   const add = items => {
     if(busyRef.current)return
-    const candidates=uniqueSources(items.filter(s=>!s.subscribed&&s.analysis_supported!==false))
+    const candidates=uniqueSources(items.filter(canSubscribeSource))
     if(!candidates.length){setMessage('当前没有可添加的来源。');return}
     setPendingBatch(candidates);setBatchResults([]);setBatchProgress('尚未提交：请先确认来源清单。')
   }
@@ -240,7 +241,7 @@ export default function AiPanel({ onClose, returnFocusRef }) {
       {xRoster && <details><summary>X 核心名单：{xRoster.counts.total} 个 · timeline 有内容 {xRoster.counts.timeline_nonempty} · 空 {xRoster.counts.timeline_empty}（其中 {xRoster.counts.empty_with_fallback} 个已有稳定替代源）</summary><div className="ai-source-list">{xRoster.sources.map(s=><div key={s.handle}><div><strong>@{s.handle}</strong><small>{s.category} · {s.timeline_status === "nonempty" ? `X 已抓到 ${s.timeline_entries || 0} 条` : "X timeline 暂空"}{s.status === "fallback_active" ? " · 稳定替代源已启用" : ""}</small></div></div>)}</div></details>}
       <div className="review-source-filters"><input aria-label="搜索来源" placeholder="搜索名称或分类" value={search} onChange={e=>setSearch(e.target.value)} /><label>分类<select aria-label="目录分类" value={sourceCategory} onChange={e=>setSourceCategory(e.target.value)}><option value="">全部分类</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>状态<select aria-label="目录订阅状态" value={sourceState} onChange={e=>setSourceState(e.target.value)}><option value="all">全部</option><option value="subscribed">已订阅</option><option value="addable">尚未订阅且可添加</option><option value="attention">需要关注</option></select></label><button onClick={resetSourceFilters}>重置目录筛选</button></div>
       <p role="status">匹配 {filtered.length} / {sources.length} 个来源 · 本次显示 {Math.min(sourceLimit,filtered.length)} 个</p>
-      <button disabled={busy||!filtered.some(s=>s.status==="ok"&&!s.subscribed&&s.analysis_supported!==false)} onClick={()=>add(filtered.filter(s=>s.status==="ok" && !s.subscribed && s.analysis_supported !== false))}>添加当前可用来源</button>
+      <button disabled={busy||!filtered.some(canSubscribeSource)} onClick={()=>add(filtered.filter(canSubscribeSource))}>添加当前可用来源</button>
       {pendingBatch&&<section className="review-confirm" aria-label="订阅确认"><h3>将添加 {pendingBatch.length} 个来源</h3><p>确认前不会创建订阅。已订阅来源会跳过；停止不能撤回已提交的项目。</p><ul>{pendingBatch.slice(0,12).map(s=><li key={s.url}>{s.name||s.url}</li>)}</ul>{pendingBatch.length>12&&<p>另 {pendingBatch.length-12} 项</p>}<button disabled={busy} onClick={startBatch}>确认添加来源</button><button disabled={busy} onClick={()=>{setPendingBatch(null);setBatchProgress('已取消添加；未提交订阅。')}}>取消添加</button>{busy&&<button onClick={()=>{stopBatch.current=true;setBatchProgress('将停止后续项，等待已发出的请求结束。')}}>停止剩余添加</button>}</section>}
       {batchProgress&&<p role="status">{batchProgress}</p>}
       {batchResults.length>0&&<details open className="review-batch-results"><summary>本轮添加结果</summary>{batchResults.map((r,i)=><p key={i}>{r.source.name||r.source.url}：{({success:'添加成功',existing:'已存在，未重复添加',failed:'添加失败'})[r.state]} {r.error||''}</p>)}{batchResults.some(r=>r.state==='failed')&&<button disabled={busy} onClick={()=>add(batchResults.filter(r=>r.state==='failed').map(r=>r.source))}>仅重试失败来源</button>}</details>}
@@ -259,8 +260,8 @@ export default function AiPanel({ onClose, returnFocusRef }) {
       </form>
       {xProbe && <p className="ai-notice">适配器：{xProbe.adapter_configured ? "已配置" : "未配置"} · 直连 X：{xProbe.network_reachable ? "有 HTTP 响应" : "不可达"} · 本次帖子：{xProbe.post_count}。{xProbe.message}</p>}
       {status?.social_probe && <p className="ai-notice">最近 Telegram 公共路由实测：{status.social_probe.passed ? "成功" : "未通过，需检查服务器出站网络"}（HTTP {status.social_probe.http || "无响应"}）。这与 RSSHub 服务本身是否在线是两项不同检查。</p>}
-      <form onSubmit={e=>{e.preventDefault();const url=new FormData(e.currentTarget).get("feed");add([{url,category:"手动来源"}])}}><label>自定义 RSS / RSSHub 地址<input required name="feed" type="url" placeholder="http://127.0.0.1:1200/telegram/channel/频道名" /></label><button disabled={busy}>添加订阅</button></form>
-      <div className="ai-source-list">{filtered.slice(0,sourceLimit).map(s=><div key={s.url}><div><strong>{s.name}</strong><small>{s.category} · {s.subscribed ? "已订阅 · " : ""}{s.live_error ? "抓取异常 · " : ""}{s.status==="ok" ? "订阅可解析" : (s.subscribed ? "已接入阅读器" : (s.error || "待验证"))}</small><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a>{s.subscribed&&Number(s.feed_id)>0&&<a href={`/inbox/feed/${Number(s.feed_id)}`}>打开此订阅 →</a>}{s.subscribed && s.feed_id && <SourceHistory key={s.feed_id} feedId={s.feed_id} />}</div><button disabled={busy || s.status!=="ok" || s.subscribed || s.analysis_supported === false} onClick={()=>add([s])}>{s.analysis_supported === false ? "需全文适配" : (s.subscribed ? "已添加" : "添加")}</button></div>)}</div>
+      <form onSubmit={e=>{e.preventDefault();const url=new FormData(e.currentTarget).get("feed");const source=manualSubscriptionCandidate(url,sources);if(source)add([source]);else setMessage("来源身份或摘要保护尚未确认，暂不可添加。")}}><label>自定义 RSS / RSSHub 地址<input required name="feed" type="url" placeholder="http://127.0.0.1:1200/telegram/channel/频道名" /></label><button disabled={busy}>添加订阅</button></form>
+      <div className="ai-source-list">{filtered.slice(0,sourceLimit).map(s=><div key={s.url}><div><strong>{s.name}</strong><SourceCatalogMetadata source={s} /><a href={s.url} target="_blank" rel="noreferrer">查看订阅地址 ↗</a>{s.subscribed&&Number(s.feed_id)>0&&<a href={`/inbox/feed/${Number(s.feed_id)}`}>打开此订阅 →</a>}{s.subscribed && s.feed_id && <SourceHistory key={s.feed_id} feedId={s.feed_id} />}</div><button disabled={busy || !canSubscribeSource(s)} onClick={()=>add([s])}>{s.subscribed ? "已添加" : s.rss_summary_only ? (s.subscription_supported === true ? "添加摘要订阅" : "待摘要适配") : (s.analysis_supported === false ? "需全文适配" : "添加")}</button></div>)}</div>
       {!filtered.length&&!loading.catalog&&<p className="review-empty">没有匹配来源。<button onClick={resetSourceFilters}>清除目录条件</button></p>}{sourceLimit<filtered.length&&<button onClick={()=>setSourceLimit(n=>n+24)}>显示更多来源</button>}
     </section>}
     <footer>Miniflux + ReactFlux + RSSHub · AI 增强层独立保存分析，不替换原文章。<a href="/deployment" target="_blank" rel="noreferrer">部署状态</a></footer>

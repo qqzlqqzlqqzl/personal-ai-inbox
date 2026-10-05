@@ -11,6 +11,8 @@ const labels = {
 // prices or eligibility from a score, title, error text or an unknown reason code.
 const processingLabels = {
   not_recommended: "原始条目保留，当前不进入 AI 精选",
+  rss_summary_only: "来源仅提供 RSS 摘要，等待项目全文适配；不代表项目价值低",
+  rss_feed_identity_unverified: "订阅来源身份未确认，后续内容处理已暂停",
   paused: "后台处理已暂停",
   schedule_disabled: "后台自动处理已关闭",
   reconcile_only: "当前仅核对已有任务，未开启新文章处理",
@@ -63,12 +65,21 @@ function Processing({ processing }) {
   </div>
 }
 
+function sourcePolicy(ai) {
+  if (ai?.state === "requires_fulltext_adapter" && ai.processing?.reason_code === "rss_summary_only")
+    return "Kicktraq RSS 摘要 · 项目全文分析未接入 · 未评分"
+  if (ai?.state === "requires_source_review" && ai.processing?.reason_code === "rss_feed_identity_unverified")
+    return "订阅来源身份待核实 · 未评分"
+  return null
+}
+
 export default function AiBadge({ entry, detailed = false }) {
   const ai = entry?.ai
+  const sourcePolicyLabel = sourcePolicy(ai)
   const note = ai?.has_note ? <span className="ai-note-chip">📝 有笔记</span> : null
   const quality = qualityLabels(ai?.content_quality)
   const qualityNote = quality.length ? <p className="ai-content-quality">{quality.join("；")}</p> : null
-  if (!ai || ai.state !== "done") {return <div className="ai-pending" title={ai?.error || ""}>{note}{Object.hasOwn(labels, ai?.state || "pending") ? labels[ai?.state || "pending"] : "处理状态待确认"}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && <p>处理详情：{ai.error}</p>}</div>}
+  if (!ai || ai.state !== "done") {return <div className="ai-pending" title={sourcePolicyLabel || ai?.error || ""}>{note}{sourcePolicyLabel || (Object.hasOwn(labels, ai?.state || "pending") ? labels[ai?.state || "pending"] : "处理状态待确认")}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && <p>处理详情：{sourcePolicyLabel || ai.error}</p>}</div>}
   const excluded = ai.content_quality?.policy_version === "reader-content-quality-v1" && ai.content_quality.recommendation_eligible === false
   return <div className={detailed ? "ai-verdict ai-verdict-detail" : "ai-verdict"}>
     <div className="ai-scoreline"><strong>{excluded ? "AI 评分" : "推荐"} {ai.score}/10</strong><span>技术 {ai.technical_score}</span><span>商业启发 {ai.business_score}</span>{note}</div>

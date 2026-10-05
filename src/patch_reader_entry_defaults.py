@@ -11,8 +11,11 @@ def patch(name, old, new, previous=None):
     text = path.read_text()
     if new in text:
         return
-    if text.count(old) != 1 and previous is not None and text.count(previous) == 1:
-        old = previous
+    if text.count(old) != 1 and previous is not None:
+        candidates = previous if isinstance(previous, tuple) else (previous,)
+        matches = [candidate for candidate in candidates if text.count(candidate) == 1]
+        if len(matches) == 1:
+            old = matches[0]
     if text.count(old) != 1:
         raise RuntimeError(f"reader-entry patch anchor mismatch: {name}")
     path.write_text(text.replace(old, new, 1))
@@ -112,8 +115,29 @@ patch(
     'import { settingsState, updateSettings } from "@/store/settingsState"\nimport { articleListResultReadyState } from "@/store/contentState"',
 )
 
-# The selected sidebar item represents the visible result set. Keep native unread
-# counts for inactive scopes, but show the active filtered total for AI/search/date.
+# Inactive native totals are valid only for the unfiltered raw-unread lens.
+# Other scopes have no same-lens total yet: omit it rather than borrow today's
+# total, expose a raw count or issue an expensive per-scope request.
+patch(
+    "src/components/Sidebar/Sidebar.jsx",
+    'import {\n  contentState,',
+    'import { aiState } from "@/store/aiState"\nimport {\n  contentState,',
+)
+patch(
+    "src/components/Sidebar/Sidebar.jsx",
+    'const MenuItem = Menu.Item',
+    '''const useNativeSidebarCounts = () => {
+  const { showStatus } = useStore(settingsState, { keys: ["showStatus"] })
+  const { filterDate, filterString } = useStore(contentState, { keys: ["filterDate", "filterString"] })
+  const { mode, auxiliary, hydrated } = useStore(aiState)
+  return hydrated === true && mode === "all" && auxiliary === "none" &&
+    showStatus === "unread" && !filterDate && !filterString
+}
+
+const MenuItem = Menu.Item''',
+)
+
+# Keep the active query's original owner/readiness gate. Unknown is not zero.
 patch(
     "src/components/Sidebar/Sidebar.jsx",
     '''  contentState,
@@ -133,15 +157,20 @@ patch(
 
   return (''',
     '''  const unreadTotal = useStore(unreadTotalState)
+  const nativeCountsMatch = useNativeSidebarCounts()
+  const scopedCount = (scope, nativeCount) =>
+    infoFrom === scope ? activeScopeCount : nativeCountsMatch ? nativeCount : null
+
+  return (''',
+    previous=('''  const unreadTotal = useStore(unreadTotalState)
   const scopedCount = (scope, nativeCount) =>
     infoFrom === scope ? activeScopeCount : nativeCount
 
-  return (''',
-    previous='''  const unreadTotal = useStore(unreadTotalState)
+  return (''', '''  const unreadTotal = useStore(unreadTotalState)
   const scopedCount = (scope, nativeCount) =>
     activeScopeCount !== null && infoFrom === scope ? activeScopeCount : nativeCount
 
-  return (''',
+  return ('''),
 )
 for scope, native in (
     ("all", "unreadTotal"),
@@ -179,14 +208,36 @@ patch(
     "submenu-active": isCategoryActive,
     "submenu-inactive": !isCategoryActive,
   })
+  const nativeCountsMatch = useNativeSidebarCounts()
+  const displayCount =
+    activeScope === "category" &&
+    Number(activeScopeId) === Number(category.id)
+      ? activeScopeCount
+      : nativeCountsMatch ? unreadCount : null
+
+  return (''',
+    previous=('''  const categoryClassName = classNames("category-title", {
+    "submenu-active": isCategoryActive,
+    "submenu-inactive": !isCategoryActive,
+  })
   const displayCount =
     activeScope === "category" &&
     Number(activeScopeId) === Number(category.id)
       ? activeScopeCount
       : unreadCount
 
-  return (''',
-    previous='  const categoryClassName = classNames("category-title", {\n    "submenu-active": isCategoryActive,\n    "submenu-inactive": !isCategoryActive,\n  })\n  const displayCount =\n    activeScopeCount !== null &&\n    activeScope === "category" &&\n    Number(activeScopeId) === Number(category.id)\n      ? activeScopeCount\n      : unreadCount\n\n  return (',
+  return (''', '''  const categoryClassName = classNames("category-title", {
+    "submenu-active": isCategoryActive,
+    "submenu-inactive": !isCategoryActive,
+  })
+  const displayCount =
+    activeScopeCount !== null &&
+    activeScope === "category" &&
+    Number(activeScopeId) === Number(category.id)
+      ? activeScopeCount
+      : unreadCount
+
+  return ('''),
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
@@ -225,14 +276,32 @@ patch(
   return (''',
     '''  const feedTarget = createEntityHomeTarget("feed", feed.id)
   const isHomePage = isSameHomeTarget(homeTarget, feedTarget)
+  const nativeCountsMatch = useNativeSidebarCounts()
+  const displayCount =
+    activeScope === "feed" &&
+    Number(activeScopeId) === Number(feed.id)
+      ? activeScopeCount
+      : nativeCountsMatch ? feed.unreadCount : null
+
+  return (''',
+    previous=('''  const feedTarget = createEntityHomeTarget("feed", feed.id)
+  const isHomePage = isSameHomeTarget(homeTarget, feedTarget)
   const displayCount =
     activeScope === "feed" &&
     Number(activeScopeId) === Number(feed.id)
       ? activeScopeCount
       : feed.unreadCount
 
-  return (''',
-    previous='  const feedTarget = createEntityHomeTarget("feed", feed.id)\n  const isHomePage = isSameHomeTarget(homeTarget, feedTarget)\n  const displayCount =\n    activeScopeCount !== null &&\n    activeScope === "feed" &&\n    Number(activeScopeId) === Number(feed.id)\n      ? activeScopeCount\n      : feed.unreadCount\n\n  return (',
+  return (''', '''  const feedTarget = createEntityHomeTarget("feed", feed.id)
+  const isHomePage = isSameHomeTarget(homeTarget, feedTarget)
+  const displayCount =
+    activeScopeCount !== null &&
+    activeScope === "feed" &&
+    Number(activeScopeId) === Number(feed.id)
+      ? activeScopeCount
+      : feed.unreadCount
+
+  return ('''),
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",

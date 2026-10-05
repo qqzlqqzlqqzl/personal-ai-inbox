@@ -181,6 +181,41 @@ try {
   equal(offset(),before,scenario.name+': exit preserves offset and remains within scroll limits');
   await React.act(async()=>root.unmount());
  }
+ // Real React event ownership only. Native details activation and browser
+ // article navigation are covered separately in reading_focus_browser.py.
+ document.querySelector('#fixture').innerHTML='<article class="article-content"><div id="mount"></div><div class="article-body"><p>Keyboard fixture</p></div></article>';
+ const keyboardRoot=createRoot(document.querySelector('#mount'));
+ await React.act(async()=>keyboardRoot.render(React.createElement(app.ReadingControls,{})));
+ const details=document.querySelector('.review-reading-controls'),summary=details.querySelector('summary');
+ const escaped=[];
+ const observeEscape=event=>{if(event.key==='Escape')escaped.push(event)};
+ document.addEventListener('keydown',observeEscape);
+ try {
+  for(const [name,target] of [['summary',summary],['font slider',details.querySelector('input')],['reset button',details.querySelector('button')]]) {
+   details.open=true;target.focus();const previous=escaped.length;
+   const event=new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true});
+   await React.act(async()=>target.dispatchEvent(event));
+   equal(details.open,false,name+': Escape closes only reading layout popup');
+   equal(document.activeElement,summary,name+': Escape returns focus to popup opener');
+   equal(escaped.length,previous,name+': Escape cannot reach article-level document shortcut');
+   equal(event.defaultPrevented,true,name+': handled Escape cancels native action');
+  }
+  details.open=true;const slider=details.querySelector('input');slider.focus();
+  await React.act(async()=>slider.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true,cancelable:true})));
+  equal(details.open,true,'IME Escape is not consumed by layout popup');
+  equal(document.activeElement,slider,'IME keeps input focus');
+  await React.act(async()=>slider.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',keyCode:229,bubbles:true,cancelable:true})));
+  equal(details.open,true,'legacy IME keyCode 229 is not consumed by layout popup');
+  equal(document.activeElement,slider,'legacy IME keeps input focus');
+  await React.act(async()=>slider.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true})));
+  equal(details.open,true,'slider navigation does not dismiss layout popup');
+  details.open=false;summary.focus();const previous=escaped.length;
+  await React.act(async()=>summary.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
+  equal(escaped.length,previous+1,'closed popup allows the next Escape to reach article shortcut');
+ } finally {
+  document.removeEventListener('keydown',observeEscape);
+  await React.act(async()=>keyboardRoot.unmount());
+ }
  const css=await readFile(sourceWeb+'src/components/Ai/ReviewWorkflows.css','utf8');
  assert.match(css,/\.review-reading-bar>button,\.review-reading-controls>summary\{[^}]*box-sizing:border-box[^}]*font:inherit[^}]*line-height:1.4/);
  assert.match(css,/\.review-reading-bar\{[^}]*position:sticky;top:0/);

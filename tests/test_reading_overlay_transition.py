@@ -62,3 +62,32 @@ def test_unknown_preimage_rejected_before_any_write(name):
     with pytest.raises(RuntimeError, match="Unreviewed source drift"):
         INSTALLER.install(root)
     assert before == {n: (root / "upstream/reactflux" / n).read_bytes() for n in PRIOR}
+
+
+def test_reading_keyboard_upgrade_from_exact_3349_and_unknown_drift(tmp_path):
+    """The keyboard-only update admits the exact delivered control, nothing broader."""
+    import subprocess
+    name = 'src/components/Ai/ReadingControls.jsx'
+    old = subprocess.check_output([
+        'git', 'show', '3349cf22bb73a9b08c04e84e960048fb8e64a653:frontend-review/after/' + name,
+    ], cwd=ROOT, timeout=15)
+    old_sha = 'd6475801bc39d59dff9d732dd12cb5afd21fee3c0f91fa3e3f41e674add63680'
+    assert hashlib.sha256(old).hexdigest() == old_sha
+    history = json.loads((ROOT / 'frontend-review/previous-hashes.json').read_text())
+    assert history[name].count(old_sha) == 1
+    authored = ROOT / 'frontend-review/after' / name
+    target = tmp_path / 'frontend-review/after' / name
+    target.parent.mkdir(parents=True)
+    target.write_bytes(authored.read_bytes())
+    (tmp_path / 'frontend-review/previous-hashes.json').write_text(json.dumps(history))
+    installed = tmp_path / 'upstream/reactflux' / name
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(old)
+    assert INSTALLER.install(tmp_path) == [name]
+    assert installed.read_bytes() == authored.read_bytes()
+    assert INSTALLER.install(tmp_path) == []
+    unknown = old + b'\n// Unknown adjacent content, not an approved baseline.\n'
+    installed.write_bytes(unknown)
+    with pytest.raises(RuntimeError, match='Unreviewed source drift'):
+        INSTALLER.install(tmp_path)
+    assert installed.read_bytes() == unknown

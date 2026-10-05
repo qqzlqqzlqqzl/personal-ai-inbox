@@ -8,7 +8,7 @@ assert.ok(validateSettings({...config,base_url:'https://user:pass@example.com'})
 assert.ok(validateSettings({...config,prompt:' '}).prompt)
 assert.deepEqual(settingsDelta(config,{...config,model:'new',api_key:'never-forward'}),{model:'new'})
 assert.equal(normalizeDraft({...config,daily_articles:'81'}).daily_articles,81)
-const sources=[{name:'Alpha',url:'https://a',category:'Tech',status:'ok'}, {name:'Beta',url:'https://b',category:'Art',status:'subscribed',subscribed:true},{name:'Broken',url:'https://c',category:'Tech',status:'blocked'}]
+const sources=[{name:'Alpha',url:'https://a',category:'Tech',status:'ok',subscription_supported:true}, {name:'Beta',url:'https://b',category:'Art',status:'subscribed',subscribed:true},{name:'Broken',url:'https://c',category:'Tech',status:'blocked'}]
 assert.equal(filterCatalog(sources,'alpha','Tech','addable').length,1)
 assert.equal(filterCatalog(sources,'','Tech','subscribed').length,0)
 assert.equal(filterCatalog(sources,'','','attention')[0].name,'Broken')
