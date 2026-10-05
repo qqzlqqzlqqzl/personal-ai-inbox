@@ -2,6 +2,7 @@ import shutil
 from pathlib import Path
 import pytest
 import install_agent_status as installer
+from test_reader_startup_installer import FIXTURE, populate_startup_sources
 
 def test_refuses_unreviewed_routes_before_writing_anything(tmp_path):
     web=tmp_path/'upstream/reactflux';(web/'src').mkdir(parents=True)
@@ -12,10 +13,10 @@ def test_refuses_unreviewed_routes_before_writing_anything(tmp_path):
 
 def test_reviewed_route_overlay_is_idempotent_and_gated(tmp_path,monkeypatch):
     import hashlib
-    web=tmp_path/'upstream/reactflux';(web/'src/pages').mkdir(parents=True)
+    web=populate_startup_sources(tmp_path)
     (web/'UPSTREAM_REVISION').write_text(installer.PIN)
-    before='RouterProtect\n'+installer.ANCHOR+'AuthenticatedApp\n'
-    (web/'src/routes.jsx').write_text(before);monkeypatch.setattr(installer,'ROUTES_BEFORE',hashlib.sha256(before.encode()).hexdigest())
+    before=FIXTURE['files']['src/routes.jsx']['text']
+    (web/'src/routes.jsx').write_text(before)
     toolbar=web/'src/components/Ai/AiToolbar.jsx';toolbar.parent.mkdir(parents=True);toolbar.write_text('reviewed toolbar');monkeypatch.setattr(installer,'TOOLBAR_BEFORE',hashlib.sha256(b'reviewed toolbar').hexdigest())
     panel=toolbar.parent/'AiPanel.jsx';panel.write_text(installer.PANEL_ANCHOR);monkeypatch.setattr(installer,'PANEL_BEFORE',hashlib.sha256(installer.PANEL_ANCHOR.encode()).hexdigest())
     source=Path(__file__).parents[1]/'patches/agent-status';shutil.copytree(source,tmp_path/'patches/agent-status')
