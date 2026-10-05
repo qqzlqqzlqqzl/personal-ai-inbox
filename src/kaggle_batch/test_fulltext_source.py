@@ -1,5 +1,13 @@
 import unittest
-from fulltext_source import extract,rule_for,FulltextUnavailable
+import hashlib
+import json
+import os
+from pathlib import Path
+from unittest import mock
+
+import httpx
+from fulltext_source import extract,rule_for,fetch,FulltextUnavailable
+from work_admission import AdmissionStopped
 
 class FulltextTests(unittest.TestCase):
     def test_article_includes_late_sections_code_tables_and_captions(self):
@@ -123,6 +131,118 @@ class FulltextTests(unittest.TestCase):
         ]
         for url,raw,needle in cases:
             with self.subTest(url=url):self.assertIn(needle,extract(raw,url)['source_text'])
+
+class GitHubReleaseTests(unittest.IsolatedAsyncioTestCase):
+    url = 'https://github.com/ggml-org/llama.cpp/releases/tag/b11385'
+
+    def release(self, body, **changes):
+        return {'id': 7, 'url': 'https://api.github.com/repos/ggml-org/llama.cpp/releases/7',
+                'html_url': self.url, 'tag_name': 'b11385', 'draft': False, 'body': body,
+                'assets': [{'browser_download_url': 'https://downloads.invalid/do-not-fetch'}], **changes}
+
+    async def fetch_response(self, payload=None, *, status=200, url=None, admission=None, handler=None):
+        self.requests = []
+        self.client_options = []
+        def respond(request):
+            self.requests.append(request)
+            if handler is not None:
+                return handler(request)
+            return httpx.Response(status, json=payload)
+        real_client = httpx.AsyncClient
+        def client(**kwargs):
+            self.client_options.append(kwargs)
+            return real_client(transport=httpx.MockTransport(respond), **kwargs)
+        with mock.patch.dict(os.environ, {'AI_NEWS_OUTBOUND_PROXY': '', 'GITHUB_TOKEN': 'unused-test-token'}), mock.patch('httpx.AsyncClient', side_effect=client):
+            return await fetch(url or self.url, admission=admission)
+
+    async def test_complete_public_release_samples_are_excluded_without_asset_requests(self):
+        samples = json.loads((Path(__file__).resolve().parents[2] / 'tests/fixtures/public-llama-release-samples.json').read_text())
+        for sample in samples:
+            with self.subTest(tag=sample['tag']):
+                payload = self.release(sample['body'], html_url=sample['url'], tag_name=sample['tag'])
+                result = await self.fetch_response(payload, url=sample['url'])
+                self.assertEqual(result['source_text'], sample['body'])
+                self.assertFalse(result['content_quality']['recommendation_eligible'])
+                self.assertEqual(result['content_quality']['reason_codes'], ['release_subject_without_explanation'])
+                self.assertEqual(result['receipt']['body_sha256'], hashlib.sha256(sample['body'].encode()).hexdigest())
+                self.assertEqual(len(self.requests), 1)
+                request = self.requests[0]
+                self.assertEqual(str(request.url), 'https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/' + sample['tag'])
+                self.assertEqual(request.method, 'GET')
+                self.assertNotIn('authorization', request.headers)
+                self.assertFalse(self.client_options[0]['follow_redirects'])
+                self.assertFalse(self.client_options[0]['trust_env'])
+                self.assertEqual(self.client_options[0]['timeout'], 25)
+
+    async def test_actionable_short_body_and_encoded_tag_are_preserved(self):
+        body = 'http: fix request smuggling by rejecting conflicting Content-Length and Transfer-Encoding headers (#456)'
+        for url, tag in [(self.url, 'b11385'), ('https://github.com/ggml-org/llama.cpp/releases/tag/release%2Fv1', 'release/v1')]:
+            with self.subTest(tag=tag):
+                result = await self.fetch_response(self.release(body, html_url=url, tag_name=tag), url=url)
+                self.assertEqual(result['source_text'], body)
+                self.assertTrue(result['content_quality']['recommendation_eligible'])
+                self.assertEqual(len(self.requests), 1)
+
+    async def test_only_https_release_tag_urls_are_admitted(self):
+        for url in ['http://github.com/ggml-org/llama.cpp/releases/tag/b11385',
+                    'https://user@github.com/ggml-org/llama.cpp/releases/tag/b11385',
+                    'https://github.com:444/ggml-org/llama.cpp/releases/tag/b11385',
+                    'https://github.com/ggml-org/llama.cpp/releases/latest',
+                    'https://github.com/ggml-org/llama.cpp/releases/download/b11385/a.zip',
+                    self.url + '?token=unused', self.url + '#assets',
+                    'https://github.com/ggml-org/llama.cpp/releases/tag/%2E%2E%2Fother',
+                    'https://github.com/ggml-org/llama.cpp/releases/tag/%0Aevil']:
+            with self.subTest(url=url), self.assertRaises(FulltextUnavailable):
+                await self.fetch_response({}, url=url)
+            self.assertEqual(self.requests, [])
+        with self.assertRaisesRegex(FulltextUnavailable, 'github_release_transport_required'):
+            extract('<article>MF content is not an API response</article>', self.url)
+
+    async def test_http_failures_do_not_fallback_or_return_empty_body(self):
+        for status in [404, 403, 302, 500]:
+            with self.subTest(status=status), self.assertRaisesRegex(FulltextUnavailable, 'original_http_' + str(status)):
+                await self.fetch_response({'message': 'synthetic HTTP failure'}, status=status)
+            self.assertEqual(len(self.requests), 1)
+
+    async def test_release_identity_must_match_repository_url_and_tag(self):
+        for changes in [{'html_url': self.url.replace('llama.cpp', 'other')},
+                        {'html_url': self.url.replace('ggml-org', 'other')},
+                        {'tag_name': 'other'}, {'url': 'https://api.github.com/repos/other/other/releases/7'},
+                        {'url': 'https://api.github.com/repos/ggml-org/llama.cpp/releases/8'},
+                        {'id': True}, {'draft': True}]:
+            with self.subTest(changes=changes), self.assertRaisesRegex(FulltextUnavailable, 'github_release_identity_mismatch'):
+                await self.fetch_response(self.release('irrelevant', **changes))
+            self.assertEqual(len(self.requests), 1)
+
+    async def test_missing_malformed_and_oversized_bodies_fail_explicitly(self):
+        for body in [None, '', '  ', [], 123]:
+            with self.subTest(body=body), self.assertRaisesRegex(FulltextUnavailable, 'github_release_body_missing'):
+                await self.fetch_response(self.release(body))
+        with self.assertRaisesRegex(FulltextUnavailable, 'github_release_identity_mismatch'):
+            await self.fetch_response(handler=lambda request: httpx.Response(200, content=b'{bad', headers={'content-type': 'application/json'}))
+        with self.assertRaisesRegex(FulltextUnavailable, 'original_page_too_large'):
+            await self.fetch_response(self.release('x' * (6 * 1024 * 1024)))
+
+    async def test_admission_and_network_timeout_remain_failures(self):
+        stopped = False
+        def admit():
+            if stopped:
+                raise AdmissionStopped('synthetic stop')
+        def stop_after_request(request):
+            nonlocal stopped
+            stopped = True
+            return httpx.Response(200, json=self.release('not accepted after stop'))
+        with self.assertRaises(AdmissionStopped):
+            await self.fetch_response(admission=admit, handler=stop_after_request)
+        self.assertEqual(len(self.requests), 1)
+        with self.assertRaises(AdmissionStopped):
+            await self.fetch_response(admission=admit)
+        self.assertEqual(self.requests, [])
+        def timeout(request):
+            raise httpx.ReadTimeout('synthetic timeout', request=request)
+        with self.assertRaisesRegex(FulltextUnavailable, 'original_fetch_ReadTimeout'):
+            await self.fetch_response(handler=timeout)
+
 
 if __name__=='__main__':
     unittest.main()
