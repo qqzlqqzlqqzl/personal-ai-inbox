@@ -1,0 +1,34 @@
+name: Kaggle canonical runtime paths
+
+on:
+  pull_request:
+    paths:
+      - ops/canonical-owner/**
+      - .github/workflows/kaggle-runtime-binding.yml
+  push:
+    branches:
+      - codex/kaggle-canonical-runtime-paths-20261005
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-binding:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Existing canonical operator controls
+        working-directory: ops/canonical-owner
+        env:
+          OPERATOR_TEST_RETAIN_ROOT: ${{ runner.temp }}/canonical-owner-retained
+        run: timeout 120s python3 -I -B tests/test_canonical_operator.py
+      - name: Canonical virtual environment path controls
+        working-directory: ops/canonical-owner
+        env:
+          OPERATOR_TEST_RETAIN_ROOT: ${{ runner.temp }}/canonical-owner-retained
+        run: timeout 60s python3 -I -B tests/test_runtime_path_binding.py
