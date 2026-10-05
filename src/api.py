@@ -383,7 +383,8 @@ def reader_rows(sql, values):
 
 def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False):
     from processing_status import observe
-    processing_evidence = observe(ROOT, [entry['id'] for entry in entries])
+    from month_control import ROOT as control_root
+    processing_evidence = observe(ROOT, [entry['id'] for entry in entries], control_root=control_root)
     enqueue_cards(entries, priority=40 if detail else 30)
     result = []
     for entry in entries:
