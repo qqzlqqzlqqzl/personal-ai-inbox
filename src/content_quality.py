@@ -19,6 +19,10 @@ PAID_PROMPT = re.compile(
     r"|(?:全文|完整正文|剩余内容)(?:需要|需|仅限)付费(?:订阅)?|付费订阅后(?:可)?(?:继续阅读|阅读全文)",
     re.I,
 )
+# Coordinator-observed article gates, not a general publisher/domain rule.
+ZEPHR_SUBSCRIPTION_PROMPT = re.compile(
+    r"\bsubscribe\s+to\s+the\s+verge\s+to\s+continue\s+reading\b"
+    r"|\bcontinue\s+reading\s+with\s+a\s+verge\s+subscription\b", re.I)
 LOGIN_PROMPT = re.compile(r"\b(?:sign in|log in|register) to (?:continue reading|read (?:this|the full) (?:article|story))\b|登录后(?:可)?阅读全文", re.I)
 FREE_ACCESS = re.compile(r"\b(?:free (?:account|registration|subscription)|(?:subscribe|register|sign up) for free|it(?:'s| is) free)\b|免费(?:注册|订阅|账号)", re.I)
 PAID_SUBSCRIBERS = re.compile(r'\b(?:this|the rest of this) (?:article|story|post) is (?:for )?(?:paid|paying|premium) (?:subscribers|members)(?: only)?\b|(?:全文|完整正文|剩余内容)(?:需要|需|仅限)付费订阅|付费订阅后', re.I)
@@ -158,7 +162,10 @@ def _access(soup, url):
     login_gate = False
     for node in soup.find_all(True):
         tokens = set(node.get("class", [])) | {str(node.get("id", "")), str(node.get("data-testid", ""))}
-        if not GATE_TOKENS.intersection(tokens):
+        zephr_gate = node.get('id') == 'zephr-footer-body' or (
+            node.get('id') == 'zephr-inline-body' and node.parent is not None
+            and node.parent.get('id') == 'zephr-inline-container')
+        if not GATE_TOKENS.intersection(tokens) and not zephr_gate:
             continue
         for text in _visible_gate_chunks(node):
             free_gate = bool(FREE_ACCESS.search(text))
@@ -167,7 +174,8 @@ def _access(soup, url):
             direct_article = bool(PAID_ARTICLE.search(text))
             explicit_subscription = bool(PAID_SUBSCRIBERS.search(text))
             article_gate |= direct_article
-            paid_gate |= explicit_subscription or (bool(PAID_PROMPT.search(text)) and not free_gate and not direct_article)
+            subscription_prompt = bool(PAID_PROMPT.search(text)) or (zephr_gate and bool(ZEPHR_SUBSCRIPTION_PROMPT.search(text)))
+            paid_gate |= explicit_subscription or (subscription_prompt and not free_gate and not direct_article)
             login_gate |= bool(LOGIN_PROMPT.search(text)) or free_gate
     if paid_gate or article_gate:
         if True in flags:
