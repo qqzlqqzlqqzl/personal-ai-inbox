@@ -68,8 +68,11 @@ def install_reader_entry_detail(root, web):
     text = path.read_text()
     helper = (root / 'patches/reader-entry-detail.js').read_bytes()
     target = web / 'src/utils/reader-entry-detail.js'
-    previous_helper_sha = '17bce4248c73d81574c82c6570edc18db786520b095785f7dc4eb1c484b6f206'
-    if target.exists() and target.read_bytes() != helper and hashlib.sha256(target.read_bytes()).hexdigest() != previous_helper_sha:
+    previous_helper_shas = {
+        '17bce4248c73d81574c82c6570edc18db786520b095785f7dc4eb1c484b6f206',
+        '82cc620457d6ee140e90a1edc85523d3c39532d5b51c36d0b9d26bf1cecc9ee4',
+    }
+    if target.exists() and target.read_bytes() != helper and hashlib.sha256(target.read_bytes()).hexdigest() not in previous_helper_shas:
         raise RuntimeError('Unreviewed reader detail helper')
     entries_name = 'src/apis/entries.js'
     entries_path = web / entries_name

@@ -107,7 +107,16 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
 {
  const t=await setup('initial-deep-link-null-active-loads', {initialPath:'/inbox/all/entry/1',cold:false})
  assert.equal(F.content.get().activeContent,null);assert.equal(F.requests.length,1)
- await t.complete(0,1);original(1);assert.equal(F.content.get().isArticleLoading,false);await finish(t)
+ const before=F.content.get(),observed=[]
+ const stop=F.content.listen(state=>observed.push(state))
+ try{await t.complete(0,1)}finally{stop()}
+ assert.equal(observed.length,1,'detail completion publishes one observable snapshot')
+ assert.equal(observed[0].activeContent.id,1);assert.equal(observed[0].activeContent.content_deferred,false)
+ assert.ok(observed[0].activeContent.content.includes('Original paragraph 1'))
+ assert.equal(observed[0].isArticleLoading,false);assert.equal(observed[0].entries,before.entries)
+ assert.equal(observed[0].infoFrom,before.infoFrom);assert.equal(observed[0].infoId,before.infoId)
+ assert.equal(F.requests[0].signal.aborted,false,'completed owner is detached before notifying observers')
+ original(1);await finish(t)
 }
 {
  const t=await setup('close-pending-before-base-commit-rejects-late-success')
