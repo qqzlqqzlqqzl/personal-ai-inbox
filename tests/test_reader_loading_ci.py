@@ -388,8 +388,15 @@ class MeasurementEnvironmentContracts(unittest.TestCase):
 
     def test_standard_reader_runner_matches_sandboxed_measurement_ubuntu_2204(self):
         workflow = (ci.ROOT / '.github/workflows/reader-regression.yml').read_text()
-        self.assertIn('runs-on: ubuntu-22.04', workflow)
-        self.assertNotIn('runs-on: ubuntu-24.04', workflow)
+        # Only Reader/browser jobs share the frozen measurement environment.
+        # The separate native PostgreSQL job deliberately uses Ubuntu 24.04.
+        for name in ('full-regression', 'scope-job', 'python-focused', 'interfaces', 'offline-and-browser'):
+            with self.subTest(job=name):
+                job = re.search(r'^  ' + name + r':\n(.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)',
+                                workflow, re.MULTILINE | re.DOTALL)
+                self.assertIsNotNone(job, name)
+                self.assertIn('runs-on: ubuntu-22.04', job.group(1))
+                self.assertNotIn('runs-on: ubuntu-24.04', job.group(1))
 
 
 if __name__ == '__main__':
