@@ -1,0 +1,998 @@
+{
+  "versions": {
+    "kaggle": "2.2.4",
+    "kagglesdk": "0.1.37"
+  },
+  "files": [
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/__init__.py",
+      "bytes": 243,
+      "sha256": "05991f60b4b13c1edbef4b7347d4939785b276d2e8711730e4a639ca603b0ca2"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/abuse/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/abuse/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/abuse/types/abuse_enums.py",
+      "bytes": 171,
+      "sha256": "914b2ef4b0d9bed9375a39dd1b2c4e9feea7fe6c241725770ee2fd7c63a7fe84"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/admin/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/admin/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/admin/services/inbox_file_service.py",
+      "bytes": 777,
+      "sha256": "75b36a0ce6428535a896df5e3f7f4cf1d3e0ec05c45d62308232e057cb61b229"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/admin/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/admin/types/inbox_file_service.py",
+      "bytes": 1996,
+      "sha256": "ceccce1a2b6676b10c5b18b30b1390dbb702c0a0d63eef3261084d1c23cfcd50"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/services/agent_exam_service.py",
+      "bytes": 4074,
+      "sha256": "eb925b3b5e11502d61bb79d8146289a73843e096de5affc272feff3a04c4ec1d"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/services/agents_api_service.py",
+      "bytes": 6808,
+      "sha256": "7ef8560576e5029468702899c1fbd472fe6a3d4762b8d812df68eebf8ddc73c0"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/types/agent_enums.py",
+      "bytes": 567,
+      "sha256": "3f4ac324683bdea3b6a980e5c63475efde6a4c11f698e1a6e28d51f678fb287d"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/types/agent_exam_enums.py",
+      "bytes": 294,
+      "sha256": "37d40f5efdb4591c8d1e53f71b5fe3c533157293cd7266cc409e1fd39fffb6ae"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/types/agent_exam_service.py",
+      "bytes": 43168,
+      "sha256": "ab9f1dddf717acbddd9c1dde2ffc6b56585bbd785150e14939b094d02737dfae"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/types/agent_service.py",
+      "bytes": 5271,
+      "sha256": "9b79aeba05b93f8d5a565ceca95e0d8009cc90616645bca338a222c3af9274f1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/agents/types/agents_api_service.py",
+      "bytes": 31101,
+      "sha256": "1a2d905abe38d72ae8f71214627b736b3a05f00208bfb641957645a532a4bf42"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/services/benchmark_tasks_api_service.py",
+      "bytes": 6019,
+      "sha256": "a89309582124ea3c699f7beff2ce6a0470ff01a8660e0cf35c5ffe14b34c95c9"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/services/benchmarks_api_service.py",
+      "bytes": 8239,
+      "sha256": "eaba503b75f34cb86a29c75b12227c34f4c3ac33b2617f281a6fd3bf378c6963"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/types/benchmark_enums.py",
+      "bytes": 2590,
+      "sha256": "e442088b0ae68b55deafc24d683316911a4cb9315a058ff52535a12b1dcf04f2"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/types/benchmark_service.py",
+      "bytes": 2312,
+      "sha256": "4ca426e196f780cf91d32c969cfe8a338419d72af138173604d97660e956b3a4"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/types/benchmark_task_run_service.py",
+      "bytes": 4989,
+      "sha256": "c25b2e0bdb578163672630617dfd9d9ab816f43bb59f78872132df4bea7b7924"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/types/benchmark_tasks_api_service.py",
+      "bytes": 55867,
+      "sha256": "b24c9eb9e8dcdad901eefd8cedf1e6153bf9d4a532072e868fd3d1bfc6233d1a"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/types/benchmark_types.py",
+      "bytes": 45216,
+      "sha256": "4e58aaebade500f7958d30175ec327f273572bdf8e5e3587d79b03172607e2e1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/benchmarks/types/benchmarks_api_service.py",
+      "bytes": 32745,
+      "sha256": "c19d60bc587b4f2f43d19c60d1644dc89113c6e18d5a01ec7f64d0da12cf4535"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/blobs/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/blobs/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/blobs/services/blob_api_service.py",
+      "bytes": 878,
+      "sha256": "fd3f980110ecf77d87ed89a7b7b4b47b1b74a72b091f603a6f852c2f727fb433"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/blobs/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/blobs/types/blob_api_service.py",
+      "bytes": 5048,
+      "sha256": "ea20336575b7a344c065a905aaa97d1ff3898b17442c1a52dabd85c3775fe337"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/services/operations_service.py",
+      "bytes": 1971,
+      "sha256": "003a604c87d519f5d164298a20b1e02b79c824c99c73f9380a7c8ad3362beb40"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/types/cropped_image_upload.py",
+      "bytes": 4575,
+      "sha256": "76855c6ab5ff92e384924fcaac177110dfd5421cd990f016f8b19838f1e995c2"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/types/file_download.py",
+      "bytes": 2891,
+      "sha256": "bd332dd4eea0d361d661d1881c753b2d511ade9e196ffd275bb2a41d0b249e3c"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/types/http_redirect.py",
+      "bytes": 3039,
+      "sha256": "4750fa0402ac57ff0d1c3336006827cb3194225bdd381ab9dcf457f229e57aef"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/types/operations.py",
+      "bytes": 6498,
+      "sha256": "4a28bfd3255c85dab3286f7b521b7439407dea795c5d7fb7f2bd71f32fb5de1f"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/common/types/operations_service.py",
+      "bytes": 965,
+      "sha256": "3a0932824a85fbbe8ee82c44cdd6720e289468a091d6b524e3c1116dc924a2f1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/community/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/community/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/community/types/content_enums.py",
+      "bytes": 2095,
+      "sha256": "ffdb1c25645168413cf751c1807b519ce1031b4d69784833fafa7960fe2b89ca"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/community/types/organization.py",
+      "bytes": 14264,
+      "sha256": "670d146e553e413ea0d386696f993911c348d20641563cb066798b2b8fa6a28d"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/services/competition_api_service.py",
+      "bytes": 20253,
+      "sha256": "b8c651b16a9f93813f896fcba6990d47de611d2a96e1d90b87ab8ff37f24121c"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/services/hackathon_api_service.py",
+      "bytes": 3148,
+      "sha256": "d7fd744e5ae4ac1354ef6e3e34e731ed51245449ae7accb4755e7cc735dd9ab5"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/services/hackathon_service.py",
+      "bytes": 870,
+      "sha256": "6fa9abab666a4928791faee47864588b57846a291895614ff50cb26e4cfb33d5"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/competition.py",
+      "bytes": 2535,
+      "sha256": "5e664a3c674f60a31bfcd11f1aa048031e4187d62906a599584ba64700baf8b7"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/competition_api_service.py",
+      "bytes": 173549,
+      "sha256": "f7a8a6bc15f2c44e55c672df8a3ad603cd5e1a18cb3c3e2fb6f7637dbe5aec0b"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/competition_enums.py",
+      "bytes": 2322,
+      "sha256": "3a8a46e1b8059c946f465390553a6e8ed27bd5465175f931c507bdb750a99612"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/episode.py",
+      "bytes": 1356,
+      "sha256": "761ec96ca171a1a0a5a906b0b33d243030521b56d4bab27fa93f8689429ee88e"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/hackathon_api_service.py",
+      "bytes": 17909,
+      "sha256": "087775bd99b6425a024a358a9126b1f75320b45105b454f49422e6cf9c5bf3e1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/hackathon_service.py",
+      "bytes": 4585,
+      "sha256": "d63f3a75c344e3f94b4133a1e5a4b4f726c6a2bc39512d80817bd45c4c35c0f7"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/hackathons.py",
+      "bytes": 12791,
+      "sha256": "86b03510fdbcf8e809b8fc8440de56ee4dd67b441f3229fe6931432b44489cc1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/host_service.py",
+      "bytes": 28192,
+      "sha256": "cdf4195993b495057bbdc19f918796505933d11b83a3a7628c2496bb64767561"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/page.py",
+      "bytes": 6188,
+      "sha256": "ca0b308ea5b77a64614bb6b2ebfe301d8fd3e340fa5bb1d6ee1494db4a5fc2a5"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/search_competitions.py",
+      "bytes": 1033,
+      "sha256": "b304f6b18996412ada264992312e1f705ecde50c4e2864ea05e4fca29f0283fa"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/submission_status.py",
+      "bytes": 247,
+      "sha256": "0c76d3afc4bb00af10a59dba2e0d66e829c38ff2de8ab56e3ffc58b9205bc271"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/competitions/types/team.py",
+      "bytes": 18938,
+      "sha256": "20c97db36930e8d961c89555eee400c1c81788e07a83748a325a02dc86b0d4d1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/databundles/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/databundles/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/databundles/types/databundle_api_types.py",
+      "bytes": 16484,
+      "sha256": "4060be9c9bf889a768201c13e06ffa237ed11dd994af0be6dffedfef8e0612a0"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/services/dataset_api_service.py",
+      "bytes": 7894,
+      "sha256": "b65d95985ad5d802e302db5c31cb4052191b17428595996649945009f5ecd6ee"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/types/dataset_api_service.py",
+      "bytes": 89971,
+      "sha256": "0ecb08b2f5b9257c4e5e09213b23990cb810079200840d553719ade3ea0eb675"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/types/dataset_enums.py",
+      "bytes": 2942,
+      "sha256": "a250faf8f496d389faef301d920ed47c81f07cef32ff66c39c164361b6ff9dae"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/types/dataset_service.py",
+      "bytes": 5187,
+      "sha256": "72b8dbb7a0edbe65c21a84b8b03e456fc668254930f24afa826c6b88dcb0e10a"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/types/dataset_types.py",
+      "bytes": 24742,
+      "sha256": "9647d88f6cc13cfb7303ed0767ec6fa7b6a0b58e885e0cd3124aac0f7924acba"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/datasets/types/search_datasets.py",
+      "bytes": 145,
+      "sha256": "5e73a76a799c13e57a35cea67794e2d7d9007700346ce00917d145b3f4a0b615"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/services/discussions_api_service.py",
+      "bytes": 4310,
+      "sha256": "855bb7ad4bd76975af9a3ee40fc3b1129d316609137f060bccd45be0498fcbc8"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/services/writeups_api_service.py",
+      "bytes": 796,
+      "sha256": "b6391f41ebec7d3d068174a059429310978f4401066bf87e8342376c23489e3a"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/discussions_api_service.py",
+      "bytes": 39933,
+      "sha256": "649d8ec3350a839fc9d8cc83e86c29ab33d43e6425608a2c54f055bc780e2b7a"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/discussions_enums.py",
+      "bytes": 1582,
+      "sha256": "cd2e4dd79781cc5348791dfc3474e25f444eee916d709123d98d340d80c82610"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/feedback_tracking_data.py",
+      "bytes": 1649,
+      "sha256": "26945219dae57b1b90342f385ba4e077e2bed40101e7909c26cce641f89ec753"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/forum_message.py",
+      "bytes": 28521,
+      "sha256": "17404580d9dc99a1f9b37103b8d2694c46f2d7cf20f993287ebb15908fbea151"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/search_discussions.py",
+      "bytes": 1574,
+      "sha256": "e9070ce57e6e704cb59fe08a7719e1abadb38d055e7d750f1054e608fe8f3f19"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/writeup_enums.py",
+      "bytes": 875,
+      "sha256": "9542662e9fe289a6ddfcb07a34e94ff535991e4d6b26e4f9349a6b7f7aed6158"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/writeup_types.py",
+      "bytes": 50496,
+      "sha256": "0737aad7a91c79ac4c0afec0077c6b5e05850861eb6601430bbb1739cd79fd01"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/discussions/types/writeups_api_service.py",
+      "bytes": 2130,
+      "sha256": "dee9e3422533e427df361664f7833ef68e31012c1cd78f558e06bcac24d5fca5"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/education/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/education/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/education/services/education_api_service.py",
+      "bytes": 802,
+      "sha256": "db5d07d28b23398cf8d57992f178739fc250d0918a533aa51ef58035bbd2849f"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/education/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/education/types/education_api_service.py",
+      "bytes": 8858,
+      "sha256": "432f4c323a5eed29c24364aadb12a6b25bea46731cc986dacf20a6b5ec64cbfa"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/education/types/education_service.py",
+      "bytes": 4063,
+      "sha256": "893860ab86ef46984074daa2c002911d947e00484aa2e3da21a7207e1bb7f4f9"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kaggle_client.py",
+      "bytes": 5989,
+      "sha256": "4c831465e19649912d329a0aafe05d73cb429757399c8e714a1e06cfe819bfa7"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kaggle_creds.py",
+      "bytes": 5312,
+      "sha256": "277c0a19b1d6a325d23d9ce2890c95bbdfb68ef01ccdcd5bc1a60c51c6c0953a"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kaggle_env.py",
+      "bytes": 3406,
+      "sha256": "161d3181c199e35db84525818ca6266ffe7734c71d7ae47d1a529f0ef57955c1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kaggle_http_client.py",
+      "bytes": 9264,
+      "sha256": "80e93a26faa3e861bf5a3f41177d730ef3d0795769f152bce62f3d8098c7347a"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kaggle_oauth.py",
+      "bytes": 8042,
+      "sha256": "bdd5be29dbd7d132082307aa377dbc7331b8e94fa37a2192a2ff7e87769deece"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kaggle_object.py",
+      "bytes": 10776,
+      "sha256": "17e37bfc533a0083fb91dd994d4ed35bc729e74c5a5e4a442f46eb45126032e5"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kernels/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kernels/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kernels/services/kernels_api_service.py",
+      "bytes": 7631,
+      "sha256": "3c4fa4f570648333d71d170c6b357d6a7baae3df86d38583d86fa6fa20c79b02"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kernels/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kernels/types/kernels_api_service.py",
+      "bytes": 90836,
+      "sha256": "a7dd65206e7fc27950385e7b163cda48a40766eb8ff7f89d7a334b9bfb151b5c"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kernels/types/kernels_enums.py",
+      "bytes": 735,
+      "sha256": "a150ce25b55fbcceb3beaf585cca3373bbfb305a5589395f54d9e5606ee51ce1"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/kernels/types/search_kernels.py",
+      "bytes": 140,
+      "sha256": "04034ceb1acec9c279ab62772c191e7813dc0a4dfdb11552423eccfcfa41eb4e"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/licenses/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/licenses/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/licenses/types/licenses_types.py",
+      "bytes": 6266,
+      "sha256": "80fa575b9642408c5fc24342dbc86202e867c6ca7f2caff90b684345c736eb73"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/services/model_api_service.py",
+      "bytes": 11269,
+      "sha256": "7796e11c16aed25c29991cc7a1d787a82ea0f38ed22e9f0b12c15d72cc02bff0"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/services/model_proxy_api_service.py",
+      "bytes": 1803,
+      "sha256": "722659aa402d0aa6a5a18c82b6f6c8b075f8295d5ec17b0d8e16d3864221b4f7"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/services/model_service.py",
+      "bytes": 672,
+      "sha256": "f8a33ae2b9d804ef0bdad7a7e55121416ece8596bbc9a21ce1d39844eb49bd85"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/types/model_api_service.py",
+      "bytes": 123200,
+      "sha256": "1c4117e2ca56bb7743f7cf091121c72ef3df5015050bd79a21f91c17862b69f3"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/types/model_enums.py",
+      "bytes": 2412,
+      "sha256": "2a6ba10df1dc04a17dd98d31917b402c4820f173366a8ba92e9ab2578f593b17"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/types/model_proxy_api_service.py",
+      "bytes": 7038,
+      "sha256": "edc3c20135d123cc0a2b06e91eaa1a52b4c55808fc5d70a8b8a890557a59222a"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/types/model_service.py",
+      "bytes": 7658,
+      "sha256": "3c3cffbba14f074605ce6dfe30133ae7d245a9b1d573b23da597ae1cbc55793e"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/types/model_types.py",
+      "bytes": 46485,
+      "sha256": "8bbc457b73f0b5e9c7caaba4d8182b0f4b28de0c1f754df02f0dfe49a4bd67e8"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/models/types/search_models.py",
+      "bytes": 223,
+      "sha256": "23a5e510a21c80c9c0c7b4b04498da93da07b30db03cf304793427fcedf80bc7"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/services/search_api_service.py",
+      "bytes": 657,
+      "sha256": "a9ec86faec215e942f9c979d0d95c2dceaf533e24212a2c001c6549a9e952824"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/types/search_api_service.py",
+      "bytes": 89194,
+      "sha256": "b4d611ef38147e371110935d1ec7226bf8e886f11152d78ec80b400b208559fe"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/types/search_content_shared.py",
+      "bytes": 1158,
+      "sha256": "8599211612bd60eb71d904ea958db3906623ce3b4f91c61f3968afd929c0164c"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/types/search_enums.py",
+      "bytes": 1319,
+      "sha256": "d2773a014bc3339e46c412fb6b2d7ed022f55cf2fc6c4f805a8396bb5a358cd4"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/search/types/search_service.py",
+      "bytes": 14670,
+      "sha256": "7618722f1d027c166913d1d7131521fe61d9a584eae0e4182ca3fe4bb09ddaf4"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/services/iam_service.py",
+      "bytes": 1002,
+      "sha256": "f584cd5aaf7877f274e1a685d98c8893a80147bb822d7c7af65cf0d8baefddf6"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/services/oauth_service.py",
+      "bytes": 2195,
+      "sha256": "c1bb41bff350cc54ca3fa14efd0ed60c4757917e0c10c1d20ef95ab0fb4066ed"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/types/authentication.py",
+      "bytes": 4917,
+      "sha256": "58de60b957075fd4c3e2cd277e06fc91ac6766073d437958533dcdcb5283e861"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/types/iam_service.py",
+      "bytes": 15116,
+      "sha256": "874e957ed80a2e173ea0fa4c93154e646eee376b762bdc5ca984e28267579afe"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/types/oauth_service.py",
+      "bytes": 38672,
+      "sha256": "da147669309073590a60f6dbae75b1c4a1f345206acf497d73ff2140cc75b79d"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/types/roles.py",
+      "bytes": 162,
+      "sha256": "8ecfb4ae20965f2710458ffa5715f9c6d25003f887d02261169f366c044c5e9e"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/security/types/security_types.py",
+      "bytes": 6355,
+      "sha256": "81dda041e0e174201a82977ec95a3035163103e2044b992730f24cfef629061c"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/tags/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/tags/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/tags/types/tag_service.py",
+      "bytes": 7342,
+      "sha256": "7d75a0dd307549625acdea31a7464d6374838845f1c95911b4868a597a1186df"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/test/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/test/test_client.py",
+      "bytes": 1113,
+      "sha256": "83e3bcb7d42657f0c1732eae51d3f5de0c6a115407e1027a93a78e48566c5aac"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/services/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/services/account_service.py",
+      "bytes": 1092,
+      "sha256": "5e110dba63a14f66f5a3cafd2a256a5b010ddb812fe8730e30504b935e9bc233"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/services/group_api_service.py",
+      "bytes": 1487,
+      "sha256": "8f541709895c640a791ceae72f07db34dabc494f8c17d6bcfbb48116dd2d9c49"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/account_service.py",
+      "bytes": 10350,
+      "sha256": "d4084198174f50699eac00eea04fc5c5563828a46e1216b95934422303c1c07f"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/group_api_service.py",
+      "bytes": 8769,
+      "sha256": "9a32a2acac79c786e8a6cc9fe7a5f04cb7ed3c278b76e170b05220e246aea31b"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/group_types.py",
+      "bytes": 5132,
+      "sha256": "ed5da04930e9333b444a686ca4c3b16918cd3a33f7cb61b418a20916eea6e3a3"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/groups_enum.py",
+      "bytes": 195,
+      "sha256": "8d4f9363f0c0d06d61a28e55b582ce51b98f6bb5030a4b44e1dda2ce49a43563"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/legacy_organizations_service.py",
+      "bytes": 1884,
+      "sha256": "fe942ca0d588646da13d4df5cad1fc48cc0be46f1473d763e8329e87e892fc8d"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/progression_service.py",
+      "bytes": 333,
+      "sha256": "3e5f487a4e68c672bb3f8e643160b688e4a0471a6af7d1f2002d185c384c9ab6"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/search_users.py",
+      "bytes": 1024,
+      "sha256": "d13729fd4ae938211ca08f5b215a943b6ce3496da1ab00cde074535dd3073e1e"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/user_avatar.py",
+      "bytes": 7052,
+      "sha256": "51284268d93b2979f98d327b92d23a2cbe335cce4155466d0b21a82c541d3500"
+    },
+    {
+      "package": "kagglesdk",
+      "path": "kagglesdk/users/types/users_enums.py",
+      "bytes": 380,
+      "sha256": "880cc8e5300cf2dcac39ca86d8052c6fe0d375611017d5cf382cbe33c56ffeba"
+    },
+    {
+      "package": "kaggle",
+      "path": "kaggle/__init__.py",
+      "bytes": 218,
+      "sha256": "507e1c6fd1a67a60ca52e4bacbab5132201c94a3f1bd2e394b20e8e1147d78f5"
+    },
+    {
+      "package": "kaggle",
+      "path": "kaggle/cli.py",
+      "bytes": 139505,
+      "sha256": "8ed42fe894ba75631cec80b99bf736e1c69c48799df54ce89457f8d0ae9a7edd"
+    },
+    {
+      "package": "kaggle",
+      "path": "kaggle/api/kaggle_api_extended.py",
+      "bytes": 443895,
+      "sha256": "210e589ab1f7359ffb560aacfe1c003ac1bc844c366f4ff709bf3d13de4d5458"
+    }
+  ]
+}
