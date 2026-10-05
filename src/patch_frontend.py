@@ -62,13 +62,28 @@ patch('src/components/Article/ArticleDetail.jsx','            <Divider />\n     
 patch('src/utils/entry-presentation.js','  const coverSource =\n    firstImage?.getAttribute("src") ||','  const coverSource =\n    entry.ai?.cover_url ||\n    firstImage?.getAttribute("src") ||')
 def install_reader_entry_detail(root, web):
     """Install the exact native/reviewed loading blocks and owned helper only."""
+    import hashlib
     name = 'src/components/Content/Content.jsx'
     path = web / name
     text = path.read_text()
     helper = (root / 'patches/reader-entry-detail.js').read_bytes()
     target = web / 'src/utils/reader-entry-detail.js'
-    if target.exists() and target.read_bytes() != helper:
+    previous_helper_sha = '17bce4248c73d81574c82c6570edc18db786520b095785f7dc4eb1c484b6f206'
+    if target.exists() and target.read_bytes() != helper and hashlib.sha256(target.read_bytes()).hexdigest() != previous_helper_sha:
         raise RuntimeError('Unreviewed reader detail helper')
+    entries_name = 'src/apis/entries.js'
+    entries_path = web / entries_name
+    entries = entries_path.read_text()
+    entry_before = 'export const getEntry = async (entryId) => apiClient.get(`/v1/entries/${entryId}`)'
+    entry_after = 'export const getEntry = async (entryId, options = {}) => apiClient.get(`/v1/entries/${entryId}`, options)'
+    if entries.count('export const getEntry =') != 1:
+        raise RuntimeError('Unreviewed reader detail transport source')
+    if entries.count(entry_after) == 1 and entry_before not in entries:
+        pass
+    elif entries.count(entry_before) == 1 and entry_after not in entries:
+        entries = entries.replace(entry_before, entry_after, 1)
+    else:
+        raise RuntimeError('Unreviewed reader detail transport source')
     hook_import = 'import useReaderEntryDetail from "@/utils/reader-entry-detail"'
     hook_call = '  useReaderEntryDetail({ entryId, source, sourceId, activeContent, entryRequestIdRef, restoreEntryListFocus })'
     old_fetch = '  const fetchSingleEntry = useCallback(async (entryId) => {\n    const requestId = ++entryRequestIdRef.current\n    const isCurrentRequest = () => entryRequestIdRef.current === requestId\n    const numericEntryId = Number(entryId)\n    const existingEntry = contentState.get().entries.find((entry) => entry.id === numericEntryId)\n\n    if (existingEntry) {\n      setIsArticleLoading(false)\n      setActiveContent(existingEntry)\n      return\n    }\n\n    try {\n      setIsArticleLoading(true)\n      const entry = await getEntry(entryId)\n      if (isCurrentRequest()) {\n        setActiveContent(prepareEntry(entry))\n      }\n    } catch (error) {\n      if (isCurrentRequest()) {\n        console.error("Failed to fetch entry:", error)\n      }\n    } finally {\n      if (isCurrentRequest()) {\n        setIsArticleLoading(false)\n      }\n    }\n  }, [])\n'
@@ -102,8 +117,10 @@ def install_reader_entry_detail(root, web):
         context = context_import + '\n' + context.replace(close_before, close_after, 1)
     backup(name)
     backup(context_name)
+    backup(entries_name)
     path.write_text(text)
     context_path.write_text(context)
+    entries_path.write_text(entries)
     target.write_bytes(helper)
 
 install_reader_entry_detail(ROOT, WEB)

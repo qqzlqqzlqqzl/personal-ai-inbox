@@ -7,14 +7,30 @@ from playwright.sync_api import sync_playwright,expect
 ROOT=Path(__file__).resolve().parents[1]
 
 class Harness:
-    def __init__(self,name,*,timezone_id=None,persist_auth=False,**context_options):
+    def __init__(self,name,*,timezone_id=None,persist_auth=False,sandboxed=False,**context_options):
+        if type(sandboxed) is not bool:raise ValueError('sandboxed must be an explicit bool')
+        if sandboxed:
+            from reader_sandboxed_browser import preflight,validate_context_options
+            validate_context_options(context_options)
+            preflight()
         value=os.environ.get('AI_NEWS_TEST_BUILD')
         if not value:raise RuntimeError('AI_NEWS_TEST_BUILD must name a local isolated build')
         self.build=Path(value).resolve()
         if not (self.build/'index.html').is_file() or self.build==Path('/home/ubuntu/ai-news/upstream/reactflux/dist'):raise RuntimeError('Invalid isolated build')
         build=self.build
         class Handler(SimpleHTTPRequestHandler):
+            def do_CONNECT(self):
+                self.send_error(403 if sandboxed else 501,'fixture proxy rejects external CONNECT')
+            def allowed_origin(self):
+                parsed=urlsplit(self.path);authority=f'127.0.0.1:{self.server.server_port}'
+                return self.headers.get('Host')==authority and (not parsed.scheme or (parsed.scheme=='http' and parsed.netloc==authority))
+            def do_HEAD(self):
+                if sandboxed and not self.allowed_origin():
+                    self.send_error(403,'fixture proxy rejects other origins');return
+                super().do_HEAD()
             def do_GET(self):
+                if sandboxed and not self.allowed_origin():
+                    self.send_error(403,'fixture proxy rejects other origins');return
                 path=urlsplit(self.path).path.removeprefix('/inbox/')
                 self.path='/'+path if (build/path).is_file() else '/index.html';super().do_GET()
             def log_message(self,*a):pass
@@ -23,14 +39,21 @@ class Harness:
         self.base=f'http://127.0.0.1:{self.server.server_port}'
         self.out=ROOT/'runtime'/name;self.out.mkdir(parents=True,exist_ok=True)
         self.pw=sync_playwright().start()
-        self.browser=self.pw.chromium.launch(executable_path=os.environ.get('CHROMIUM_EXECUTABLE') or None,headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
-        self.ctx=self.browser.new_context(**{'viewport':{'width':1440,'height':960},'locale':'zh-CN','service_workers':'block','timezone_id':timezone_id,**context_options})
+        self.sandboxed_browser_receipt=None
+        if sandboxed:
+            from reader_sandboxed_browser import launch
+            try:self.browser,self.sandboxed_browser_receipt=launch(self.pw,self.base)
+            except Exception:
+                self.pw.stop();self.server.shutdown();self.server.server_close();raise
+        else:
+            self.browser=self.pw.chromium.launch(executable_path=os.environ.get('CHROMIUM_EXECUTABLE') or None,headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+        self.ctx=self.browser.new_context(**{'viewport':{'width':1440,'height':960},'locale':'zh-CN','service_workers':'block','timezone_id':timezone_id,**({'accept_downloads':False} if sandboxed else {}),**context_options})
         auth_script="localStorage.setItem('auth',JSON.stringify({server:location.origin+'/mf',token:'isolated-test-token',username:'',password:''}))"
         self.ctx.add_init_script("if(!localStorage.getItem('auth')){"+auth_script+"}" if persist_auth else auth_script)
         self.errors=[];self.calls=[];self.writes=[];self.checks={};self.custom=None
         self.categories=[{'id':1,'title':'技术博客'},{'id':2,'title':'设计'}]
         self.feeds=[{'id':7,'user_id':1,'title':'已订阅技术源','feed_url':'https://example.test/existing.xml','site_url':'https://example.test','category':self.categories[0],'icon':{'feed_id':7,'icon_id':0,'external_icon_id':''}}]
-        self.catalog=[{'name':'已订阅技术源','url':self.feeds[0]['feed_url'],'category':'技术博客','status':'subscribed','subscribed':True,'feed_id':7}]+[{'name':f'技术候选{i:02d}','url':f'https://example.test/tech{i}.xml','category':'技术博客','status':'ok','subscribed':False} for i in range(28)]+[{'name':'设计候选','url':'https://example.test/design.xml','category':'设计','status':'ok','subscribed':False},{'name':'错误来源','url':'https://example.test/broken.xml','category':'设计','status':'blocked','live_error':'HTTP 403'}]
+        self.catalog=[{'name':'已订阅技术源','url':self.feeds[0]['feed_url'],'category':'技术博客','status':'subscribed','subscribed':True,'feed_id':7,'analysis_supported':True,'subscription_supported':False}]+[{'name':f'技术候选{i:02d}','url':f'https://example.test/tech{i}.xml','category':'技术博客','status':'ok','subscribed':False,'analysis_supported':True,'subscription_supported':True} for i in range(28)]+[{'name':'设计候选','url':'https://example.test/design.xml','category':'设计','status':'ok','subscribed':False,'analysis_supported':True,'subscription_supported':True},{'name':'错误来源','url':'https://example.test/broken.xml','category':'设计','status':'blocked','live_error':'HTTP 403','analysis_supported':True,'subscription_supported':False}]
         self.settings={'enabled':False,'translation_enabled':False,'base_url':'https://example.test/v1','model':'fixture-model','prompt':'初始测试提示词','minimum_score':6,'daily_articles':80,'daily_tokens':500000,'max_chars':40000,'json_mode':True}
         self.status={'counts':{},'coverage':{'total_articles':0,'source_count':1},'usage':[],'events':[],'resources':{},'kaggle':{'enabled':False}}
         self.entries=[];self.notes={};self.note_writes=[]
@@ -107,6 +130,7 @@ class Harness:
         if not value:raise AssertionError(name)
     def close(self):
         result={'checks':self.checks,'errors':self.errors,'passed':bool(self.checks) and all(self.checks.values()) and not self.errors,'isolated':True,'api_writes':len(self.writes)}
+        if self.sandboxed_browser_receipt is not None:result['sandboxed_browser']=self.sandboxed_browser_receipt
         (self.out/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
         self.browser.close();self.pw.stop();self.server.shutdown();self.server.server_close()
         if not result['passed']:raise AssertionError(result)

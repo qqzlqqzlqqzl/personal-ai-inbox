@@ -9,9 +9,12 @@ import { getAuthSessionKey } from '@/utils/auth'
 import prepareEntry from '@/utils/entry-presentation'
 
 let closeIntentRevision = 0
+const activeDetailRequests = new Set()
 
 export function invalidateReaderEntryDetail() {
   closeIntentRevision += 1
+  for (const controller of activeDetailRequests) controller.abort()
+  activeDetailRequests.clear()
   setIsArticleLoading(false)
 }
 
@@ -19,10 +22,20 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
   const { sessionRevision } = useStore(dataState, { keys: ['sessionRevision'] })
   const routeKey = JSON.stringify([source, sourceId ?? null, entryId ?? null])
   const currentRoute = useRef(routeKey)
-  useLayoutEffect(() => { currentRoute.current = routeKey }, [routeKey])
   const previousRoute = useRef(null)
   const pendingOwner = useRef(null)
   const selection = useRef({ generation: 0, active: contentState.get().activeContent })
+  const cancelPending = useCallback(() => {
+    const owner = pendingOwner.current
+    if (!owner) return
+    pendingOwner.current = null
+    activeDetailRequests.delete(owner.controller)
+    owner.controller.abort()
+  }, [])
+  useLayoutEffect(() => {
+    if (currentRoute.current !== routeKey) cancelPending()
+    currentRoute.current = routeKey
+  }, [routeKey, cancelPending])
 
   useEffect(() => {
     const stop = contentState.listen(({ activeContent: next }) => {
@@ -30,17 +43,28 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
       if (next !== previous) {
         if (!next || !previous || next.id !== previous.id) selection.current.generation += 1
         selection.current.active = next
+        if (pendingOwner.current && !pendingOwner.current.isCurrent()) cancelPending()
       }
     })
+    const cancelStale = () => {
+      if (pendingOwner.current && !pendingOwner.current.isCurrent()) cancelPending()
+    }
+    const stopAuth = authState.listen(cancelStale)
+    const stopSession = dataState.listen(cancelStale)
     return () => {
       stop()
+      stopAuth()
+      stopSession()
+      cancelPending()
       entryRequestIdRef.current += 1
       previousRoute.current = null
       pendingOwner.current = null
     }
-  }, [entryRequestIdRef])
+  }, [entryRequestIdRef, cancelPending])
 
   const fetchSingleEntry = useCallback(async (requestedId) => {
+    cancelPending()
+    const controller = new AbortController()
     const requestId = ++entryRequestIdRef.current
     const requestRoute = currentRoute.current
     const requestSession = getDataSessionRevision()
@@ -48,12 +72,12 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
     const requestGeneration = selection.current.generation
     const requestCloseIntent = closeIntentRevision
     const requestActive = contentState.get().activeContent
-    const isCurrent = () => entryRequestIdRef.current === requestId &&
+    const isCurrent = () => !controller.signal.aborted && entryRequestIdRef.current === requestId &&
       currentRoute.current === requestRoute && getDataSessionRevision() === requestSession &&
       getAuthSessionKey(authState.get()) === requestAuth &&
       selection.current.generation === requestGeneration && closeIntentRevision === requestCloseIntent &&
       contentState.get().activeContent === requestActive
-    pendingOwner.current = { requestId, isCurrent }
+    pendingOwner.current = { requestId, isCurrent, controller }
     const numericId = Number(requestedId)
     const existing = contentState.get().entries.find(entry => entry.id === numericId)
     if (existing && !existing.content_deferred) {
@@ -62,29 +86,34 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
       setActiveContent(existing)
       return
     }
+    activeDetailRequests.add(controller)
     try {
       setIsArticleLoading(true)
-      const entry = await getEntry(requestedId)
+      const entry = await getEntry(requestedId, { signal: controller.signal })
       if (isCurrent()) {
         if (entry?.id !== numericId || entry.content_deferred) throw new Error('Unexpected detail identity')
         // Publishing complete content changes active identity. Finish this
         // request's loading state first; a stale finally must not clear a newer one.
         setIsArticleLoading(false)
+        pendingOwner.current = null
+        activeDetailRequests.delete(controller)
         setActiveContent(prepareEntry(entry))
       }
     } catch (error) {
       if (isCurrent()) console.error('Failed to fetch entry:', error)
     } finally {
+      activeDetailRequests.delete(controller)
       if (isCurrent()) setIsArticleLoading(false)
       if (pendingOwner.current?.requestId === requestId) pendingOwner.current = null
     }
-  }, [entryRequestIdRef])
+  }, [entryRequestIdRef, cancelPending])
 
   useEffect(() => {
     const routeChanged = previousRoute.current !== routeKey
     previousRoute.current = routeKey
     const current = contentState.get().activeContent
     if (!entryId) {
+      cancelPending()
       entryRequestIdRef.current += 1
       if (routeChanged && current) {
         setActiveContent(null)
@@ -98,6 +127,7 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
       // null-active request renders. Preserve only that exact pending owner.
       if (pendingOwner.current?.isCurrent()) return
       // The user can close while React Router still has the detail URL.
+      cancelPending()
       entryRequestIdRef.current += 1
       setIsArticleLoading(false)
       return
@@ -105,5 +135,5 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
     if (current?.id !== Number(entryId) && !routeChanged) return
     if (current?.id === Number(entryId) && !current.content_deferred) return
     void fetchSingleEntry(entryId)
-  }, [entryId, routeKey, activeContent, sessionRevision, fetchSingleEntry, entryRequestIdRef, restoreEntryListFocus])
+  }, [entryId, routeKey, activeContent, sessionRevision, fetchSingleEntry, entryRequestIdRef, restoreEntryListFocus, cancelPending])
 }

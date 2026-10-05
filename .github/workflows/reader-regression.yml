@@ -142,6 +142,10 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/quality_consumer_browser.py
+      - name: Source catalog ownership across list and detail consumers
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/source_catalog_browser.py
       - name: Session-owned note privacy and explicit logout regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -205,6 +209,7 @@ jobs:
             runtime/query-result-ownership/
             runtime/reading-focus-*/
             runtime/quality-consumer/
+            runtime/source-catalog/
             runtime/note-session-privacy/
             runtime/note-request-recovery/
             runtime/note-legacy-*/

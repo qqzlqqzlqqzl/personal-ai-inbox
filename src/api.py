@@ -992,6 +992,9 @@ async def delete_note(entry_id: int, request: Request):
 
 @app.get("/mf/v1/ai/catalog")
 async def catalog(request: Request):
+    from vendor_catalog import annotate_vendor_sources, annotate_subscription_support, summary_policy_ready
+    from vendor_sources import CONFIGS, status as vendor_status
+
     await authorize(request, admin=True)
     p = ROOT / "sources.catalog.json"
     rows = json.loads(p.read_text()) if p.exists() else []
@@ -1014,7 +1017,10 @@ async def catalog(request: Request):
             feed_id=feed.get("id"),
             live_error=feed.get("parsing_error_message", ""),
             disabled=feed.get("disabled", False),
+            subscription_category=(feed.get("category") or {}).get("title"),
         )
+    annotate_subscription_support(rows, summary_ready=summary_policy_ready())
+    annotate_vendor_sources(rows, CONFIGS, vendor_status(read_only=True), now=time.time())
     return rows
 
 
@@ -1148,6 +1154,13 @@ async def subscribe(request: Request):
     if not isinstance(body, dict) or not isinstance(body.get("category_id"), int):
         raise HTTPException(400, "Invalid subscription")
     url = str(body.get("url", ""))
+    from vendor_catalog import is_kicktraq_url, SUMMARY_FEEDS, summary_policy_ready
+    summary_subscription = is_kicktraq_url(url)
+    if summary_subscription:
+        if set(body) - {"url", "category_id", "crawler"}:
+            raise HTTPException(400, "摘要订阅包含未支持的字段")
+        if url not in SUMMARY_FEEDS or not summary_policy_ready():
+            raise HTTPException(409, "Kicktraq 来源身份或摘要保护尚未确认")
     if body.get("x_handle"):
         from x_source import probe
         try:
@@ -1157,6 +1170,8 @@ async def subscribe(request: Request):
         if not checked.get("feed_ready") or not checked.get("profile_valid"):
             return JSONResponse({"error_message": checked["message"], "probe": checked}, status_code=409)
         url = checked["feed_url"]
+    if is_kicktraq_url(url) and not summary_subscription:
+        raise HTTPException(409, "核验后的摘要来源与请求身份不一致")
     from urllib.parse import urlparse
 
     if urlparse(url).scheme not in ["http", "https"]:
@@ -1167,7 +1182,7 @@ async def subscribe(request: Request):
         json={
             "feed_url": url,
             "category_id": int(body["category_id"]),
-            "crawler": bool(body.get("crawler", False)),
+            "crawler": False if summary_subscription else bool(body.get("crawler", False)),
         },
         timeout=70,
     )

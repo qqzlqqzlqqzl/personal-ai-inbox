@@ -30,7 +30,7 @@ const fixtures = {
  'classnames': `export default (...args)=>args.filter(x=>typeof x==='string').join(' ')`,
  'framer-motion': `export const AnimatePresence=({children})=>children`,
  'react-swipeable': `export const useSwipeable=()=>({})`,
- '@/apis': `export const getEntry=(id)=>F.getEntry(id)`,
+ '@/apis': `export const getEntry=(id,options)=>F.getEntry(id,options)`,
  '@/hooks/useEntryActions': `export const updateEntriesStatusOptimistically=()=>{throw Error('unexpected write')}`,
  '@/hooks/useLanguage': `export const polyglotState=F.language`,
  '@/store/settingsState': `export const settingsState=F.settings;export const articleListLayoutState=F.layout;export const contentGestureSettingsState=F.gestures`,
@@ -65,7 +65,7 @@ async function setup(name, {initialPath='/inbox/all', cold=true, strict=false}={
  document.body.innerHTML='<div id="root"></div>'
  globalThis.F={frames:[],route:atom({pathname:initialPath}),info:map({from:'all',id:null}),content:map({activeContent:null,isArticleLoading:false,entries:[dtos(1),dtos(2)],infoFrom:'all',infoId:null}),data:map({sessionRevision:1}),auth:map({server:'https://synthetic.test/mf',token:'synthetic-one'}),language:atom({polyglot:{t:x=>x}}),settings:map({markReadBy:'manual'}),layout:atom('magazine'),gestures:atom({contentBrowsingDirection:'left-to-right',enableSwipeGesture:false,swipeSensitivity:1}),pending:[],requests:[],transitions:[],nop:async()=>{}}
  F.navigate=path=>{F.pending.push(path);F.transitions.push({kind:'navigate-request',path})}
- F.getEntry=id=>new Promise((resolve,reject)=>F.requests.push({id:Number(id),resolve,reject,done:false}))
+ F.getEntry=(id,options={})=>new Promise((resolve,reject)=>F.requests.push({id:Number(id),signal:options.signal,resolve,reject,done:false}))
  const require=createRequire(import.meta.url);delete require.cache[out]
  const {Content,ContextProvider,ContentContext}=require(out)
  function Controls(){F.actions=React.useContext(ContentContext);const info=useStore(F.info);return React.createElement(Content,{info,getEntries:F.nop,markAllAsRead:F.nop})}
@@ -113,6 +113,7 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
  const t=await setup('close-pending-before-base-commit-rejects-late-success')
  await close();await open(dtos(1));assert.equal(F.requests.length,2)
  await close();assert.equal(F.requests.length,2);assert.equal(F.content.get().isArticleLoading,false)
+ assert.equal(F.requests[1].signal.aborted,true,'close cancels physical request signal before route commit')
  await t.complete(1,1);assert.equal(F.content.get().activeContent,null);assert.equal(F.requests.length,2);await finish(t)
 }
 {
@@ -132,12 +133,14 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
  const t=await setup('session-reset-cancels-pending-without-request-for-cleared-entry')
  await close();await open(dtos(1));assert.equal(F.requests.length,2)
  await act(async()=>{F.content.setKey('activeContent',null);F.data.setKey('sessionRevision',2)})
+ assert.equal(F.requests[1].signal.aborted,true,'session reset cancels transport')
  await t.complete(1,1);assert.equal(F.content.get().activeContent,null);assert.equal(F.requests.length,2);await finish(t)
 }
 {
  const t=await setup('source-change-owns-new-request-and-rejects-old')
  await close();await open(dtos(1));assert.equal(F.requests.length,2)
  await act(async()=>F.info.set({from:'feed',id:'9'}));assert.equal(F.requests.length,3)
+ assert.equal(F.requests[1].signal.aborted,true,'source replacement cancels transport');assert.equal(F.requests[2].signal.aborted,false)
  await t.complete(1,1);assert.equal(F.content.get().activeContent,null);assert.equal(F.content.get().isArticleLoading,true)
  await t.complete(2,1);original(1);await finish(t)
 }
@@ -161,12 +164,12 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
 {
  const t=await setup('auth-token-change-before-data-reset-rejects-old-response')
  await close();await open(dtos(1));assert.equal(F.requests.length,2)
- F.auth.setKey('token','synthetic-two');await t.complete(1,1)
+ F.auth.setKey('token','synthetic-two');assert.equal(F.requests[1].signal.aborted,true,'auth replacement cancels immediately');await t.complete(1,1)
  assert.equal(F.content.get().activeContent.content,'');assert.equal(F.requests.length,2);await finish(t)
 }
 {
  const t=await setup('strict-mode-deep-link-gets-a-current-owner', {initialPath:'/inbox/all/entry/1',cold:false,strict:true})
- assert.equal(F.requests.length,2);await t.complete(0,1);assert.equal(F.content.get().activeContent,null)
+ assert.equal(F.requests.length,2);assert.equal(F.requests[0].signal.aborted,true,'strict-mode cleanup cancels transport');await t.complete(0,1);assert.equal(F.content.get().activeContent,null)
  await t.complete(1,1);original(1);assert.equal(F.content.get().isArticleLoading,false);await finish(t)
 }
 {
@@ -178,6 +181,7 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
  const t=await setup('explicit-close-of-null-active-deep-link-cancels-late-response', {initialPath:'/inbox/all/entry/1',cold:false})
  assert.equal(F.requests.length,1);assert.equal(F.content.get().activeContent,null)
  await close();assert.equal(F.requests.length,1);assert.equal(F.content.get().isArticleLoading,false)
+ assert.equal(F.requests[0].signal.aborted,true,'null-active deep link close cancels immediately')
  await t.complete(0,1);assert.equal(F.content.get().activeContent,null);assert.equal(F.requests.length,1)
  await finish(t)
 }
@@ -216,8 +220,68 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
  reports.push({name:t.name,server_requests:0,client_requests:F.requests.length,observations:[t.snapshot('final')]});console.log('PASS',t.name)
  await act(async()=>root.unmount())
 }
+// Real HTTP cancellation through the owned hook -> actual getEntry -> actual
+// ofetch client. The endpoint is a bounded loopback stream, never a user server.
+{
+ const {createServer} = await import('node:http')
+ const adapterOut = join(dir,'detail-transport.cjs')
+ const seams = {
+  '@/routes': `export default {state:{location:{pathname:'/inbox/all',search:'',hash:''}},navigate:async()=>{throw Error('unexpected unauthorized redirect')}}`,
+  '@/store/authState': `export const authState=F.auth`,
+  '@/store/dataState': `export const getDataSessionRevision=()=>F.data.get().sessionRevision;export const isEntryScopeFullyVisible=()=>false`,
+  '@/utils/session': `export const clearSession=()=>{throw Error('unexpected session clear')}`,
+  '@/utils/note-session': `export const getNoteRequestStamp=()=> 'synthetic-loopback-session'`,
+  '@/store/aiState': `export const getAiQuery=()=>({})`,
+  '@/store/contentState': `export const contentState=F.content`,
+  '@/store/settingsState': `export const getSettings=()=>null`,
+  '@/store/readingCalendarState': `export const requireReadingCalendar=()=>null;export const assertReadingCalendarCurrent=()=>{}`,
+  '@/utils/date': `export const getCalendarStartTimestamp=()=>0;export const getDayEndTimestamp=()=>0;export const getStartOfToday=()=>0;export const getTimestamp=()=>0`,
+  '@/utils/constants': `export const ENTRY_UPDATE_BATCH_SIZE=1;export const MAX_ENTRIES_PER_PAGE=24;export const MAX_ENTRY_IDS_PER_PAGE=24`,
+ }
+ await build({stdin:{contents:`export {getEntry} from '${webRoot}/src/apis/entries.js'`,resolveDir:webRoot,loader:'js'},outfile:adapterOut,bundle:true,platform:'node',format:'cjs',plugins:[{name:'transport-boundaries',setup(b){
+  b.onResolve({filter:/^(ofetch|validator\/lib\/isURL)$/},({path})=>({path:web.resolve(path),external:true}))
+  b.onResolve({filter:/^@\/utils\/auth$/},()=>({path:join(webRoot,'src/utils/auth.js')}))
+  b.onResolve({filter:/.*/},({path})=>Object.hasOwn(seams,path)?{path,namespace:'seam'}:null)
+  b.onLoad({filter:/.*/,namespace:'seam'},({path})=>({contents:seams[path],loader:'js'}))
+ }}]})
+ const t=await setup('real-http-close-cancels-body-and-same-entry-reopens',{cold:false})
+ const withinDeadline=async(promise,message)=>{let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(message)),5000)})])}finally{clearTimeout(timer)}}
+ const rows=[],closed=Promise.withResolvers(),started=Promise.withResolvers()
+ const body=JSON.stringify({...full(1),padding:'x'.repeat(1024*1024)})
+ const server=createServer((req,res)=>{
+  assert.equal(req.method,'GET');assert.equal(req.url,'/v1/entries/1')
+  const row={path:req.url,body_bytes:Buffer.byteLength(body),sent_bytes:0,closed_early:false};rows.push(row)
+  res.writeHead(200,{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'Cache-Control':'no-store'})
+  if(rows.length>1){res.end(body);row.sent_bytes=Buffer.byteLength(body);return}
+  res.write(body.slice(0,4096));row.sent_bytes=4096;started.resolve()
+  const interval=setInterval(()=>{const part=body.slice(row.sent_bytes,row.sent_bytes+4096);if(!part){clearInterval(interval);res.end();return}res.write(part);row.sent_bytes+=part.length},10)
+  res.on('close',()=>{clearInterval(interval);row.closed_early=row.sent_bytes<row.body_bytes;closed.resolve()})
+ })
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ const errors=[],originalError=console.error
+ let requestSettled
+ try{
+  console.error=(...args)=>errors.push(args.map(String).join(' '))
+  F.auth.setKey('server',`http://127.0.0.1:${server.address().port}`)
+  const {getEntry}=createRequire(import.meta.url)(adapterOut)
+  F.getEntry=(id,options)=>{const request=getEntry(id,options);requestSettled=request.then(()=>{},()=>{});return request}
+  await open(dtos(1));await t.commit(F.pending.at(-1))
+  await withinDeadline(started.promise,'loopback request not started')
+  await close()
+  await withinDeadline(Promise.all([closed.promise,requestSettled]),'actual transport did not cancel')
+  assert.equal(rows.length,1,'aborted GET must not retry')
+  assert.equal(rows[0].closed_early,true);assert.ok(rows[0].sent_bytes<rows[0].body_bytes)
+  assert.equal(F.content.get().activeContent,null);assert.equal(F.content.get().isArticleLoading,false)
+  assert.equal(errors.some(e=>e.startsWith('Failed to fetch entry:')),false,'canceled owner must not show detail error')
+  await open(dtos(1));await t.commit(F.pending.at(-1));await act(async()=>requestSettled)
+  original(1);assert.equal(rows.length,2);assert.equal(rows[1].sent_bytes,rows[1].body_bytes)
+  t.record.push({transport:'actual installed ofetch + native Node HTTP; no browser claim',requests:rows,no_abort_retries:true})
+  await finish(t)
+ }finally{console.error=originalError;server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}
+}
+
 const hashes={}
-for(const rel of ['src/components/Content/Content.jsx','src/components/Content/ContentContext.jsx','src/utils/reader-entry-detail.js','src/utils/entry-presentation.js','src/utils/url.js']) hashes[rel]=createHash('sha256').update(await readFile(join(webRoot,rel))).digest('hex')
+for(const rel of ['src/components/Content/Content.jsx','src/components/Content/ContentContext.jsx','src/utils/reader-entry-detail.js','src/utils/entry-presentation.js','src/utils/url.js','src/apis/entries.js','src/apis/ofetch.js']) hashes[rel]=createHash('sha256').update(await readFile(join(webRoot,rel))).digest('hex')
 const result={actual_components:hashes,router:'controlled commit seam; not a real-browser execution',cases:reports}
 if(process.env.READER_DETAIL_EVIDENCE)await writeFile(process.env.READER_DETAIL_EVIDENCE,JSON.stringify(result,null,2)+'\n')
 console.log(JSON.stringify({passed:reports.length,actual_components:hashes},null,2))

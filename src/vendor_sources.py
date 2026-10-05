@@ -41,9 +41,10 @@ def config(key: str) -> dict:
     return CONFIGS[key]
 
 
-def load(key: str) -> dict:
+def load(key: str, *, read_only=False) -> dict:
     config(key)
-    path = folder() / (key + '.json')
+    base = ROOT / 'state/vendor-adapters' if read_only else folder()
+    path = base / (key + '.json')
     if not path.exists():
         return {'entries': [], 'seen': {}, 'seeded': False}
     value = json.loads(path.read_text())
@@ -294,14 +295,14 @@ def render(key: str) -> bytes:
     return ET.tostring(root, encoding='utf-8', xml_declaration=True)
 
 
-def status() -> dict:
+def status(*, read_only=False) -> dict:
     result = {}
     for key in CONFIGS:
         try:
-            state = load(key)
+            state = load(key, read_only=read_only)
             result[key] = {'name': CONFIGS[key]['name'], 'entries': len(state['entries']), 'seeded': state['seeded'],
                            **{k: state.get(k) for k in ('last_success_at', 'last_attempt_at', 'next_run_at', 'last_error', 'last_added')}}
-        except (ValueError, OSError):
+        except (ValueError, OSError, TypeError, KeyError):
             result[key] = {'state': 'invalid_state'}
     return result
 

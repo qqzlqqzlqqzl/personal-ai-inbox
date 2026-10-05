@@ -29,7 +29,7 @@ await build({stdin:{contents:`export {default as AiPanel} from '${base}Ai/AiPane
 }}]})
 const {AiPanel,AiToolbar,ArticleNote,RecoverableImage,ImageOverlayButton}=createRequire(import.meta.url)(output)
 const config={enabled:false,translation_enabled:false,base_url:'https://example.test/v1',model:'initial-model',prompt:'initial prompt',minimum_score:6,daily_articles:80,daily_tokens:500000,max_chars:40000,json_mode:true}
-const samples={settings:config,status:{counts:{done:3},coverage:{reader_total:7},kaggle:{enabled:false}},catalog:[{name:'stored source',url:'https://example.test/feed',category:'test',status:'ok',subscribed:false}],roster:{counts:{total:2},sources:[]}}
+const samples={settings:config,status:{counts:{done:3},coverage:{reader_total:7},kaggle:{enabled:false}},catalog:[{name:'stored source',url:'https://example.test/feed',category:'test',status:'ok',subscription_supported:true,subscribed:false}],roster:{counts:{total:2},sources:[]}}
 function store(value){const listeners=new Set();return{get:()=>value,set(next){value=next;listeners.forEach(fn=>fn())},setKey(k,v){this.set({...value,[k]:v})},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)}}}
 function setup(){
  globalThis.fixture?.noteManager?.dispose()

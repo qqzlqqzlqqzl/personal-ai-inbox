@@ -38,7 +38,30 @@ def meaningful_short(text):
         return True
     instruction = re.search(r'^(?:use|call|set|enable|disable|avoid|users? (?:must|should))\b|^(?:使用|设置|禁用|启用|避免)', text, re.I)
     effect = re.search(r'\b(?:before|after|because|so that|to (?:prevent|avoid|preserve|reduce|ensure))\b|以便|确保|从而|防止', text, re.I)
-    return bool(instruction and effect)
+    return bool(instruction and effect) or _explained_technical_change(text)
+
+
+def _explained_technical_change(text):
+    """A named failure/effect plus its mechanism or triggering condition.
+
+    Release subjects need not be imperatives. Keep this exception bounded:
+    generic fixes, security labels and an unexplained defect name still fail.
+    This permits assessment only; access gates and score rules remain separate.
+    """
+    clauses = re.split(r'\b(by|when)\b', text, maxsplit=1, flags=re.I)
+    if len(clauses) != 3:
+        return False
+    change, relation, context = clauses
+    action = re.search(r'\b(?:fix(?:es|ed|ing)?|prevent(?:s|ed|ing)?|avoid(?:s|ed|ing)?|preserv(?:e|es|ed|ing))\b', change, re.I)
+    outcome = re.search(r'\b(?:request smuggling|use[- ]after[- ]free|null pointer dereference|out[- ]of[- ]bounds (?:read|write)|integer precision|deadlock|crash)\b', change, re.I)
+    if not (action and outcome):
+        return False
+    subject = re.search(r'\b(?:headers?|content-length|transfer-encoding|requests?|devices?|buffers?|length|ids?|integers?|mutex|locks?|callbacks?|pointers?|connections?|sockets?|threads?)\b', context, re.I)
+    if relation.lower() == 'by':
+        explanation = re.search(r'\b(?:rejecting|validating|parsing|releasing|checking|serializing|initializing|retaining|locking)\b', context, re.I)
+    else:
+        explanation = re.search(r'\b(?:cancel(?:s|led|ed|ling|ing)?|disconnect(?:s|ed|ing)?|clos(?:e|es|ed|ing)|expires?|exceeded|overflows?)\b', context, re.I)
+    return bool(subject and explanation)
 
 
 def _url(value):

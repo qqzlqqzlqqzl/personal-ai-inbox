@@ -9,9 +9,18 @@ export function validateSettings(draft){
  return errors
 }
 export function normalizeDraft(draft){const result={...draft};for(const key of Object.keys(settingBounds))result[key]=Number(draft[key]);for(const key of ['base_url','model','prompt'])result[key]=String(draft[key]||'').trim();return result}
+export function canSubscribeSource(source){return !!source&&typeof source==='object'&&!Array.isArray(source)&&Object.hasOwn(source,'subscription_supported')&&source.status==='ok'&&!source.subscribed&&source.subscription_supported===true}
+export function manualSubscriptionCandidate(url,sources){
+ const known=sources.find(source=>source.url===url);if(known)return known
+ let parsed;try{parsed=new URL(url)}catch{return null}
+ if(!['http:','https:'].includes(parsed.protocol)||['www.kicktraq.com','kicktraq.com'].includes(parsed.hostname.replace(/\.+$/,'')))return null
+ // An explicitly entered manual URL retains its existing confirmation flow.
+ // It is not a positive capability inferred for an unknown catalog row.
+ return {url,category:'手动来源',status:'ok',subscription_supported:true}
+}
 export function filterCatalog(sources,search='',category='',state='all'){
  const query=search.toLocaleLowerCase().trim()
- return sources.filter(s=>`${s.name||''} ${s.category||''}`.toLocaleLowerCase().includes(query)&&(!category||s.category===category)&&(state==='all'||state==='subscribed'&&s.subscribed||state==='addable'&&s.status==='ok'&&!s.subscribed&&s.analysis_supported!==false||state==='attention'&&(s.live_error||['error','blocked'].includes(s.status))))
+ return sources.filter(s=>`${s.name||''} ${s.category||''}`.toLocaleLowerCase().includes(query)&&(!category||s.category===category)&&(state==='all'||state==='subscribed'&&s.subscribed||state==='addable'&&canSubscribeSource(s)||state==='attention'&&(s.live_error||['error','blocked'].includes(s.status)||s.rss_summary_only&&!s.summary_policy_ready)))
 }
 export function uniqueSources(items){const seen=new Set();return items.filter(s=>{if(!s.url||seen.has(s.url))return false;seen.add(s.url);return true})}
 export async function subscriptionQueue(items,{getCategories,getFeeds,createCategory,subscribe,stopped,progress}){

@@ -24,6 +24,9 @@ class DetailInstallTests(unittest.TestCase):
         context = subprocess.check_output(['git', '-C', str(ROOT / 'upstream/reactflux'), 'show',
             '534eeb97723ac11025de4ec1ac56335072e3be52:src/components/Content/ContentContext.jsx'], timeout=15)
         (path.parent / 'ContentContext.jsx').write_bytes(context)
+        entries_path = web / 'src/apis/entries.js'; entries_path.parent.mkdir(parents=True)
+        entries_path.write_bytes(subprocess.check_output(['git', '-C', str(ROOT / 'upstream/reactflux'), 'show',
+            '534eeb97723ac11025de4ec1ac56335072e3be52:src/apis/entries.js'], timeout=15))
         (web / 'src/utils').mkdir(parents=True)
         (root / 'patches').mkdir()
         helper = (ROOT / 'patches/reader-entry-detail.js').read_bytes()
@@ -44,6 +47,32 @@ class DetailInstallTests(unittest.TestCase):
                 self.assertEqual((web / 'src/utils/reader-entry-detail.js').read_bytes(),
                                  (root / 'patches/reader-entry-detail.js').read_bytes())
                 install(root, web); self.assertEqual(path.read_bytes(), first)
+                self.assertIn('getEntry = async (entryId, options = {})', (web / 'src/apis/entries.js').read_text())
+
+    def test_unknown_transport_refuses_before_any_detail_writes(self):
+        root, web, path, install = self.fixture(); before = path.read_bytes()
+        entries = web / 'src/apis/entries.js'
+        original = entries.read_text().replace('getEntry = async (entryId)', 'getEntry = async (otherId)')
+        entries.write_text(original)
+        with self.assertRaisesRegex(RuntimeError, 'Unreviewed reader detail transport source'):
+            install(root, web)
+        self.assertEqual(entries.read_text(), original)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse((web / 'src/utils/reader-entry-detail.js').exists())
+
+    def test_transport_options_drift_and_duplicate_exports_refuse(self):
+        for change in ('options-drift', 'duplicate'):
+            with self.subTest(change=change):
+                root, web, path, install = self.fixture(); install(root, web)
+                entries = web / 'src/apis/entries.js'
+                text = entries.read_text()
+                text = (text.replace('${entryId}`, options)', '${entryId}`, {})') if change == 'options-drift'
+                        else text + '\nexport const getEntry = async (other) => null\n')
+                entries.write_text(text); before = path.read_bytes()
+                with self.assertRaisesRegex(RuntimeError, 'Unreviewed reader detail transport source'):
+                    install(root, web)
+                self.assertEqual(entries.read_text(), text)
+                self.assertEqual(path.read_bytes(), before)
 
     def test_unknown_loading_block_refuses_before_writes(self):
         root, web, path, install = self.fixture()

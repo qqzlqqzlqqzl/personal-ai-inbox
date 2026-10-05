@@ -24,6 +24,7 @@ UPLOAD_PATHS = (
     'runtime/query-result-ownership/', 'runtime/reading-focus-*/',
     'runtime/console-header/',
     'runtime/quality-consumer/',
+    'runtime/source-catalog/',
     'runtime/native-zoom/result.json', 'runtime/native-zoom/native-metrics.json',
     'runtime/native-zoom/native-font-coverage.json', 'runtime/native-zoom/native-200.png',
     'runtime/native-zoom/native-200-after300ms.png', 'runtime/native-zoom/native-stability.json',
