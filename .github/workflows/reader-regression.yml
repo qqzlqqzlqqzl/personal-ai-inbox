@@ -5,6 +5,16 @@ on:
   push:
     branches: [main, codex/kaggle-qwen36-batches]
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Full Reader regression, or conservative selection from base_sha'
+        type: choice
+        options: [full, auto]
+        default: full
+      base_sha:
+        description: 'Exact ancestor SHA for auto; missing/unavailable means full'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -14,43 +24,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  offline-and-browser:
+  full-regression:
+    needs: scope-job
+    if: ${{ !cancelled() && (needs.scope-job.result != 'success' || !contains(fromJSON('["fulltext","backup","interfaces"]'), needs.scope-job.outputs.scope)) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    env:
+    env: &reader_env
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - &reader_checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Authenticated checkout retrieves the immutable historical baseline;
           # later unauthenticated git fetch cannot access this private repository.
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Prepare fresh evidence paths while retaining old output
+      - &prepare_evidence
+        name: Prepare fresh evidence paths while retaining old output
         id: prepare_evidence
         run: timeout --signal=TERM --kill-after=10s 60s python3 tests/ci_prepare_evidence.py --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - &setup_python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12.14'
           cache: pip
           cache-dependency-path: requirements.dev.lock.txt
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - &setup_node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24.21.0'
-      - name: Install locked test dependencies
+      - &install_dependencies
+        name: Install locked test dependencies
         run: |
           timeout --signal=TERM --kill-after=10s 600s python -m pip install -r requirements.dev.lock.txt
           timeout --signal=TERM --kill-after=10s 600s npm install --global --ignore-scripts pnpm@11.21.0
-      - name: Fetch exact public reader source
+      - &prepare_reader
+        name: Fetch exact public reader source
         run: |
           timeout --signal=TERM --kill-after=10s 600s git clone --filter=blob:none https://github.com/electh/ReactFlux.git upstream/reactflux
           timeout --signal=TERM --kill-after=10s 600s git -C upstream/reactflux checkout 534eeb97723ac11025de4ec1ac56335072e3be52
           timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py --prepare-only
           timeout --signal=TERM --kill-after=10s 600s pnpm --dir upstream/reactflux install --frozen-lockfile --ignore-scripts
           timeout --signal=TERM --kill-after=10s 600s npm install --prefix runtime/history-test-tools --ignore-scripts jsdom@26.1.0
-      - name: Verify immutable CI source and toolchain identity
+      - &verify_identity
+        name: Verify immutable CI source and toolchain identity
         run: timeout --signal=TERM --kill-after=10s 120s python tests/ci_reader_contract.py --expected-head "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Full isolated Python regression
         env:
@@ -67,9 +86,11 @@ jobs:
         run: |
           for test in tests/test_*.mjs; do timeout --signal=TERM --kill-after=10s 90s node "$test"; done
           timeout --signal=TERM --kill-after=10s 600s node tests/source_history_component_acceptance.mjs
-      - name: Build isolated reader
+      - &build_reader
+        name: Build isolated reader
         run: timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py
-      - name: Retain immutable build input separately from full regression evidence
+      - &upload_build
+        name: Retain immutable build input separately from full regression evidence
         if: success() && steps.prepare_evidence.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -80,20 +101,25 @@ jobs:
             runtime/browser-build/
           if-no-files-found: error
           retention-days: 7
-      - name: Install Chromium system dependencies
+      - &chromium_os
+        name: Install Chromium system dependencies
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
-      - name: Install hosted Chromium and headless shell
+      - &chromium
+        name: Install hosted Chromium and headless shell
         # Native zoom additionally launches headed Chromium under Xvfb.
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install chromium
-      - name: Browser fulltext request, redirect and popup admission
+      - &fulltext_browser
+        name: Browser fulltext request, redirect and popup admission
         env:
           PYTHONPATH: src:src/kaggle_batch
         run: timeout --signal=TERM --kill-after=10s 600s python tests/fulltext_browser_admission.py
-      - name: Resolve CJK font from refreshed APT indices
+      - &cjk_resolve
+        name: Resolve CJK font from refreshed APT indices
         id: cjk-package
         # install-deps above refreshes signed APT indices; never cache this manifest.
         run: timeout --signal=TERM --kill-after=10s 600s python tests/ci_cjk_font.py prepare --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
-      - name: Restore exact CJK font archive
+      - &cjk_restore
+        name: Restore exact CJK font archive
         id: cjk-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         env:
@@ -101,12 +127,15 @@ jobs:
         with:
           path: ${{ runner.temp }}/reader-cjk-deb
           key: ${{ steps.cjk-package.outputs.key }}
-      - name: Install CJK fonts for browser evidence
+      - &cjk_install
+        name: Install CJK fonts for browser evidence
         # Cache hits are untrusted: check every entry, size and SHA256 before sudo.
         run: timeout --signal=TERM --kill-after=10s 600s python tests/ci_cjk_font.py install --cache "$RUNNER_TEMP/reader-cjk-deb" --manifest "$RUNNER_TEMP/reader-cjk-package.json"
-      - name: Verify rendered Chinese glyph fonts
+      - &cjk_verify
+        name: Verify rendered Chinese glyph fonts
         run: timeout --signal=TERM --kill-after=10s 600s python tests/cjk_font_browser_acceptance.py
-      - name: Desktop and mobile viewport UI regression
+      - &history_browser
+        name: Desktop and mobile viewport UI regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/history_browser_acceptance.py
@@ -114,7 +143,8 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s xvfb-run -a python tests/native_zoom_browser.py
-      - name: Real headed fixture CLI lifecycle and isolation acceptance
+      - &fixture_browser
+        name: Real headed fixture CLI lifecycle and isolation acceptance
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s xvfb-run -a python tests/dev_fixture_workspace_browser_acceptance.py
@@ -130,7 +160,8 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/review_reading_browser.py
-      - name: Query result ownership across pending reversed empty and failed responses
+      - &query_browser
+        name: Query result ownership across pending reversed empty and failed responses
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/query_result_ownership_browser.py
@@ -146,7 +177,8 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/source_catalog_browser.py
-      - name: Session-owned note privacy and explicit logout regression
+      - &notes_browser
+        name: Session-owned note privacy and explicit logout regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: |
@@ -173,21 +205,25 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/navigation_focus_transition_browser.py
-      - name: Account calendar consistency across three browser timezones
+      - &calendar_browser
+        name: Account calendar consistency across three browser timezones
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/calendar_browser_acceptance.py
-      - name: Invalid and failed account timezone recovery in Chromium
+      - &calendar_identity
+        name: Invalid and failed account timezone recovery in Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/calendar_identity_browser.py
-      - name: Save verified CJK font archive after full regression
+      - &cjk_save
+        name: Save verified CJK font archive after full regression
         if: steps.cjk-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ runner.temp }}/reader-cjk-deb
           key: ${{ steps.cjk-package.outputs.key }}
-      - name: Retain synthetic test evidence
+      - &upload_evidence
+        name: Retain synthetic test evidence
         if: always() && steps.prepare_evidence.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -236,3 +272,202 @@ jobs:
             runtime/browser-build/
             runtime/dev-fixture-workspace-browser/
           retention-days: 7
+
+  scope-job:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.select.outputs.scope }}
+      native: ${{ steps.select.outputs.native }}
+    steps:
+      - *reader_checkout
+      - name: Select from complete immutable event revisions
+        id: select
+        run: |
+          python3 tests/ci_reader_scope.py \
+            --event-name "$GITHUB_EVENT_NAME" --event-path "$GITHUB_EVENT_PATH" \
+            --expected-head "${{ github.event.pull_request.head.sha || github.sha }}" \
+            > "$RUNNER_TEMP/reader-ci-scope.json"
+          cat "$RUNNER_TEMP/reader-ci-scope.json"
+      - name: Retain scope decision and exact changed paths
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-ci-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reader-ci-scope.json
+          retention-days: 7
+
+  python-focused:
+    needs: scope-job
+    if: ${{ needs.scope-job.outputs.scope == 'fulltext' || needs.scope-job.outputs.scope == 'backup' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env: *reader_env
+    steps:
+      - *reader_checkout
+      - *prepare_evidence
+      - *setup_python
+      - name: Install locked Python dependencies
+        run: timeout --signal=TERM --kill-after=10s 600s python -m pip install -r requirements.dev.lock.txt
+      - &related_python
+        name: Related isolated Python contracts
+        env:
+          PYTHONPATH: src:src/kaggle_batch:tests
+          READER_CI_SCOPE: ${{ needs.scope-job.outputs.scope }}
+        run: |
+          timeout --signal=TERM --kill-after=10s 600s python - <<'PY'
+          import os, sys, subprocess
+          from importlib import metadata
+          from pathlib import Path
+          import initialize_secrets, pytest
+          from ci_reader_scope import PYTHON_TESTS
+          assert sys.version_info[:3] == (3, 12, 14)
+          subprocess.run(['git', 'diff', '--exit-code', 'HEAD'], check=True)
+          for line in Path('requirements.dev.lock.txt').read_text().splitlines():
+              if line.strip() and not line.startswith('#'):
+                  name, expected = line.split('==')
+                  assert metadata.version(name) == expected, name
+          initialize_secrets.ROOT = Path.cwd()
+          targets = PYTHON_TESTS[os.environ['READER_CI_SCOPE']]
+          raise SystemExit(pytest.main(['-q', *targets, '--junitxml=artifacts/ci-python.xml']))
+          PY
+      - *upload_evidence
+
+  interfaces:
+    needs: scope-job
+    if: ${{ needs.scope-job.outputs.scope == 'interfaces' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env: *reader_env
+    steps:
+      - *reader_checkout
+      - *prepare_evidence
+      - *setup_python
+      - *setup_node
+      - *install_dependencies
+      - *prepare_reader
+      - *verify_identity
+      - *related_python
+      - name: Query calendar and note ownership component contracts
+        run: |
+          for test in tests/test_query*.mjs tests/test_note*.mjs tests/test_calendar*.mjs tests/test_reading_calendar.mjs tests/test_source_history.mjs; do
+            timeout --signal=TERM --kill-after=10s 90s node "$test"
+          done
+          timeout --signal=TERM --kill-after=10s 600s node tests/source_history_component_acceptance.mjs
+      - *build_reader
+      - *upload_build
+      - *chromium_os
+      - *chromium
+      - *fulltext_browser
+      - *cjk_resolve
+      - *cjk_restore
+      - *cjk_install
+      - *cjk_verify
+      - *history_browser
+      - *fixture_browser
+      - *query_browser
+      - *notes_browser
+      - *calendar_browser
+      - *calendar_identity
+      - *cjk_save
+      - *upload_evidence
+
+  # PRs already run the unchanged miniflux-metadata.yml for these exact paths.
+  # Push/manual comparisons need the same native/PG/pair gate in this workflow.
+  native-interface:
+    needs: scope-job
+    if: ${{ !cancelled() && needs.scope-job.outputs.native == 'true' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        # Official postgres 17.11 multi-platform index; recorded in pins.json.
+        image: postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+        env:
+          POSTGRES_USER: issue73
+          POSTGRES_PASSWORD: issue73-disposable-only
+          POSTGRES_DB: issue73_metadata_test
+        ports:
+          - 55473:5432
+        options: >-
+          --health-cmd "pg_isready -U issue73 -d issue73_metadata_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # Synthetic credentials for this ephemeral service only; no repository secrets.
+      ISSUE73_POSTGRES_URL: postgres://issue73:issue73-disposable-only@127.0.0.1:55473/issue73_metadata_test?sslmode=disable
+      ISSUE73_DISPOSABLE_POSTGRES: '1'
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed repository pin
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0 # Compare runtime src/ against the exact reviewed paired baseline.
+      - name: Verify package and fetch exact official upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ops/miniflux-metadata/scripts -p test_verify.py -v
+          python3 ops/miniflux-metadata/scripts/verify.py package
+          python3 ops/miniflux-metadata/scripts/verify.py fetch "$RUNNER_TEMP/issue73-miniflux"
+          python3 ops/miniflux-metadata/scripts/verify.py apply "$RUNNER_TEMP/issue73-miniflux"
+      - name: Install checksum-pinned official Go toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ops/miniflux-metadata/scripts/bootstrap-go.sh "$RUNNER_TEMP/issue73-go"
+          echo "$RUNNER_TEMP/issue73-go/go/bin" >> "$GITHUB_PATH"
+      - name: Compile and run upstream, protocol, failure and real PostgreSQL auth tests
+        shell: bash
+        run: bash ops/miniflux-metadata/scripts/test.sh "$RUNNER_TEMP/issue73-miniflux" "$RUNNER_TEMP/issue73-evidence"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # same reviewed Reader pin
+        with:
+          python-version: '3.12'
+      - name: Install existing locked Reader dependencies
+        run: python -m pip install -r requirements.dev.lock.txt
+      - name: Negative source and container admission checks
+        run: python -m unittest discover -s tests -p test_notes_pair_guards.py -v
+      - name: Real Reader and candidate binary paired acceptance
+        env:
+          ISSUE73_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python tests/notes_pair_acceptance.py \
+            --binary "$RUNNER_TEMP/issue73-evidence/miniflux-issue73-linux-amd64" \
+            --postgres-container "$ISSUE73_POSTGRES_CONTAINER" \
+            --evidence "$RUNNER_TEMP/issue73-evidence/paired"
+      - name: Upload fixture-only verification evidence and candidate binary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: miniflux-metadata-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/issue73-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # Keep the original required check name; a skipped focused job must not pass it.
+  offline-and-browser:
+    needs: [scope-job, full-regression, python-focused, interfaces, native-interface]
+    if: always()
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    env:
+      SELECT_RESULT: ${{ needs.scope-job.result }}
+      SELECT_SCOPE: ${{ needs.scope-job.outputs.scope }}
+      FULL_RESULT: ${{ needs.full-regression.result }}
+      PYTHON_RESULT: ${{ needs.python-focused.result }}
+      INTERFACE_RESULT: ${{ needs.interfaces.result }}
+      NATIVE_REQUIRED: ${{ needs.scope-job.outputs.native }}
+      NATIVE_RESULT: ${{ needs.native-interface.result }}
+    steps:
+      - name: Require the selected regression to succeed
+        run: |
+          python3 - <<'PY'
+          import os
+          scope = os.environ['SELECT_SCOPE'] if os.environ['SELECT_RESULT'] == 'success' else 'full'
+          key = {'fulltext': 'PYTHON_RESULT', 'backup': 'PYTHON_RESULT', 'interfaces': 'INTERFACE_RESULT'}.get(scope, 'FULL_RESULT')
+          assert os.environ[key] == 'success', key + ' did not succeed'
+          if os.environ['NATIVE_REQUIRED'] == 'true' and os.environ['GITHUB_EVENT_NAME'] != 'pull_request':
+              assert os.environ['NATIVE_RESULT'] == 'success', 'native pair did not succeed'
+          PY
