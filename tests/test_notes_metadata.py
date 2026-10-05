@@ -52,7 +52,7 @@ class Upstream:
             assert req.headers.get('X-Auth-Token')=='user-one'
             ids=json.loads(req.content)['entry_ids']
             self.metadata_requests.append(ids)
-            rows=[{k:self.entries[i].get(k) for k in nm.FIELDS} for i in reversed(ids)
+            rows=[{k:self.entries[i].get(k) for k in nm.FIELDS | {"changed_at"}} for i in reversed(ids)
                   if i in self.entries and self.entries[i]['status'] in ('read','unread')
                   and self.entries[i]['user_id']==1]
             return httpx.Response(self.metadata_status,json=dict(entries=self.transform(rows)),
@@ -412,3 +412,95 @@ async def test_incomplete_feed_visibility_fails_closed(notes,mutation):
     mutation(notes.feeds[0])
     with pytest.raises(HTTPException) as err:await listing(category_id=10)
     assert err.value.status_code==503 and notes.bodies==[]
+
+
+async def changed_listing(notes, monkeypatch, mode, transport='1', **params):
+    monkeypatch.setenv('READER_NOTES_METADATA', transport)
+    if mode == 'notes':
+        return await listing(**params)
+    core.discover(notes.entries.values())
+    with core.connect() as db:
+        db.execute("UPDATE analyses SET state=?,score=8", ('done' if mode == 'recommended' else 'pending',))
+    monkeypatch.setattr(api, 'enrich_reader_entries', lambda entries, uid, **kwargs: entries)
+    request = Request({'type':'http', 'method':'GET', 'path':'/mf/v1/entries',
+        'query_string':urlencode(dict(ai_view=mode, ai_min=8, **params)).encode(),
+        'headers':[(b'x-auth-token', b'user-one')]})
+    return await api.ai_entries(request, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode,transport', [('recommended','1'), ('pending','1'), ('notes','1'), ('notes','0')])
+@pytest.mark.parametrize('scope', [{'status':'read'}, {'starred':'true'}])
+async def test_changed_date_filters_before_total_and_page_without_publication_alias(notes, monkeypatch, mode, transport, scope):
+    # A Shanghai natural day; strict Miniflux endpoints retain microseconds.
+    start, end = 1790956800, 1791043199  # 2026-10-03 00:00:00 through 23:59:59 +08
+    for entry in notes.entries.values():
+        entry.update(status='read', starred=True, published_at='2020-01-01T00:00:00Z',
+                     changed_at='2026-09-28T00:00:00Z')
+    notes.entries[1]['changed_at'] = '2026-10-03T12:00:00+08:00'
+    notes.entries[2]['published_at'] = '2026-10-03T12:00:00+08:00'  # publication alone cannot match
+    notes.entries[3]['changed_at'] = '2026-10-03T00:00:00+08:00'  # excluded exact lower
+    notes.entries[4]['changed_at'] = '2026-10-03T23:59:59+08:00'  # excluded exact upper
+    notes.entries[5]['changed_at'] = '2026-10-03T00:00:00.000001+08:00'
+    notes.entries[6]['changed_at'] = '2026-10-03T23:59:58.999999+08:00'
+    notes.entries[7]['changed_at'] = '2026-10-03T04:00:00Z'  # same instant as entry 1
+    result = await changed_listing(notes, monkeypatch, mode, transport,
+        changed_after=start, changed_before=end, offset=1, limit=2, **scope)
+    assert result['total'] == 4
+    assert [entry['id'] for entry in result['entries']] == [6, 5]
+    if transport == '0':
+        assert len(notes.bodies) == 200 and notes.metadata_requests == []
+    else:
+        assert notes.bodies == [6, 5] and len(notes.metadata_requests) == 1
+    notes.calls.clear(); notes.metadata_requests.clear()
+    result = await changed_listing(notes, monkeypatch, mode, transport,
+        changed_after=start, changed_before=end, published_after=end, **scope)
+    assert result == {'total':0, 'entries':[]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode,transport', [('recommended','1'), ('pending','1'), ('notes','1'), ('notes','0')])
+@pytest.mark.parametrize('invalid', ['bad', '1.5', str(2**63)])
+async def test_invalid_changed_bound_is_400_before_upstream(notes, monkeypatch, mode, transport, invalid):
+    with pytest.raises(HTTPException) as error:
+        await changed_listing(notes, monkeypatch, mode, transport, changed_after=invalid)
+    assert error.value.status_code == 400 and notes.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['recommended', 'notes'])
+@pytest.mark.parametrize('bad', [None, '', 'bad', '2026-10-03T12:00:00', 1791000000])
+async def test_invalid_changed_metadata_is_503_without_body_fallback(notes, monkeypatch, mode, bad):
+    notes.transform = lambda rows: [{**row, 'changed_at':bad} for row in rows]
+    with pytest.raises(HTTPException) as error:
+        await changed_listing(notes, monkeypatch, mode, changed_after=1)
+    assert error.value.status_code == 503 and notes.bodies == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['recommended', 'notes'])
+async def test_old_metadata_works_without_changed_but_missing_changed_fails_closed(notes, monkeypatch, mode):
+    notes.transform = lambda rows: [{k:v for k,v in row.items() if k != 'changed_at'} for row in rows]
+    assert (await changed_listing(notes, monkeypatch, mode, limit=1))['total'] == 200
+    notes.calls.clear()
+    with pytest.raises(HTTPException) as error:
+        await changed_listing(notes, monkeypatch, mode, changed_after=1, limit=1)
+    assert error.value.status_code == 503 and notes.bodies == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['recommended', 'notes'])
+async def test_changed_body_race_reselects_total_and_next_page_without_broad_body_scan(notes, monkeypatch, mode):
+    # The top selected body moves out of range after the metadata snapshot.
+    def move(eid):
+        if eid == 200: notes.entries[eid]['changed_at'] = '1970-01-01T00:00:00Z'
+    notes.on_body = move
+    result = await changed_listing(notes, monkeypatch, mode, changed_after=1, limit=1)
+    assert result['total'] == 199 and [entry['id'] for entry in result['entries']] == [199]
+    assert notes.bodies == [200, 199] and len(notes.metadata_requests) == 2
+
+
+@pytest.mark.parametrize('params', [{}, {'changed_after':'0'}, {'changed_before':'-1'}])
+def test_nonpositive_changed_bounds_follow_native_no_filter(params):
+    assert nm.changed_bounds(params) == []
+    assert nm.matches_changed({}, nm.changed_bounds(params))

@@ -1,10 +1,44 @@
 """Request-local, body-free notes selection. Run these helpers in ReaderWorkPool."""
 import json
+import math
 from datetime import datetime
 
 MAX_IDS = 10000
 MAX_REQUEST_BYTES = 256 << 10
 FIELDS = {"id", "user_id", "feed_id", "title", "url", "published_at"}
+
+
+def changed_bounds(params):
+    """Miniflux 2.3.3 applies positive Unix-second bounds strictly to changed_at."""
+    bounds = []
+    for key, op in (("changed_after", ">"), ("changed_before", "<")):
+        if params.get(key):
+            value = int(params[key])
+            if not -(2**63) <= value < 2**63:
+                raise ValueError("Invalid changed date filter")
+            if value > 0:
+                bounds.append((op, value))
+    return bounds
+
+
+def changed_timestamp(entry):
+    value = entry.get("changed_at")
+    if not isinstance(value, str):
+        raise ValueError("missing changed_at metadata")
+    date = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if date.tzinfo is None or date.utcoffset() is None:
+        raise ValueError("changed_at must include a timezone")
+    stamp = date.timestamp()
+    if not math.isfinite(stamp):
+        raise ValueError("invalid changed_at metadata")
+    return stamp
+
+
+def matches_changed(entry, bounds):
+    if not bounds:
+        return True
+    stamp = changed_timestamp(entry)
+    return all(stamp > bound if op == ">" else stamp < bound for op, bound in bounds)
 
 
 def published_timestamp(entry):
@@ -29,13 +63,13 @@ def request_body(notes, allowed_ids):
     return ids, body
 
 
-def decode_metadata(content, uid, ids):
+def decode_metadata(content, uid, ids, *, require_changed=False):
     data = json.loads(content)
     if not isinstance(data, dict) or set(data) != {"entries"} or not isinstance(data["entries"], list):
         raise ValueError("invalid notes metadata envelope")
     allowed, seen, entries = set(ids), set(), []
     for entry in data["entries"]:
-        if (not isinstance(entry, dict) or set(entry) != FIELDS
+        if (not isinstance(entry, dict) or set(entry) not in (FIELDS, FIELDS | {"changed_at"})
                 or any(type(entry.get(k)) is not int or not 0 < entry[k] < 2**63
                        for k in ("id", "user_id", "feed_id"))
                 or entry["user_id"] != uid or entry["id"] not in allowed
@@ -43,6 +77,8 @@ def decode_metadata(content, uid, ids):
                 or not isinstance(entry.get("url"), str) or not entry["url"].strip()
                 or not isinstance(entry["published_at"], (str, type(None)))):
             raise ValueError("invalid or unscoped notes metadata row")
+        if require_changed or "changed_at" in entry:
+            changed_timestamp(entry)
         seen.add(entry["id"])
         entries.append(entry)
     return entries
@@ -70,7 +106,7 @@ def decode_feeds(content, uid):
 
 
 def select_page(notes, entries, feeds, params, *, feed_id=None, category_id=None):
-    """Preserve the legacy literal casefold, inclusive date and tuple-sort rules."""
+    """Keep inclusive publication bounds and strict native changed-at bounds separate."""
     limit = max(1, min(100, int(params.get("limit", 40))))
     offset = max(0, int(params.get("offset", 0)))
     direction = params.get("direction", "desc")
@@ -81,6 +117,7 @@ def select_page(notes, entries, feeds, params, *, feed_id=None, category_id=None
               for key, op in [("published_after", ">="), ("published_before", "<="),
                               ("after", ">="), ("before", "<=")]
               if params.get(key)]
+    changed = changed_bounds(params)
     hidden = {fid for fid, feed in feeds.items()
               if feed.get("hide_globally") or (feed.get("category") or {}).get("hide_globally")}
     scope = None
@@ -103,6 +140,8 @@ def select_page(notes, entries, feeds, params, *, feed_id=None, category_id=None
         if any((op == ">=" and published < bound) or (op == "<=" and published > bound)
                for op, bound in bounds):
             continue
+        if not matches_changed(entry, changed):
+            continue
         if term and term not in entry["title"].casefold() and term not in row["note"].casefold():
             continue
         filtered.append((row, entry, published))
@@ -114,6 +153,8 @@ def select_page(notes, entries, feeds, params, *, feed_id=None, category_id=None
 def body_matches(entry, metadata, feeds, params):
     """Detect selected-row churn before returning a stale selection/total."""
     feed_id = int(entry.get("feed_id") or (entry.get("feed") or {}).get("id", 0))
+    if changed_bounds(params) and changed_timestamp(entry) != changed_timestamp(metadata):
+        return False
     if (entry.get("title", "") != metadata["title"] or feed_id != metadata["feed_id"]
             or entry.get("url") != metadata["url"]
             or published_timestamp(entry) != published_timestamp(metadata)

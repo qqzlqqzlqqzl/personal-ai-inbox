@@ -7,6 +7,7 @@ Failure cases explicitly inject transport faults; successful metadata is never m
 """
 import argparse
 import contextlib
+from datetime import datetime, timezone
 import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,15 +26,15 @@ from urllib.parse import urlsplit
 
 import httpx
 
-CODE = '389f55783e275fa404ee4d915ec172b3a3407a94'
-BINARY_SHA = 'e73ce7247700c3bc919d2e1f72144599531d3ca77f5307a68bb18818deeb792b'
+CODE = '73f7ffbb5a22c9711e8237085d6b70c0a03982c5'
+BINARY_SHA = '20d6c314a0c8030be4ae02254838948b9262935422e6cb074e3f4eb7dca7a1c4'
 IMAGE = 'postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f'
 DSN = 'postgres://issue73:issue73-disposable-only@127.0.0.1:55473/issue73_metadata_test?sslmode=disable'
 ADMIN = ('pair_admin', 'synthetic-pair-password')
 SECOND = ('pair_second', 'synthetic-second-password')
 READER = 'http://127.0.0.1:8092'
 MINIFLUX = 'http://127.0.0.1:8093/mf'
-FIELDS = {'id', 'user_id', 'feed_id', 'title', 'published_at', 'url'}
+FIELDS = {'id', 'user_id', 'feed_id', 'title', 'published_at', 'url', 'changed_at'}
 
 
 def require(value, message):
@@ -55,13 +56,13 @@ def legacy_url_omission_fault(status, headers, data):
     entries = payload['entries']
     require(all(isinstance(entry, dict) and set(entry) == FIELDS and
                 isinstance(entry['url'], str) and entry['url'].strip() for entry in entries),
-            'legacy fault requires complete actual six-field URL DTOs')
+            'legacy fault requires complete actual seven-field URL/change DTOs')
     # Construct another envelope without mutating any real source data or headers.
-    fault = {'entries': [{key: value for key, value in entry.items() if key != 'url'} for entry in entries]}
+    fault = {'entries': [{key: value for key, value in entry.items() if key not in {'url', 'changed_at'}} for entry in entries]}
     return json.dumps(fault, separators=(',', ':')).encode(), {
         'kind': 'old-five-field-protocol-injection', 'actual_old_binary': False,
         'upstream_status': status, 'upstream_capability': capability[0],
-        'upstream_fields': sorted(FIELDS), 'returned_fields': sorted(FIELDS - {'url'}),
+        'upstream_fields': sorted(FIELDS), 'returned_fields': sorted(FIELDS - {'url', 'changed_at'}),
         'entry_ids': [entry['id'] for entry in entries]}
 
 
@@ -296,7 +297,7 @@ def main():
                     SELECT u.id,u.id,c.id,'Synthetic feed','https://example.invalid/feed/'||u.id,
                            'https://example.invalid' FROM users u JOIN categories c ON c.user_id=u.id;
                     INSERT INTO entries(id,user_id,feed_id,hash,published_at,changed_at,title,url,author,content,status)
-                    SELECT n,1,1,'pair-'||n,'2026-09-28T00:00:00Z','2026-09-28T00:00:00Z',
+                    SELECT n,1,1,'pair-'||n,'2026-09-28T00:00:00Z','2026-09-29T12:00:00Z',
                            CASE WHEN n<=24 THEN 'target '||n ELSE 'offpage '||n END,
                            'https://example.invalid/entry/'||n,'','<p>synthetic body '||n||'</p>','unread'
                     FROM generate_series(1,200) AS n;
@@ -359,6 +360,10 @@ def main():
                                 native['entries'][0]['user_id']==owner and
                                 native['entries'][0]['url']=='https://example.invalid/entry/1',
                                 'real native metadata must return current URL with exact DTO and owner scope')
+                        require(isinstance(native['entries'][0]['changed_at'], str) and
+                                datetime.fromisoformat(native['entries'][0]['changed_at'].replace('Z', '+00:00')) ==
+                                datetime(2026, 9, 29, 12, tzinfo=timezone.utc),
+                                'real changed_at must retain the distinct stored instant and timezone')
                         record('direct_metadata_current_url',direct,actual_native_response=True,
                                fields=sorted(native['entries'][0]),synthetic_url=native['entries'][0]['url'])
                         wire.reset('capability-reader-proxy')

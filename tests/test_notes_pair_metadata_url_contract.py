@@ -18,7 +18,7 @@ REAL_CONNECTION = http.client.HTTPConnection
 
 def entry(number=1, url=None):
     return {'id': number, 'user_id': 1, 'feed_id': 1, 'title': 'Synthetic title',
-            'published_at': '2026-10-04T00:00:00Z',
+            'published_at': '2026-10-04T00:00:00Z', 'changed_at': '2026-10-05T00:00:00Z',
             'url': url if url is not None else f'https://example.invalid/{number}'}
 
 
@@ -32,11 +32,11 @@ class LegacyDtoFaultContracts(unittest.TestCase):
         return pair.legacy_url_omission_fault(status, self.headers if headers is None else headers,
                     json.dumps(self.data if payload is None else payload).encode())
 
-    def test_only_url_is_removed_and_original_headers_status_and_input_stay_unchanged(self):
+    def test_old_five_fields_are_returned_and_original_headers_status_and_input_stay_unchanged(self):
         before = copy.deepcopy(self.data); before_headers = copy.deepcopy(self.headers)
         raw, proof = self.apply()
         actual = json.loads(raw)
-        self.assertEqual(actual, {'entries': [{key: value for key, value in row.items() if key != 'url'}
+        self.assertEqual(actual, {'entries': [{key: value for key, value in row.items() if key not in {'url', 'changed_at'}}
                                              for row in self.data['entries']]})
         self.assertEqual(self.data, before); self.assertEqual(self.headers, before_headers)
         self.assertEqual(proof['upstream_status'], 200)
@@ -70,20 +70,25 @@ class LegacyDtoFaultContracts(unittest.TestCase):
             with self.subTest(data=data), self.assertRaises(AssertionError):
                 pair.legacy_url_omission_fault(200, self.headers, json.dumps(data).encode())
 
-    def test_original_five_fields_is_not_accepted_as_six_field_source(self):
+    def test_incomplete_fields_are_not_accepted_as_seven_field_source(self):
         del self.data['entries'][0]['url']
-        with self.assertRaisesRegex(AssertionError, 'six-field'):
+        with self.assertRaisesRegex(AssertionError, 'seven-field'):
+            self.apply()
+
+    def test_old_six_fields_are_not_accepted_as_new_binary_source(self):
+        del self.data['entries'][0]['changed_at']
+        with self.assertRaisesRegex(AssertionError, 'seven-field'):
             self.apply()
 
     def test_empty_whitespace_null_and_nonstring_urls_are_refused(self):
         for value in ('', '  \t\r\n', None, 1, False, [], {}):
             self.data['entries'][0]['url'] = value
-            with self.subTest(value=value), self.assertRaisesRegex(AssertionError, 'six-field'):
+            with self.subTest(value=value), self.assertRaisesRegex(AssertionError, 'seven-field'):
                 self.apply()
 
     def test_unexpected_dto_fields_are_refused(self):
         self.data['entries'][0]['content'] = 'must not be an accepted metadata field'
-        with self.assertRaisesRegex(AssertionError, 'six-field'):
+        with self.assertRaisesRegex(AssertionError, 'seven-field'):
             self.apply()
 
 
@@ -139,7 +144,7 @@ class ObservingProxyContracts(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers['X-Reader-Entry-Metadata'], '1')
         self.assertEqual(headers['Cache-Control'], 'no-store')
-        self.assertEqual(set(payload['entries'][0]), pair.FIELDS - {'url'})
+        self.assertEqual(set(payload['entries'][0]), pair.FIELDS - {'url', 'changed_at'})
         self.assertEqual(wire.bodies, [])
         self.assertTrue(wire.metadata[0]['forwarded'])
         self.assertEqual(wire.metadata[0]['legacy_dto_fault']['upstream_fields'], sorted(pair.FIELDS))

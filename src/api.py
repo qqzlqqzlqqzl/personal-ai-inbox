@@ -503,8 +503,9 @@ async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=N
             response.raise_for_status()
             if response.headers.get("X-Reader-Entry-Metadata") != "1":
                 raise ValueError("unsupported notes metadata capability")
-            entries = await reader_work.run(notes_metadata.decode_metadata, response.content, uid, ids)
-        except (httpx.HTTPError, ValueError, TypeError):
+            entries = await reader_work.run(notes_metadata.decode_metadata, response.content, uid, ids,
+                                           require_changed=bool(notes_metadata.changed_bounds(params)))
+        except (httpx.HTTPError, ValueError, TypeError, OverflowError, OSError):
             raise HTTPException(503, "笔记元数据服务不可用或不兼容")
         # Parent movement between the feed and metadata snapshots requires the same
         # bounded refresh as a selected-body contradiction; never invent visibility.
@@ -527,7 +528,7 @@ async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=N
                 try:
                     if not await reader_work.run(notes_metadata.body_matches, result, metadata, feeds, params):
                         changed = True
-                except (ValueError, TypeError, AttributeError):
+                except (ValueError, TypeError, AttributeError, OverflowError, OSError):
                     raise HTTPException(503, "阅读后端返回了无效文章数据")
         if changed:
             if attempt == 0:
@@ -552,6 +553,10 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
         raise HTTPException(400, "Invalid sort field or direction")
 
     bounds = []
+    try:
+        changed_bounds = notes_metadata.changed_bounds(p)
+    except (ValueError, OverflowError):
+        raise HTTPException(400, "Invalid date filter")
     for key, op in [("published_after", ">="), ("published_before", "<="), ("after", ">="), ("before", "<=")]:
         if p.get(key):
             try:
@@ -611,6 +616,11 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
         published = entry_published_timestamp(entry)
         if any((op == ">=" and published < bound) or (op == "<=" and published > bound) for op, bound in bounds):
             continue
+        try:
+            if not notes_metadata.matches_changed(entry, changed_bounds):
+                continue
+        except (ValueError, TypeError, OverflowError, OSError):
+            raise HTTPException(503, "阅读后端返回了无效文章改变时间")
         if term and term not in str(entry.get("title", "")).casefold() and term not in row["note"].casefold():
             continue
         filtered.append((row, entry, published))
@@ -629,6 +639,10 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
 
 async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_retry=True):
     p = request.query_params
+    try:
+        changed_bounds = notes_metadata.changed_bounds(p)
+    except (ValueError, OverflowError):
+        raise HTTPException(400, "Invalid date filter")
     if p.get("ai_view") not in ["recommended", "pending", "notes"]:
         raise HTTPException(400, "Invalid AI view")
     if p.get("status") and p["status"] not in ["read", "unread"]:
@@ -777,32 +791,41 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
     ]
     semaphore = asyncio.Semaphore(8)
     quality_metadata = {}
+    scoped_ids = set(ids)
+    exclusions = []
     if p.get('ai_view') == 'recommended':
         from content_quality import public_for_row
-        scoped_ids = set(ids)
         exclusions = [row for row in candidates if row['entry_id'] in scoped_ids
                       and public_for_row(row)['recommendation_eligible'] is False]
 
-        if exclusions:
-            # One body-free database snapshot contains current URLs. Do not use
-            # changed_at as a URL revision or fall back to N full-body reads.
-            try:
-                requested_ids, body = await reader_work.run(notes_metadata.request_body, exclusions, scoped_ids)
-                response = await app.state.client.post(MF + '/v1/entries/metadata',
-                    headers={**upstream_headers, 'Content-Type': 'application/json'}, content=body, timeout=8)
-                response.raise_for_status()
-                if response.headers.get('X-Reader-Entry-Metadata') != '1':
-                    raise ValueError('metadata capability unavailable')
-                metadata = await reader_work.run(notes_metadata.decode_metadata, response.content, uid, requested_ids)
-                quality_metadata = {entry['id']: entry for entry in metadata}
-            except (httpx.HTTPError, ValueError, TypeError):
-                raise HTTPException(503, '推荐资格元数据不可用或服务版本不兼容，需要当前文章URL')
-            excluded_ids = {row['entry_id'] for row in exclusions
-                if row['entry_id'] not in quality_metadata
-                or public_for_row(row, current_entry=quality_metadata[row['entry_id']])['recommendation_eligible'] is False}
-            # An omitted ID is outside the current readable metadata snapshot.
-            # It affects this response only; no note, article or receipt is deleted.
-            ids = [eid for eid in ids if eid not in excluded_ids]
+    metadata_candidates = ([row for row in candidates if row["entry_id"] in scoped_ids]
+                           if changed_bounds else exclusions)
+    if metadata_candidates:
+        # One body-free database snapshot contains current URLs. Do not use
+        # changed_at as a URL revision or fall back to N full-body reads.
+        try:
+            requested_ids, body = await reader_work.run(notes_metadata.request_body, metadata_candidates, scoped_ids)
+            response = await app.state.client.post(MF + '/v1/entries/metadata',
+                headers={**upstream_headers, 'Content-Type': 'application/json'}, content=body, timeout=8)
+            response.raise_for_status()
+            if response.headers.get('X-Reader-Entry-Metadata') != '1':
+                raise ValueError('metadata capability unavailable')
+            metadata = await reader_work.run(notes_metadata.decode_metadata, response.content, uid, requested_ids,
+                                            require_changed=bool(changed_bounds))
+            quality_metadata = {entry['id']: entry for entry in metadata}
+        except (httpx.HTTPError, ValueError, TypeError, OverflowError, OSError):
+            if changed_bounds:
+                raise HTTPException(503, '文章改变时间元数据不可用或服务版本不兼容')
+            raise HTTPException(503, '推荐资格元数据不可用或服务版本不兼容，需要当前文章URL')
+        excluded_ids = {row['entry_id'] for row in exclusions
+            if row['entry_id'] not in quality_metadata
+            or public_for_row(row, current_entry=quality_metadata[row['entry_id']])['recommendation_eligible'] is False}
+        # An omitted ID is outside the current readable metadata snapshot.
+        # It affects this response only; no note, article or receipt is deleted.
+        ids = [eid for eid in ids if eid not in excluded_ids]
+        if changed_bounds:
+            ids = [eid for eid in ids if eid in quality_metadata
+                   and notes_metadata.matches_changed(quality_metadata[eid], changed_bounds)]
 
     async def fetch_entry(eid):
         async with semaphore:
@@ -823,6 +846,17 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
     identity_changed = any(entry['id'] in quality_metadata and any(
         entry.get(key) != quality_metadata[entry['id']][key] for key in ('id','user_id','url'))
         for entry in raw_entries)
+    if changed_bounds:
+        try:
+            date_changed = any(notes_metadata.changed_timestamp(entry) !=
+                               notes_metadata.changed_timestamp(quality_metadata[entry['id']])
+                               for entry in raw_entries)
+        except (ValueError, TypeError, OverflowError, OSError, KeyError):
+            raise HTTPException(503, "阅读后端返回了无效文章改变时间")
+        if date_changed:
+            if _quality_retry:
+                return await ai_entries(request, uid, feed_id=feed_id, category_id=category_id, _quality_retry=False)
+            raise HTTPException(503, "文章改变时间在读取期间发生变化，请重试")
     if p.get('ai_view') == 'recommended' and identity_changed:
         if _quality_retry:
             return await ai_entries(request, uid, feed_id=feed_id, category_id=category_id, _quality_retry=False)
