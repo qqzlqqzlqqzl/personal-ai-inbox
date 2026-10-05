@@ -640,6 +640,9 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
 
 async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_retry=True):
     p = request.query_params
+    expected_revision = p.get("ai_revision")
+    if expected_revision is not None and expected_revision != "initial" and not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
+        raise HTTPException(400, "Invalid AI list revision")
     try:
         changed_bounds = notes_metadata.changed_bounds(p)
     except (ValueError, OverflowError):
@@ -759,8 +762,9 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
     sql_direction = direction.upper()
     candidates = await reader_work.run(
         reader_rows,
-        "SELECT entry_id,feed_id,user_id,url,content_hash,"
-        "CASE WHEN content_quality IS NOT NULL THEN source_text END AS source_text,content_quality FROM analyses WHERE "
+        "SELECT entry_id,feed_id,user_id,url,content_hash,score,technical_score,business_score,"
+        "CASE WHEN content_quality IS NOT NULL THEN source_text END AS source_text,content_quality,"
+        + order + " AS ai_order_value FROM analyses WHERE "
         + " AND ".join(where)
         + " ORDER BY " + order
         + f" {sql_direction},entry_id {sql_direction}",
@@ -828,6 +832,23 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
             ids = [eid for eid in ids if eid in quality_metadata
                    and notes_metadata.matches_changed(quality_metadata[eid], changed_bounds)]
 
+    revision = None
+    if expected_revision is not None:
+        # Reuse this request's authorized, ordered candidate query; no second
+        # database scan or stored snapshot. Legacy clients keep their response.
+        def result_revision():
+            import hashlib
+            by_id = {row['entry_id']: row for row in candidates}
+            ranking = [[eid, *[by_id[eid][key] for key in
+                       ('ai_order_value', 'score', 'technical_score', 'business_score')]] for eid in ids]
+            query = sorted((key, value) for key, value in p.multi_items()
+                           if key not in {'offset', 'limit', 'ai_revision'})
+            payload = json.dumps([uid, feed_id, category_id, query, ranking], separators=(',', ':'), allow_nan=False)
+            return hashlib.sha256(payload.encode()).hexdigest()
+        revision = await reader_work.run(result_revision)
+        if expected_revision != 'initial' and expected_revision != revision:
+            return {'total': len(ids), 'entries': [], 'ai_revision': revision, 'ai_result_changed': True}
+
     async def fetch_entry(eid):
         async with semaphore:
             try:
@@ -870,7 +891,10 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
         if _quality_retry:
             return await ai_entries(request, uid, feed_id=feed_id, category_id=category_id, _quality_retry=False)
         raise HTTPException(503, '推荐资格正在变化，请稍后重试')
-    return {"total": len(ids), "entries": entries}
+    result = {"total": len(ids), "entries": entries}
+    if revision is not None:
+        result['ai_revision'] = revision
+    return result
 
 
 @app.post("/mf/v1/ai/feedback")

@@ -36,10 +36,11 @@ patch('src/pages/All.jsx','import Content from "@/components/Content/Content"','
 patch('src/pages/All.jsx','isEntryScopeFullyVisible("global")\n    ?','isEntryScopeFullyVisible("global") && !aiFilterEnabled()\n    ?')
 patch('src/pages/All.jsx','const getEntries = (status, _starred, filterParams) => getAllEntries(status, filterParams)','const getEntries = (status, starred, filterParams) => getAllEntries(status, { ...filterParams, ...(starred ? { starred: true } : {}) })')
 patch('src/hooks/useLoadMore.js','import { settingsState } from "@/store/settingsState"','import { settingsState } from "@/store/settingsState"\nimport { aiFilterEnabled, AI_PAGE_SIZE } from "@/store/aiState"')
-normalize('src/hooks/useLoadMore.js',[
- '  const getFilterParams = (currentEntries) => {\n    if (currentEntries.length === 0) {',
- '  const getFilterParams = (currentEntries) => {\n    if (infoFrom === "all" && aiFilterEnabled()) {\n      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }\n    }\n    if (currentEntries.length === 0) {',
-],'  const getFilterParams = (currentEntries) => {\n    if (aiFilterEnabled()) {\n      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }\n    }\n    if (currentEntries.length === 0) {')
+if 'articleListAiRevision' not in (WEB/'src/hooks/useLoadMore.js').read_text():
+    normalize('src/hooks/useLoadMore.js',[
+     '  const getFilterParams = (currentEntries) => {\n    if (currentEntries.length === 0) {',
+     '  const getFilterParams = (currentEntries) => {\n    if (infoFrom === "all" && aiFilterEnabled()) {\n      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }\n    }\n    if (currentEntries.length === 0) {',
+    ],'  const getFilterParams = (currentEntries) => {\n    if (aiFilterEnabled()) {\n      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }\n    }\n    if (currentEntries.length === 0) {')
 normalize('src/hooks/useLoadMore.js',[
  '      if (response.total <= pageSize || response.entries.length < pageSize) {',
  '      const effectivePageSize = infoFrom === "all" && aiFilterEnabled() ? AI_PAGE_SIZE : pageSize\n      const loadedCount = isAiPagination ? contentState.get().articleListOffset : contentState.get().entries.length\n      if ((isAiPagination ? response.total <= loadedCount : response.total <= effectivePageSize) || response.entries.length < effectivePageSize) {',
@@ -147,11 +148,104 @@ install_reader_entry_detail(ROOT, WEB)
 patch('src/utils/settings-schema.js','articleListLayout: enumSetting("column", ARTICLE_LIST_LAYOUTS)','articleListLayout: enumSetting("card", ARTICLE_LIST_LAYOUTS)')
 patch('src/store/contentState.js','  articleListSnapshotRevision: 0,','  articleListSnapshotRevision: 0,\n  articleListOffset: 0,')
 patch('src/hooks/useArticleList.js','  const preparedEntries = response.entries.map((entry) => prepareEntry(entry))','  contentState.setKey("articleListOffset", response.entries.length)\n  const preparedEntries = response.entries.map((entry) => prepareEntry(entry))')
-normalize('src/hooks/useLoadMore.js',[
- '      const isAiPagination = infoFrom === "all" && aiFilterEnabled()\n      if (isAiPagination) {\n        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)\n      }\n      const progress = paginationProgressRef.current',
- '      const progress = paginationProgressRef.current',
-],'      const isAiPagination = aiFilterEnabled()\n      if (isAiPagination) {\n        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)\n      }\n      const progress = paginationProgressRef.current')
+if 'articleListAiRevision' not in (WEB/'src/hooks/useLoadMore.js').read_text():
+    normalize('src/hooks/useLoadMore.js',[
+     '      const isAiPagination = infoFrom === "all" && aiFilterEnabled()\n      if (isAiPagination) {\n        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)\n      }\n      const progress = paginationProgressRef.current',
+     '      const progress = paginationProgressRef.current',
+    ],'      const isAiPagination = aiFilterEnabled()\n      if (isAiPagination) {\n        contentState.setKey("articleListOffset", contentState.get().articleListOffset + response.entries.length)\n      }\n      const progress = paginationProgressRef.current')
 patch('src/hooks/useLoadMore.js','if (response.entries.length > 0 && !hasNewResponseEntries) {','if (!isAiPagination && response.entries.length > 0 && !hasNewResponseEntries) {')
+def install_ai_pagination_revision(root, web):
+    """Reject changed results with one automatic first-page refresh per view."""
+    changes = {
+        'src/store/contentState.js': [
+            ('  articleListOffset: 0,', '''  articleListOffset: 0,
+  articleListAiRevision: null,
+  articleListAiRefreshes: 0,
+  articleListAiRefreshRequired: false,'''),
+            ('export const invalidateArticleList = () => {', '''export const invalidateArticleList = () => {
+  contentState.setKey("articleListAiRefreshes", 0)
+  contentState.setKey("articleListAiRefreshRequired", false)
+  contentState.setKey("articleListAiRevision", null)
+  if (aiFilterEnabled()) {
+    contentState.setKey("isArticleListReady", false)
+    incrementArticleListSnapshotRevision()
+  }'''),
+        ],
+        'src/hooks/useArticleList.js': [
+            ('  contentState.setKey("articleListOffset", response.entries.length)', '''  if (response.ai_revision !== undefined && (typeof response.ai_revision !== "string" || !/^[0-9a-f]{64}$/.test(response.ai_revision))) {
+    throw new TypeError("Invalid AI result revision")
+  }
+  contentState.setKey("articleListAiRevision", response.ai_revision ?? null)
+  contentState.setKey("articleListAiRefreshRequired", false)
+  contentState.setKey("articleListOffset", response.entries.length)'''),
+            ('    currentRequestKey.current = automaticRequestKey', '''    currentRequestKey.current = automaticRequestKey
+    contentState.setKey("articleListAiRefreshes", 0)
+    contentState.setKey("articleListAiRefreshRequired", false)
+    contentState.setKey("articleListAiRevision", null)'''),
+            ('      const filterParams = content.filterString ? { search: content.filterString } : {}', '''      const filterParams = content.filterString ? { search: content.filterString } : {}
+      if (aiFilterEnabled()) filterParams.ai_revision = "initial"'''),
+        ],
+        'src/hooks/useLoadMore.js': [
+            ('      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }', '''      const content = contentState.get()
+      return { offset: content.articleListOffset, limit: AI_PAGE_SIZE,
+        ...(content.articleListAiRevision ? { ai_revision: content.articleListAiRevision } : {}) }'''),
+            ('  const handleLoadMore = async (getEntries) => {', '''  const restartChangedList = () => {
+    setLoadMoreError(false)
+    contentState.setKey("articleListAiRefreshRequired", false)
+    contentState.setKey("articleListAiRevision", null)
+    contentState.setKey("isArticleListReady", false)
+    contentState.setKey("articleListSnapshotRevision", (contentState.get().articleListSnapshotRevision ?? 0) + 1)
+    contentState.setKey("articleListRevision", (contentState.get().articleListRevision ?? 0) + 1)
+  }
+
+  const handleLoadMore = async (getEntries) => {'''),
+            ('    const requestKey = getCurrentArticleListRequestKey()\n    const requestSessionRevision', '''    if (aiFilterEnabled() && contentState.get().articleListAiRefreshRequired) {
+      contentState.setKey("articleListAiRefreshes", 0)
+      restartChangedList()
+      return
+    }
+
+    const requestKey = getCurrentArticleListRequestKey()
+    const requestSessionRevision'''),
+            ('      const isAiPagination = aiFilterEnabled()\n      if (isAiPagination) {', '''      const isAiPagination = aiFilterEnabled()
+      const content = contentState.get()
+      if (isAiPagination && content.articleListAiRevision) {
+        if (typeof response.ai_revision !== "string" || !/^[0-9a-f]{64}$/.test(response.ai_revision)) {
+          throw new TypeError("Missing or invalid AI result revision")
+        }
+        if (response.ai_revision !== content.articleListAiRevision) {
+          if ((content.articleListAiRefreshes ?? 0) >= 1) {
+            contentState.setKey("articleListAiRefreshRequired", true)
+            setLoadMoreError(true)
+            Message.error("列表仍在变化，请点击重试刷新列表")
+          } else {
+            contentState.setKey("articleListAiRefreshes", 1)
+            restartChangedList()
+          }
+          return
+        }
+      }
+      if (isAiPagination) {'''),
+        ],
+    }
+    updates = {}
+    for name, replacements in changes.items():
+        text = (web / name).read_text()
+        for before, after in replacements:
+            if after in text:
+                continue
+            if text.count(before) != 1:
+                raise RuntimeError(f'Unreviewed AI pagination source: {name}')
+            text = text.replace(before, after, 1)
+        updates[name] = text
+    for name, text in updates.items():
+        original = root / 'runtime/reactflux-original' / name
+        if not original.exists():
+            original.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(web / name, original)
+        (web / name).write_text(text)
+
+install_ai_pagination_revision(ROOT, WEB)
 patch('src/components/Article/ArticleEntry.jsx','import useEntryActions from "@/hooks/useEntryActions"','import CardLanguage from "@/components/Ai/CardLanguage"\nimport useEntryActions from "@/hooks/useEntryActions"')
 patch('src/components/Article/ArticleEntry.jsx','        <Presenter entry={entry} previewContent={previewContent} />','        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />')
 patch('src/components/Article/ArticleEntry.jsx','{ title: entry.title })\n    : entry.title','{ title: entry.card?.title || entry.title })\n    : (entry.card?.title || entry.title)')
@@ -163,4 +257,3 @@ for original in BACK.rglob('*'):
   diffs.extend(difflib.unified_diff(original.read_text().splitlines(True),modified.read_text().splitlines(True),fromfile='a/'+relative,tofile='b/'+relative))
 (ROOT/'patches/reactflux.patch').write_text(''.join(diffs))
 print('Pinned ReactFlux overlay applied; native reader retained; patch recorded.')
-

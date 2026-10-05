@@ -1,4 +1,5 @@
 import json
+import copy
 from datetime import datetime, timezone
 
 import httpx
@@ -7,6 +8,70 @@ import pytest_asyncio
 
 import api
 import core
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mutation', ['unchanged', 'insert', 'rescore'])
+async def test_ai_result_revision_restarts_changed_order_without_extra_scan(scoped_reader, monkeypatch, mutation):
+    client, records, _ = scoped_reader
+    for eid in range(1, 53):
+        if eid not in records:
+            records[eid] = {**copy.deepcopy(records[1]), 'id':eid, 'title':f'Unique {eid}',
+                            'url':f'https://example.org/{eid}'}
+        core.discover([records[eid]])
+        core.update(eid, state='done', score=10-eid/100, technical_score=8, business_score=5)
+    scans, bodies = [], []
+    original_rows, original_get = api.reader_rows, api.app.state.client.get
+    def rows(sql, values):
+        if ' AS ai_order_value FROM analyses WHERE ' in sql: scans.append(sql)
+        return original_rows(sql, values)
+    async def get(url, **kwargs):
+        if url.rsplit('/',1)[-1].isdigit() and '/entries/' in url: bodies.append(url)
+        return await original_get(url, **kwargs)
+    monkeypatch.setattr(api, 'reader_rows', rows)
+    monkeypatch.setattr(api.app.state.client, 'get', get)
+    async def page(offset=0, revision=None):
+        params = dict(ai_view='recommended', ai_min=8, ai_sort='score', direction='desc', limit=24, offset=offset)
+        if revision is not None: params['ai_revision'] = revision
+        before = len(scans)
+        response = await client.get('/mf/v1/entries', params=params)
+        assert response.status_code == 200, response.text
+        assert len(scans) == before + 1, 'one existing candidate query per request'
+        return response.json()
+    legacy = await page()
+    assert set(legacy) == {'total','entries'}, 'old clients retain the original contract'
+    first = await page(revision='initial')
+    assert [entry['id'] for entry in first['entries']] == list(range(1,25))
+    revision = first['ai_revision']
+    assert len(revision) == 64
+    if mutation == 'insert':
+        records[99] = {**copy.deepcopy(records[1]), 'id':99, 'title':'New 99','url':'https://example.org/99'}
+        core.discover([records[99]])
+        core.update(99, state='done', score=10, technical_score=8, business_score=5)
+    elif mutation == 'rescore':
+        core.update(50, score=10)
+    before = len(bodies)
+    next_page = await page(24, revision)
+    if mutation == 'unchanged':
+        assert next_page['ai_revision'] == revision
+        assert [entry['id'] for entry in next_page['entries']] == list(range(25,49))
+    else:
+        assert next_page['ai_result_changed'] is True and next_page['entries'] == []
+        assert next_page['ai_revision'] != revision
+        assert len(bodies) == before, 'changed result must not hydrate a discarded page'
+    fresh = await page(revision='initial')
+    actual = [entry['id'] for entry in fresh['entries']]
+    response = fresh
+    while len(actual) < response['total']:
+        response = await page(len(actual), fresh['ai_revision'])
+        actual.extend(entry['id'] for entry in response['entries'])
+    expected = ([99] + list(range(1,53)) if mutation == 'insert' else
+                [50] + [eid for eid in range(1,53) if eid != 50] if mutation == 'rescore' else list(range(1,53)))
+    assert actual == expected and len(actual) == len(set(actual)) == response['total']
+    print(json.dumps({'case':mutation,'initial_ids':[e['id'] for e in first['entries']],
+                      'continuation_ids':[e['id'] for e in next_page['entries']],
+                      'changed':next_page.get('ai_result_changed',False),
+                      'refreshed_ids':actual,'total':response['total']}))
 
 
 @pytest_asyncio.fixture
