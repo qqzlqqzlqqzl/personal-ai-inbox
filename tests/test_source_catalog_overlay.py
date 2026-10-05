@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from patch_interaction_review import install
 
-BASE = 'b0ee924aa779f334c45e477acd6bb404f10d7bfe'
+# This exact panel baseline is an ancestor available to a normal Hosted checkout.
+BASE = '5fc42928c2b0504603345f93a76a54fb66f1bfa5'
 PANEL = 'src/components/Ai/AiPanel.jsx'
 HELPER = 'src/components/Ai/SourceCatalogMetadata.jsx'
 OLD_SHA = '06d5e523f593193302f73573f3ef37d068c73f93ec93e4e443084d91a64b9039'
@@ -65,6 +66,14 @@ class CatalogOverlayTests(unittest.TestCase):
         old.setdefault(utility, [])
         reviewed = "90fd8db5d91333cd4a4f1d6a7db37bcf37c6c0ae7c541967afa23b66a018f608"
         if reviewed not in old[utility]: old[utility].append(reviewed)
+        # The reviewed focus slice adds only this prior ReadingControls hash.
+        reading = "src/components/Ai/ReadingControls.jsx"
+        reviewed_reading = "d6475801bc39d59dff9d732dd12cb5afd21fee3c0f91fa3e3f41e674add63680"
+        prior_reading = subprocess.check_output(
+            ['git', 'show', BASE + ':frontend-review/after/' + reading], cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_reading).hexdigest(), reviewed_reading)
+        self.assertNotIn(reviewed_reading, old[reading])
+        old[reading].append(reviewed_reading)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
