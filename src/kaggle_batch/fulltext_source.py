@@ -6,13 +6,14 @@ the complete body container; they do not expand links to different articles.
 from work_admission import check,options,http_client,AdmissionStopped
 import asyncio
 import hashlib
+import json
 import os
 import re
 import html
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import urlsplit, urljoin, quote, unquote
 
 from bs4 import BeautifulSoup
 
@@ -211,10 +212,76 @@ async def fetch_adafruit_feed(url, *,admission=None):
     return result
 
 
+def _github_release_target(url):
+    parsed = urlsplit(url)
+    match = re.fullmatch(r'/([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9_.-]{1,100})/releases/tag/([^/]+)/?', parsed.path)
+    if (parsed.scheme != 'https' or parsed.netloc != 'github.com' or parsed.query or parsed.fragment
+            or not match or match[2] in {'.', '..'} or re.search(r'%(?![0-9A-Fa-f]{2})', match[3])):
+        raise FulltextUnavailable('github_release_invalid_url')
+    try:
+        tag = unquote(match[3], errors='strict')
+    except UnicodeError as exc:
+        raise FulltextUnavailable('github_release_invalid_url') from exc
+    if (re.search(r'[\x00-\x20\x7f~^:?*\[\\]', tag) or '..' in tag or '@{' in tag
+            or tag == '@' or any(not part or part.startswith('.') or part.endswith(('.', '.lock')) for part in tag.split('/'))):
+        raise FulltextUnavailable('github_release_invalid_url')
+    return match[1], match[2], tag
+
+
+async def fetch_github_release(url, *,admission=None):
+    owner, repo, tag = _github_release_target(url)
+    api_url = f'https://api.github.com/repos/{owner}/{repo}/releases/tags/{quote(tag, safe="")}'
+    async with http_client(admission, timeout=25, trust_env=False, follow_redirects=False,
+            proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None,
+            headers={'User-Agent': 'PersonalAIInbox/1.0', 'Accept': 'application/vnd.github+json'}) as client:
+        async with client.stream('GET', api_url) as response:
+            if response.status_code != 200:
+                raise FulltextUnavailable('original_http_' + str(response.status_code))
+            if str(response.url) != api_url or 'json' not in response.headers.get('content-type', '').lower():
+                raise FulltextUnavailable('github_release_invalid_response')
+            raw = bytearray()
+            async for chunk in response.aiter_bytes():
+                check(admission)
+                raw.extend(chunk)
+                if len(raw) > 6 * 1024 * 1024:
+                    raise FulltextUnavailable('original_page_too_large')
+    check(admission)
+    try:
+        release = json.loads(raw)
+        release_owner, release_repo, release_tag = _github_release_target(release['html_url'])
+        release_id = release['id']
+        identity_matches = (
+            (release_owner.lower(), release_repo.lower(), release_tag) == (owner.lower(), repo.lower(), tag)
+            and release['tag_name'] == tag and type(release_id) is int and release_id > 0
+            and release['url'].lower() == f'https://api.github.com/repos/{owner}/{repo}/releases/{release_id}'.lower()
+            and release['draft'] is False)
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise FulltextUnavailable('github_release_identity_mismatch') from exc
+    if not identity_matches:
+        raise FulltextUnavailable('github_release_identity_mismatch')
+    text = release.get('body')
+    if not isinstance(text, str) or not text.strip():
+        raise FulltextUnavailable('github_release_body_missing')
+    from content_quality import assess, meaningful_short
+    quality = assess(url=url, text=text, extraction_state='available')
+    if len(text) < 120 and quality['recommendation_eligible'] is not False and not meaningful_short(text):
+        raise FulltextUnavailable('body_too_short_requires_review')
+    return {'source_text': text, 'html': '<article>'+html.escape(text)+'</article>',
+            'image_count': len(re.findall(r'!\[', text)), 'content_quality': quality,
+            'receipt': {'url': url, 'requested_url': url, 'api_url': api_url,
+                        'selector': 'github-release-body', 'transport': 'GitHub Releases anonymous API',
+                        'components': 1, 'chars': len(text), 'rule_version': 1,
+                        'page_sha256': hashlib.sha256(raw).hexdigest(),
+                        'body_sha256': hashlib.sha256(text.encode()).hexdigest()}}
+
+
 def rule_for(url):
     parsed = urlsplit(url)
     if parsed.scheme not in ('https', 'http') or parsed.username or parsed.password:
         raise FulltextUnavailable('invalid_original_url')
+    if parsed.hostname == 'github.com':
+        _github_release_target(url)
+        return ('@github-release', '', False)
     if parsed.hostname == 'ursb.me':
         if parsed.path.startswith('/reading/'):
             raise FulltextUnavailable('reading_card_without_original_article')
@@ -278,6 +345,7 @@ def _extract_html(raw,url,selector,remove,repeated):
 
 def extract(raw, url):
     selector, remove, repeated = rule_for(url)
+    if selector == '@github-release':raise FulltextUnavailable('github_release_transport_required')
     if selector.startswith('@reader'):raise FulltextUnavailable('reader_transport_required')
     if selector.startswith('@browser:'):raise FulltextUnavailable('browser_transport_required')
     if selector.startswith('@feed:'):raise FulltextUnavailable('feed_transport_required')
@@ -480,6 +548,8 @@ async def fetch(url, *,admission=None):
     import httpx
     selector,remove,repeated=rule_for(url)
     async def request():
+        if selector=='@github-release':
+            return await fetch_github_release(url,**options(admission))
         if selector=='@feed:adafruit':
             return await fetch_adafruit_feed(url,**options(admission))
         if selector=='@feed:netflix':
