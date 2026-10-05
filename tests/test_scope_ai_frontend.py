@@ -65,7 +65,11 @@ def test_active_sidebar_count_uses_filtered_total_without_corrupting_native_coun
     assert "const resultCount = useStore(dynamicCountState)" in sidebar
     assert "const resultReady = useStore(articleListResultReadyState)" in sidebar
     assert "const activeScopeCount = resultReady && infoFrom === activeScope" in sidebar
-    assert "infoFrom === scope ? activeScopeCount : nativeCount" in sidebar
+    assert "infoFrom === scope ? activeScopeCount : nativeCountsMatch ? nativeCount : null" in sidebar
+    assert 'hydrated === true && mode === "all" && auxiliary === "none"' in sidebar
+    assert 'showStatus === "unread" && !filterDate && !filterString' in sidebar
+    assert ": nativeCountsMatch ? unreadCount : null" in sidebar
+    assert ": nativeCountsMatch ? feed.unreadCount : null" in sidebar
     assert 'contentState.setKey("articleListResultOwner", { requestKey, sessionRevision: requestSessionRevision })' in article_list
     assert 'if (filterString || filterDate)' in read("store/contentState.js")
     assert 'count={scopedCount("today", unreadTodayCount)}' in sidebar

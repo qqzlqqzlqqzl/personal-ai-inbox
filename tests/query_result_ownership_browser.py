@@ -9,7 +9,7 @@ from query_route_queue import HeldQueryRoutes, matches_query
 from query_dom_ownership import assess_pending_ui
 
 
-h = Harness("query-result-ownership")
+h = Harness("query-result-ownership", timezone_id="Asia/Shanghai")
 # This suite holds the initial request; server hydration must retain its query.
 h.settings["minimum_score"] = 8
 # Miniflux feed DTOs include icon even when no icon has been downloaded.
@@ -19,6 +19,7 @@ held_routes = HeldQueryRoutes(p, h.base)
 pending = held_routes.pending
 expected_requests = []
 request_trace = []
+raw_request_trace = []
 fail_requests = False
 p.add_init_script("""localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all'}));
 localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:8,sort:'score',direction:'desc',auxiliary:'none'}));
@@ -39,10 +40,16 @@ def entries(start, count):
 
 def intercept(route, path, method):
     query = parse_qs(urlsplit(route.request.url).query)
+    if method == "GET" and path.endswith("/feeds/counters"):
+        route.fulfill(json={"reads": {}, "unreads": {"7": 8088}})
+        return True
+    if method == "GET" and path.endswith("/entries") and not query.get("ai_view"):
+        raw_request_trace.append({'path': path, 'query': query})
     if method == "GET" and path.endswith("/entries") and query.get("ai_view") == ["recommended"]:
         scope = "today" if "published_after" in query else "all"
         request_trace.append({"scope": scope, "ai_min": query.get("ai_min"),
                               "offset": query.get("offset"), "limit": query.get("limit"),
+                              "status": query.get("status"),
                               "response": "503" if fail_requests else "held"})
         if fail_requests:
             route.fulfill(status=503, json={"detail": "synthetic read failure"})
@@ -107,6 +114,8 @@ try:
     take("all").fulfill(json={"total": 1965, "entries": entries(101, 24)})
     expect(p.locator('.page-info')).to_contain_text('(1965)')
     expect(p.locator('[data-entry-id="101"]')).to_be_visible()
+    all_sidebar_count = p.locator('.custom-menu-item').filter(has=p.get_by_text('全部', exact=True)).first.locator('.item-count')
+    h.check('active_all_sidebar_has_owned_AI_total', all_sidebar_count.inner_text().strip() == '1965')
     mark(); go("today"); old_today = take("today")
     trace["today_pending"] = pending_is_unowned("today")
     mark(); go("all"); new_all = take("all")
@@ -126,6 +135,78 @@ try:
     expect(p.locator('.entry-list [data-entry-id]')).to_have_count(0)
     expect(p.locator('.page-info')).not_to_contain_text('1965')
     h.check("empty_today_survives_late_all", True)
+    h.check('settled_today_does_not_expose_native_all_total', all_sidebar_count.inner_text().strip() == '')
+    trace['settled_sidebar_lens'] = {'native_unread_fixture': 8088, 'initial_AI_all_total': 1965,
+                                     'settled_today_total': 0, 'inactive_all_rendered_text': all_sidebar_count.inner_text(),
+                                     'show_status': 'all', 'scope': 'today', 'mode': 'recommended'}
+    h.check('sidebar_count_projection_adds_no_AI_queries', len(request_trace) == 6)
+    p.screenshot(path=str(h.out / 'settled-today-count-lens.png'))
+    # Continue in this same viewport/context through the observed AI + unread
+    # condition. Preserve the original all-status flow and restore it below.
+    unread_start = len(request_trace)
+    unread_radio = p.locator('.entry-panel').get_by_role('radio', name='未读', exact=True)
+    all_radio = p.locator('.entry-panel').get_by_role('radio', name='全部', exact=True)
+
+    def change_filter(scope, status, action):
+        expected_status = ['unread'] if status == 'unread' else None
+        with p.expect_request(lambda r: matches_query(scope, r, h.base) and
+                              parse_qs(urlsplit(r.url).query).get('status') == expected_status) as observed:
+            action()
+        expected_requests.append((scope, observed.value))
+        return take(scope)
+
+    change_filter('today', 'unread', unread_radio.check).fulfill(json={'total': 0, 'entries': []})
+    expect(unread_radio).to_be_checked()
+    go('all'); unread_all = take('all')
+    assert parse_qs(urlsplit(unread_all.request.url).query).get('status') == ['unread']
+    unread_entries = [{**entry, 'status': 'unread'} for entry in entries(601, 24)]
+    unread_all.fulfill(json={'total': 1965, 'entries': unread_entries})
+    expect(p.locator('.page-info')).to_contain_text('(1965)')
+    h.check('unread_active_all_sidebar_owns_1965', all_sidebar_count.inner_text().strip() == '1965')
+    p.screenshot(path=str(h.out / 'unread-all-count-lens.png'))
+    # Hold an actual refresh of the old All scope, then complete Today first.
+    unread_late_all = change_filter('all', 'unread',
+                                   p.locator('.entry-panel').get_by_role('button', name='刷新', exact=True).click)
+    go('today'); unread_today = take('today')
+    assert parse_qs(urlsplit(unread_today.request.url).query).get('status') == ['unread']
+    unread_today.fulfill(json={'total': 0, 'entries': []})
+    expect(p.get_by_text('当前范围暂无达到筛选条件的 AI 精选', exact=True)).to_be_visible()
+    unread_late_all.fulfill(json={'total': 9999, 'entries': [{**entry, 'status': 'unread'} for entry in entries(701, 24)]})
+    expect(unread_radio).to_be_checked()
+    expect(p.locator('.page-info')).to_contain_text('Asia/Shanghai')
+    expect(p.locator('.entry-list [data-entry-id]')).to_have_count(0)
+    expect(p.locator('.page-info')).not_to_contain_text('9999')
+    h.check('unread_settled_today_hides_unknown_all_after_late_response', all_sidebar_count.inner_text().strip() == '')
+    trace['unread_sidebar_lens'] = {'native_unread_fixture': 8088, 'initial_AI_all_total': 1965,
+                                   'settled_today_total': 0, 'late_all_total': 9999,
+                                   'inactive_all_rendered_text': all_sidebar_count.inner_text(),
+                                   'show_status': 'unread', 'scope': 'today', 'mode': 'recommended',
+                                   'timezone': 'Asia/Shanghai', 'frames': frames()}
+    p.screenshot(path=str(h.out / 'unread-today-count-lens.png'))
+    # The explicit raw-unread exception is also a real UI change, not a store edit.
+    raw_start = len(raw_request_trace)
+    with p.expect_response(lambda r: urlsplit(r.url).path == '/mf/v1/entries' and
+                           not parse_qs(urlsplit(r.url).query).get('ai_view') and
+                           parse_qs(urlsplit(r.url).query).get('status') == ['unread'] and
+                           parse_qs(urlsplit(r.url).query).get('limit') != ['1']) as raw_response:
+        p.get_by_role('button', name='全部原始', exact=True).click()
+    assert raw_response.value.status == 200
+    expect(p.get_by_role('button', name='全部原始', exact=True)).to_have_attribute('aria-pressed', 'true')
+    expect(unread_radio).to_be_checked()
+    h.check('raw_unread_can_show_native_inactive_all', all_sidebar_count.inner_text().strip() == '8088')
+    trace['raw_unread_sidebar_lens'] = {'show_status': 'unread', 'scope': 'today', 'mode': 'all',
+                                       'inactive_all_rendered_text': all_sidebar_count.inner_text(),
+                                       'requests': raw_request_trace[raw_start:]}
+    p.screenshot(path=str(h.out / 'raw-unread-sidebar-counts.png'))
+    change_filter('today', 'unread', p.get_by_role('button', name='AI 精选', exact=True).click).fulfill(json={'total': 0, 'entries': []})
+    expect(p.get_by_text('当前范围暂无达到筛选条件的 AI 精选', exact=True)).to_be_visible()
+    h.check('return_to_AI_unread_hides_unmatched_native_count', all_sidebar_count.inner_text().strip() == '')
+    change_filter('today', 'all', all_radio.check).fulfill(json={'total': 0, 'entries': []})
+    expect(all_radio).to_be_checked()
+    expect(p.get_by_text('当前范围暂无达到筛选条件的 AI 精选', exact=True)).to_be_visible()
+    h.check('unread_addition_uses_only_six_existing_list_actions', len(request_trace) - unread_start == 6)
+    h.check('raw_control_uses_one_existing_raw_list_request',
+            len([r for r in raw_request_trace[raw_start:] if r['query'].get('limit') != ['1']]) == 1)
     mark(); fail_requests = True; go("all")
     expect(p.locator('.entry-list [role=alert]')).to_be_visible()
     trace["error"] = frames()
@@ -138,6 +219,7 @@ except Exception as exc:
     raise
 finally:
     trace["requests"] = request_trace
+    trace["raw_requests"] = raw_request_trace
     trace["pending_scopes"] = [scope for scope, _ in pending]
     trace["route_queue"] = {"enqueued": held_routes.added, "consumed": held_routes.taken,
                             "expected_scopes": [scope for scope, _ in expected_requests]}
