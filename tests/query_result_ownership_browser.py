@@ -146,6 +146,9 @@ try:
     unread_start = len(request_trace)
     unread_radio = p.locator('.entry-panel').get_by_role('radio', name='未读', exact=True)
     all_radio = p.locator('.entry-panel').get_by_role('radio', name='全部', exact=True)
+    # Arco hides the native input; click the visible label users operate.
+    unread_control = p.locator('.entry-panel .arco-radio-button').filter(has=p.get_by_role('radio', name='未读', exact=True))
+    all_control = p.locator('.entry-panel .arco-radio-button').filter(has=p.get_by_role('radio', name='全部', exact=True))
 
     def change_filter(scope, status, action):
         expected_status = ['unread'] if status == 'unread' else None
@@ -155,7 +158,7 @@ try:
         expected_requests.append((scope, observed.value))
         return take(scope)
 
-    change_filter('today', 'unread', unread_radio.check).fulfill(json={'total': 0, 'entries': []})
+    change_filter('today', 'unread', unread_control.click).fulfill(json={'total': 0, 'entries': []})
     expect(unread_radio).to_be_checked()
     go('all'); unread_all = take('all')
     assert parse_qs(urlsplit(unread_all.request.url).query).get('status') == ['unread']
@@ -201,7 +204,7 @@ try:
     change_filter('today', 'unread', p.get_by_role('button', name='AI 精选', exact=True).click).fulfill(json={'total': 0, 'entries': []})
     expect(p.get_by_text('当前范围暂无达到筛选条件的 AI 精选', exact=True)).to_be_visible()
     h.check('return_to_AI_unread_hides_unmatched_native_count', all_sidebar_count.inner_text().strip() == '')
-    change_filter('today', 'all', all_radio.check).fulfill(json={'total': 0, 'entries': []})
+    change_filter('today', 'all', all_control.click).fulfill(json={'total': 0, 'entries': []})
     expect(all_radio).to_be_checked()
     expect(p.get_by_text('当前范围暂无达到筛选条件的 AI 精选', exact=True)).to_be_visible()
     h.check('unread_addition_uses_only_six_existing_list_actions', len(request_trace) - unread_start == 6)
