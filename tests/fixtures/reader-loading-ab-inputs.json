@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "repository": "qqzlqqzlqqzl/personal-ai-inbox",
+  "purpose": "regression comparison; candidate producer ordinary regression failed; no product speedup claim",
+  "inputs": {
+    "baseline": {
+      "artifact_id": 11299074112,
+      "artifact_bytes": 8750880,
+      "artifact_sha256": "108536813a6d2e3da2f3801917f082acad2e8271b9a27ef2b2dcf66c7a3b8a85",
+      "manifest_sha256": "05dd86f9c5face0b31a242f27b5cc25174249cc10d41f2d5bd535575c3c06e1f",
+      "files": 125,
+      "head": "879ff545aa19330ac884dd320fdd3ccfbd265d9b",
+      "tree": "65355bc7b2849809c83121e90e953429ba81ffde",
+      "src": "0049640f793f5dd505bf2fea6fd8274f0f074f08",
+      "producer_run": 37191705233,
+      "producer_attempt": 1,
+      "producer_conclusion": "success"
+    },
+    "candidate": {
+      "artifact_id": 11314237960,
+      "artifact_bytes": 21426096,
+      "artifact_sha256": "0cd6a739f5226f92e85eb0f3205ffc8ee05dbf9bc21bb6f04f59cf5921041f9d",
+      "manifest_sha256": "395d0dd523086a958649bb39458fc5337dbf5ab1ca12ec5cc877ecba5b0394f0",
+      "files": 125,
+      "head": "7554d64663d11cebb131c7dc8ec7412e36a36b7d",
+      "tree": "139befadef0cebc28a82078a74b8cac6cbecb0b8",
+      "src": "e15b12bee42630ddf1e7823fcdc555a5cb0a42f0",
+      "producer_run": 37231957521,
+      "producer_attempt": 1,
+      "producer_conclusion": "failure"
+    }
+  }
+}

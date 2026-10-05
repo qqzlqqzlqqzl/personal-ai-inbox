@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 
 import httpx
 import core
+from feed_consumption import (summary_feed_policy, PREVIEW_IMAGE_SOURCE,
+                              matches_feed_snapshot, POLICY_SNAPSHOT_FIELDS)
 from content_input import discover_original_cover, is_our_social_feed, first_image_src
 from worker import MF, worker_headers, discover_pending
 from media_repair import repair_entry, needs_repair
@@ -38,7 +40,13 @@ def pending_previews(now, limit=12, feed_id=None):
 
 async def prepare_one(client, row):
     entry_id = row["entry_id"]
+    policy = None
     try:
+        # Capture before the network wait, including for the pending-previews
+        # caller which intentionally carries only entry_id.
+        with core.connect() as db:
+            observed = db.execute("SELECT * FROM analyses WHERE entry_id=?", (entry_id,)).fetchone()
+        policy_snapshot = dict(observed) if observed is not None else None
         response = await client.get(MF + f"/v1/entries/{entry_id}", headers=worker_headers(), timeout=20)
         response.raise_for_status()
         entry = response.json()
@@ -46,6 +54,27 @@ async def prepare_one(client, row):
         with core.connect() as db:
             saved = db.execute("SELECT cover_url FROM analyses WHERE entry_id=?", (entry_id,)).fetchone()
         existing_cover = saved[0] if saved else None
+        policy = summary_feed_policy(entry)
+        if policy:
+            if not matches_feed_snapshot(entry, policy_snapshot):
+                return {"entry_id": entry_id, "result": "skipped", "error": "SourceChanged"}
+            if policy == "identity_unverified":
+                fields = {"preview_checked_at": time.time(), "preview_error": "UnverifiedFeedIdentity"}
+                result = {"entry_id": entry_id, "result": "failed", "error": "UnverifiedFeedIdentity"}
+            else:
+                # Cached markup is not proof of raw RSS provenance. No lookup,
+                # image probe, enrichment or body repair is allowed here.
+                cover = first_image_src(entry.get("content", ""))
+                fields = {"cover_url": cover, "cover_source": PREVIEW_IMAGE_SOURCE if cover else None,
+                          "preview_checked_at": time.time(), "preview_error": None}
+                result = {"entry_id": entry_id, "result": "updated" if cover else "text_only"}
+            fields['updated_at'] = time.time()
+            expected = POLICY_SNAPSHOT_FIELDS + ('cover_url', 'cover_source', 'preview_checked_at', 'preview_error')
+            with core.connect() as db:
+                changed = db.execute("UPDATE analyses SET " + ",".join(key + "=?" for key in fields)
+                                     + " WHERE " + " AND ".join(key + " IS ?" for key in expected),
+                                     (*fields.values(), *(policy_snapshot[key] for key in expected))).rowcount
+            return result if changed == 1 else {"entry_id": entry_id, "result": "skipped", "error": "SourceChanged"}
         if is_product_entry(entry["url"]):
             from product_source import enrich_product_entry
             prepared = await enrich_product_entry(client, entry, MF, worker_headers())
@@ -76,6 +105,10 @@ async def prepare_one(client, row):
         log.info("ai-news preview entry_id=%s result=%s", entry_id, result)
         return {"entry_id": entry_id, "result": result}
     except Exception as exc:
+        if policy:
+            # Keep the prior row and any concurrent winner after rollback.
+            # Returning a bounded error must not trigger another unbound write.
+            return {"entry_id": entry_id, "result": "failed", "error": type(exc).__name__}
         # Error bodies and URLs can contain credentials. Store only the error type.
         error = type(exc).__name__ + (" HTTP " + str(exc.response.status_code) if isinstance(exc, httpx.HTTPStatusError) else "")
         core.update(entry_id, preview_checked_at=time.time(), preview_error=error)

@@ -62,7 +62,12 @@ def test_active_sidebar_count_uses_filtered_total_without_corrupting_native_coun
     assert 'fetchTodayEntries("unread", { limit: 1 }, false, false)' in entries
     assert 'fetchStarredEntries(status, { limit: 1 }, false, false)' in entries
     assert '!content.filterString && !aiFilterEnabled()' in article_list
-    assert "const activeScopeCount = useStore(dynamicCountState)" in sidebar
+    assert "const resultCount = useStore(dynamicCountState)" in sidebar
+    assert "const resultReady = useStore(articleListResultReadyState)" in sidebar
+    assert "const activeScopeCount = resultReady && infoFrom === activeScope" in sidebar
+    assert "infoFrom === scope ? activeScopeCount : nativeCount" in sidebar
+    assert 'contentState.setKey("articleListResultOwner", { requestKey, sessionRevision: requestSessionRevision })' in article_list
+    assert 'if (filterString || filterDate)' in read("store/contentState.js")
     assert 'count={scopedCount("today", unreadTodayCount)}' in sidebar
     assert 'activeScope === "feed"' in sidebar
     assert 'activeScope === "category"' in sidebar

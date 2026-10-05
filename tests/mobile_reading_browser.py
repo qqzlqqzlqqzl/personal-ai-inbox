@@ -16,10 +16,36 @@ args=parser.parse_args()
 reports=[]
 dimensions=[(320,640),(360,640),(390,844),(412,915),(430,932),(390,576),(390,400),(640,360),(844,390)]
 
+def assert_theme(h, theme, stage):
+    # Observe the product-applied theme. Never repair the DOM to make evidence pass.
+    expect(h.page.locator('body')).to_have_attribute('arco-theme', theme)
+    h.page.wait_for_function("""() => [...document.querySelectorAll('.article-title,.card-title,.grid-card-title')]
+      .some(e=>e.getClientRects().length>0)""")
+    observed=h.page.evaluate(r"""() => {
+      const rgba=s=>(s.match(/[\d.]+/g)||[]).map(Number);
+      const blend=(c,b)=>c.slice(0,3).map((n,i)=>n*(c[3]??1)+b[i]*(1-(c[3]??1)));
+      const lum=c=>c.map(n=>{n/=255;return n<=.04045?n/12.92:((n+.055)/1.055)**2.4})
+        .reduce((v,n,i)=>v+n*[.2126,.7152,.0722][i],0);
+      const samples=[...document.querySelectorAll('.article-title,.article-body p,.card-title,.grid-card-title')]
+        .filter(e=>e.getClientRects().length>0).slice(0,12).map(e=>{
+          let n=e;const layers=[];
+          while(n){layers.push(rgba(getComputedStyle(n).backgroundColor));n=n.parentElement}
+          const bg=layers.reverse().reduce((base,color)=>color.length>=3?blend(color,base):base,[255,255,255]);
+          const color=getComputedStyle(e).color,a=lum(blend(rgba(color),bg)),b=lum(bg);
+          return {color,background:bg,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+        });
+      return {stored:JSON.parse(localStorage.getItem('settings')).themeMode,
+        applied:document.body.getAttribute('arco-theme'),colorScheme:getComputedStyle(document.body).colorScheme,
+        background:getComputedStyle(document.body).backgroundColor,samples};
+    }""")
+    h.check('theme_'+stage, observed['stored']==theme and observed['applied']==theme and observed['colorScheme']==theme)
+    h.check('theme_contrast_'+stage, bool(observed['samples']) and all(sample['contrast']>=4.5 for sample in observed['samples']))
+    (h.out/('theme-'+stage+'.json')).write_text(json.dumps(observed,indent=2))
+
 def setup(name,width,height,theme):
     h=Harness(name,has_touch=True,is_mobile=True,viewport={'width':width,'height':height})
     p=h.page
-    p.add_init_script("localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all',theme:"+json.dumps(theme)+"}));if(!localStorage.getItem('ai-view-state'))localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:8,sort:'score',direction:'desc',auxiliary:'none'}))")
+    p.add_init_script("if(!localStorage.getItem('settings'))localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all',themeMode:"+json.dumps(theme)+"}));if(!localStorage.getItem('ai-view-state'))localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:8,sort:'score',direction:'desc',auxiliary:'none'}))")
     h.settings['minimum_score']=8
     h.status={'counts':{'done':6564,'pending':1120},'kaggle':{'enabled':True,'lanes':{str(n):{'state':'cooldown','outstanding':{'state':'submit_unknown'}} for n in range(5)}}}
     h.feeds[0].update(icon={'feed_id':7,'icon_id':0},checked_at='2026-10-01T08:00:00Z',parsing_error_count=0,parsing_error_message='',disabled=False,hide_globally=False)
@@ -35,7 +61,7 @@ def setup(name,width,height,theme):
     h.goto()
     expect(p.locator('.entry-list [data-entry-id="101"]').first).to_be_visible()
     expect(p.locator('.page-info')).to_contain_text('(12)')
-    if theme=='dark':p.evaluate("document.body.setAttribute('arco-theme','dark')")
+    assert_theme(h, theme, 'initial')
     return h
 
 def metrics(p):
@@ -70,6 +96,7 @@ for width,height in ([(390,844)] if args.focus else dimensions):
     try:
       m=metrics(p);reports.append({'name':name,**m})
       (h.out/'geometry.json').write_text(json.dumps(m,indent=2))
+      assert_theme(h, theme, 'list-screenshot')
       p.screenshot(path=str(h.out/'list.png'))
       if args.baseline:
         h.check('baseline_measurement_recorded',m['list']['height']>0)
@@ -84,7 +111,7 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       h.check('search_sort_footer_touch_targets',p.locator('.reader-search-trigger,.ai-sort-select,.entry-panel button,.entry-panel .arco-radio-button').evaluate_all('(nodes)=>nodes.filter(e=>e.getClientRects().length).every(e=>{const r=e.getBoundingClientRect();return r.width>=43.9&&r.height>=43.9})'))
       p.locator('.entry-list').first.evaluate('e=>e.scrollTop=e.scrollHeight')
       expect(p.locator('.entry-list [data-entry-id="112"]').first).to_be_visible()
-      contrast=p.locator('.ai-minimum select').evaluate('''e=>{
+      contrast=p.locator('.ai-minimum select').evaluate(r'''e=>{
         const rgb=s=>(s.match(/[\d.]+/g)||[]).slice(0,3).map(Number);
         const luminance=s=>rgb(s).map(n=>{n/=255;return n<=.04045?n/12.92:((n+.055)/1.055)**2.4}).reduce((v,n,i)=>v+n*[.2126,.7152,.0722][i],0);
         const c=getComputedStyle(e),a=luminance(c.color),b=luminance(c.backgroundColor);
@@ -103,13 +130,22 @@ for width,height in ([(390,844)] if args.focus else dimensions):
         expect(p.locator('.ai-status-dialog .ai-progress')).to_contain_text('6564 / 7684')
         expect(p.locator('.ai-status-dialog')).to_contain_text('提交未确认')
         expect(p.locator('.ai-status-dialog')).to_contain_text('上次成功读取')
-        if cycle==0:p.screenshot(path=str(h.out/'status.png'))
+        if cycle==0:
+          assert_theme(h, theme, 'status-screenshot')
+          p.screenshot(path=str(h.out/'status.png'))
         if cycle%2:p.keyboard.press('Escape')
         else:p.get_by_role('button',name='关闭运行状态',exact=True).tap()
         expect(p.get_by_role('dialog',name='运行状态与更多',exact=True)).to_be_hidden()
         expect(trigger).to_be_focused()
       h.check('status_close_preserves_anchor_and_query',abs(scroll.evaluate('e=>e.scrollTop')-before)<=2 and len(h.requests)==before_queries)
       h.check('closed_diagnostics_use_no_layout_height',metrics(p)['list']['height']==m['list']['height'])
+      if (width,height,theme)==(390,844,'light'):
+        # Refs #112: light full-text must be evidence too, not just a list screenshot.
+        p.goto(h.base+'/inbox/all/entry/101')
+        expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_enabled()
+        assert_theme(h, theme, 'light-full-text')
+        p.screenshot(path=str(h.out/'full-text.png'))
+        p.go_back();assert_theme(h, theme, 'light-return')
       if (width,height,theme)!=(390,844,'dark'):continue
       # Status-to-navigation handoff keeps one modal and restores visible opener.
       trigger.tap();p.get_by_role('button',name='快速跳转',exact=False).tap()
@@ -171,6 +207,7 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       expect(p.get_by_role('combobox',name='排序方式',exact=True)).to_have_value('technical_asc')
       p.get_by_role('button',name='有笔记',exact=True).tap();expect(p.get_by_role('button',name='有笔记',exact=True)).to_have_attribute('aria-pressed','true')
       p.reload();expect(p.get_by_role('button',name='有笔记',exact=True)).to_have_attribute('aria-pressed','true')
+      assert_theme(h, theme, 'reload')
       expect(p.get_by_role('combobox',name='排序方式',exact=True)).to_have_value('technical_asc')
       h.check('sort_auxiliary_reload_persistence',True)
       p.get_by_role('button',name='有笔记',exact=True).tap()
@@ -235,6 +272,7 @@ for width,height in ([(390,844)] if args.focus else dimensions):
           h.check(f'200_percent_sort_{text_width}_{value}_fully_readable',selected_sort_readable(p) and not metrics(p)['overflow'])
       p.set_viewport_size({'width':390,'height':844})
       p.get_by_role('button',name='有笔记',exact=True).tap();sort.select_option('technical_asc')
+      assert_theme(h, theme, 'text-200-screenshot')
       p.screenshot(path=str(h.out/'text-200.png'))
       p.evaluate("document.documentElement.style.fontSize=''")
       # Portrait/landscape transition and browser Back/Forward preserve filter storage.
@@ -243,12 +281,15 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       h.check('phone_landscape_keeps_compact_touch_layout',p.locator('.ai-status-trigger').is_visible() and metrics(p)['toolbar']['height']+metrics(p)['navigation']['height']<=92)
       p.set_viewport_size({'width':390,'height':844})
       state=p.evaluate("JSON.parse(localStorage.getItem('ai-view-state'))")
-      p.goto(h.base+'/inbox/feed/7');p.go_back();p.go_forward()
+      p.goto(h.base+'/inbox/feed/7');assert_theme(h, theme, 'feed')
+      p.go_back();assert_theme(h, theme, 'back')
+      p.go_forward();assert_theme(h, theme, 'forward')
       p.wait_for_function("JSON.parse(localStorage.getItem('ai-view-state')).hydrated===true")
       after=p.evaluate("JSON.parse(localStorage.getItem('ai-view-state'))")
       h.check('back_forward_retains_filter',all(after[key]==state[key] for key in ['mode','auxiliary','minimum','sort','direction']))
       # Full article is a separate scroll layer. Reach the final text, link, note and pager.
       p.goto(h.base+'/inbox/all/entry/101')
+      assert_theme(h, theme, 'direct-article')
       expect(p.get_by_role('textbox',name='我的笔记',exact=True)).to_be_enabled()
       body=p.locator('.article-content')
       h.check('full_text_last_paragraph_reachable',last_visible(p,'#mobile-final-paragraph','.article-content'))
@@ -262,6 +303,7 @@ for width,height in ([(390,844)] if args.focus else dimensions):
       h.check('phone_landscape_full_text_touch_targets',p.locator('.action-buttons button').evaluate_all('(nodes)=>nodes.filter(e=>e.getClientRects().length).every(e=>{const r=e.getBoundingClientRect();return r.width>=43.9&&r.height>=43.9})'))
       p.set_viewport_size({'width':390,'height':844})
       note.scroll_into_view_if_needed()
+      assert_theme(h, theme, 'full-text-screenshot')
       p.screenshot(path=str(h.out/'full-text.png'))
       p.get_by_role('button',name='关闭文章',exact=True).click()
       h.check('no_other_backend_writes',all(w[1].endswith('/ai/reading-session') or (w[1].endswith('/ai/settings') and set(w[2])=={'minimum_score'}) for w in h.writes))

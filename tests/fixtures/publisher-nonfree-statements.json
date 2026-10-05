@@ -1,0 +1,24 @@
+{
+  "provenance": "Public metadata observed by the main coordinator on 2026-10-04; selected fields, not raw HTTP or reading-history export",
+  "visible_payment_prompt_observed": false,
+  "statements": [
+    {
+      "canonical": "https://www.theverge.com/tech/1003034/meta-vr-glasses-vs-augmented-reality",
+      "article": {
+        "@type": "NewsArticle",
+        "url": "https://www.theverge.com/tech/1003034/meta-vr-glasses-vs-augmented-reality",
+        "mainEntityOfPage": "https://www.theverge.com/tech/1003034/meta-vr-glasses-vs-augmented-reality",
+        "isAccessibleForFree": false
+      }
+    },
+    {
+      "canonical": "https://www.theverge.com/games/1004418/capcom-ai-game-development",
+      "article": {
+        "@type": "NewsArticle",
+        "url": "https://www.theverge.com/games/1004418/capcom-ai-game-development",
+        "mainEntityOfPage": "https://www.theverge.com/games/1004418/capcom-ai-game-development",
+        "isAccessibleForFree": false
+      }
+    }
+  ]
+}

@@ -10,10 +10,15 @@ No upstream tree is vendored: the verifier fetches exact official source.
 
 `POST /v1/entries/metadata`, using the existing user's `X-Auth-Token` or Basic
 authentication. The only request object is `{"entry_ids":[1,2,3]}`. The exact
-successful envelope is `{"entries":[{"id":1,"user_id":1,"feed_id":2,"title":"…","published_at":"…"}]}`.
+successful envelope is `{"entries":[{"id":1,"user_id":1,"feed_id":2,"title":"…","url":"https://example.org/article","published_at":"…"}]}`.
 Responses set `Cache-Control: no-store` and `X-Reader-Entry-Metadata: 1`.
 An authenticated empty-array POST is the capability probe; the ordinary version
 string alone is insufficient. Reader requires the capability header and exact DTO.
+The URL extension retains capability `1` and compatibility version `2.3.3`;
+therefore an empty probe cannot distinguish the previous five-field binary.
+The paired release must pin the real binary checksum and verify a nonempty
+six-field response. A previous five-field nonempty response fails closed with
+Reader HTTP 503, even when its capability header is `1`.
 
 - Exactly one `entry_ids` key; unknown/duplicate/case-alias keys, missing/null IDs,
   trailing JSON, every URL query (including a bare `?`), zero/negative/fractional,
@@ -27,8 +32,12 @@ string alone is insufficient. Reader requires the capability header and exact DT
 - Foreign, removed, deleted and nonexistent IDs are omitted identically. No totals
   or reason codes reveal why. Omission does not authorize deletion of Reader notes
 - A single parameterized `SELECT` binds authenticated user ID and the full candidate
-  array, selecting id/user_id/feed_id/title/published_at plus internal timezone
-- No body, cookie, enclosure, URL, note, analysis, feed settings or token field is
+  array, selecting id/user_id/feed_id/title/url/published_at plus internal timezone
+- `url` is the current stored entry URL, returned verbatim without normalization,
+  truncation, a new permission or a new account scope. Reader requires a string
+  containing at least one non-whitespace character. Feed refresh can change URL
+  without changing `changed_at`, so the latter is not URL freshness evidence
+- No body, cookie, enclosure, note, analysis, feed settings or token field is
   selected or serialized. Heap pages may contain other columns; this is projection
   avoidance, not a claim of zero physical access to such pages
 - PostgreSQL `AT TIME ZONE` and upstream `timezone.Convert` preserve ordinary
@@ -98,9 +107,9 @@ Go unit tests exercise strict parsing, trusted context enforcement, exact body a
 ID boundaries, bound arguments, exactly one projection statement, storage validation,
 pre-canceled context, timeout, row closure, scan and late-row failure. PostgreSQL
 tests exercise actual migrations/schema, Basic/API-key auth, token precedence,
-revocation, multi-user/admin isolation, corrupt/missing parents, exact five-field
+revocation, multi-user/admin isolation, corrupt/missing parents, exact six-field
 DTO, 10,000 actual results, body/enclosure-independent payload, title freshness
-without changed_at, ordinary-query timestamp parity across DST/offset/subseconds/
+and URL freshness without changed_at, ordinary-query timestamp parity across DST/offset/subseconds/
 minimum date, normal auth audit writes, real blocking query cancellation/deadline,
 connection release/reuse, ordinary entries/me and unchanged OPTIONS behavior.
 Driver wrappers record SQL text without parameter values. Deliberate query/scan/
@@ -119,6 +128,9 @@ Do not deploy from this PR without separately authorized staging/deployment work
    capability probe and failure/ownership behavior. Retain prior exact binary/image
 3. Deploy Miniflux capability before enabling Reader's explicit
    `READER_NOTES_METADATA=1` switch. The default Reader path remains the prior path
+   for notes. The recommendation-quality consumer also requires this exact URL
+   extension whenever its current scope contains source-bound exclusions, so stage
+   the reviewed six-field Miniflux binary before the quality Reader release
 4. Once enabled, unsupported/missing headers, auth/provider errors, oversize inputs
    and malformed/cross-user metadata fail visibly. Never silently switch to bodies,
    split one admitted snapshot into batches, delete notes, or return total zero
@@ -126,7 +138,9 @@ Do not deploy from this PR without separately authorized staging/deployment work
    This patch guarantees only one metadata statement snapshot. Reader must perform
    its documented contradiction repair; there is no distributed transaction
 6. Roll back **Reader first**: disable the explicit consumer switch or restore its
-   known-good prior release. Verify notes/ordinary entries, then restore the exact
+   known-good prior release. Disabling only the notes switch does not disable the
+   recommendation-quality consumer; for this extension restore the prior Reader
+   release before restoring the five-field binary. Verify notes/ordinary entries, then restore the exact
    prior Miniflux image/binary. Verify auth/health/entries again. Preserve notes and
    volumes. The patch adds no schema or stored metadata state to roll back
 7. Any upstream upgrade requires a fresh auth/schema/timezone/route review, explicit

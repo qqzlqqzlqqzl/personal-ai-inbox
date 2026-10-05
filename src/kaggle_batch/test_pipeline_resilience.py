@@ -89,7 +89,7 @@ class EntryIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.f=FulltextBridgeTests();self.f.setUp()
         self.f.db.execute('ALTER TABLE card_translations ADD COLUMN error TEXT')
         self.f.db.execute('ALTER TABLE card_translations ADD COLUMN updated_at REAL')
-        self.f.db.execute("INSERT INTO analyses SELECT 2,user_id,title,url,state,next_try,attempts,published_at,truncated,content_hash,source_text,content_source,source_chars,input_chars,image_count,extracted_at,updated_at,error FROM analyses WHERE entry_id=1")
+        self.f.db.execute("INSERT INTO analyses(entry_id,user_id,title,url,state,next_try,attempts,published_at,truncated,content_hash,source_text,content_source,source_chars,input_chars,image_count,extracted_at,updated_at,error,content_quality) SELECT 2,user_id,title,url,state,next_try,attempts,published_at,truncated,content_hash,source_text,content_source,source_chars,input_chars,image_count,extracted_at,updated_at,error,content_quality FROM analyses WHERE entry_id=1")
         self.f.db.commit()
     def tearDown(self):self.f.tearDown()
     def patches(self):

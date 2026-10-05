@@ -1,0 +1,711 @@
+"""Uncommitted review candidate: five cold/warm pairs against a bounded HTTP fixture.
+
+No context/page route, downloads, production URL, real account, subprocess installer,
+or arbitrary Chromium executable. NOT_RUN is a failing exit, never a green result.
+"""
+from __future__ import annotations
+import argparse
+from decimal import Decimal
+import hashlib
+import importlib.metadata
+import io
+import json
+import math
+import os
+from pathlib import Path
+import statistics
+import stat
+import sys
+import tempfile
+import time
+from urllib.parse import urlsplit
+import zipfile
+
+from reader_loading_fixture import Fixture, TOKEN, SCENARIO, admit_build, bound_read, checked_directory, require
+from reader_loading_navigation import NavigationObservation
+from reader_loading_transport import IDENTITY, PROFILES, profile_identity
+from reader_loading_body import BODY_CONTRACT, BODY_OBSERVER, mark as body_mark, collect as collect_body, validate_ready, validate_open_observation
+
+PLAYWRIGHT = '1.63.0'
+CHROMIUM = '153.0.8010.12'
+REVISION = 'chromium-1243'
+UNIX_SOCKET_PATH_BYTES = 107  # Linux sun_path[108], reserving the terminating NUL.
+CHROMIUM_SOCKET_SUFFIX_BYTES = 64  # Conservative allowance for Chromium's child socket path.
+PROBE = """(() => {
+  window.__perfProbe = {images:[], prefetch:[], violations:[], longTasks:[]};
+  const at=()=>performance.timeOrigin+performance.now();
+  addEventListener('load', e=>{if(e.target instanceof HTMLImageElement)
+    window.__perfProbe.images.push({src:new URL(e.target.currentSrc).pathname,at:at(),width:e.target.naturalWidth,height:e.target.naturalHeight})},true);
+  addEventListener('inbox:prefetch',e=>window.__perfProbe.prefetch.push({at:at(),...e.detail}));
+  addEventListener('securitypolicyviolation',e=>window.__perfProbe.violations.push({at:at(),directive:e.effectiveDirective}));
+  new PerformanceObserver(list=>{for(const e of list.getEntries())window.__perfProbe.longTasks.push({start:e.startTime,duration:e.duration})}).observe({type:'longtask',buffered:true});
+})()"""
+
+
+class NotRun(RuntimeError): pass
+
+
+def finite_nonnegative(value, label):
+    valid=type(value) in (int,float)
+    try: valid=valid and math.isfinite(value) and value>=0
+    except (OverflowError,TypeError): valid=False
+    require(valid, 'invalid finite nonnegative metric: '+label)
+    return value
+
+
+def save_new(path, value):
+    path = Path(path)
+    parent = checked_directory(path.parent)
+    root_fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in parent.parts[1:]:
+            following = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+            os.close(root_fd); root_fd = following
+        current = os.fstat(root_fd)
+        require(current.st_uid == os.getuid() and stat.S_IMODE(current.st_mode) == 0o700,
+                'receipt directory must be owned and private')
+        fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root_fd)
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.write('\n')
+        visible = parent.stat(follow_symlinks=False)
+        require((current.st_dev,current.st_ino)==(visible.st_dev,visible.st_ino), 'receipt parent replaced; bytes retained at bound parent')
+    finally:
+        os.close(root_fd)
+
+
+def private_browser_tmp(parent='/tmp'):
+    parent = checked_directory(parent)
+    info = parent.stat(follow_symlinks=False)
+    require((info.st_uid in (0, os.getuid()) and not info.st_mode & 0o022) or
+            (info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)),
+            'browser temporary parent must have trusted ownership and no unprotected other writers')
+    # mkdtemp currently adds eight ASCII characters. Check both the predicted
+    # and actual path; count filesystem bytes, not Python Unicode characters.
+    require(len(os.fsencode(parent / 'rl-XXXXXXXX')) + CHROMIUM_SOCKET_SUFFIX_BYTES <= UNIX_SOCKET_PATH_BYTES,
+            'browser TMPDIR exceeds AF_UNIX byte budget before launch')
+    result = Path(tempfile.mkdtemp(prefix='rl-', dir=parent))
+    checked_directory(result)
+    info = result.stat(follow_symlinks=False)
+    require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
+            'browser temporary directory must be owned-private')
+    require(len(os.fsencode(result)) + CHROMIUM_SOCKET_SUFFIX_BYTES <= UNIX_SOCKET_PATH_BYTES,
+            'generated browser TMPDIR exceeds AF_UNIX byte budget; directory retained')
+    return result  # No automatic deletion; never reuse a user/browser profile.
+
+
+def browser_env(output):
+    output = checked_directory(output)
+    info = output.stat(follow_symlinks=False)
+    require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
+            'browser output directory must be owned-private')
+    result = {'PATH': '/usr/bin:/bin', 'HOME': str(output/'home'), 'TMPDIR': str(private_browser_tmp()),
+              'LANG': 'C.UTF-8', 'TZ': 'UTC', 'XDG_CACHE_HOME': str(output/'cache'),
+              'XDG_CONFIG_HOME': str(output/'config')}
+    for key in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME'):
+        Path(result[key]).mkdir(mode=0o700)
+    return result
+
+
+def artifact_identity(path, expected_sha, files, expected_tree):
+    p = Path(os.path.abspath(path))
+    raw = bound_read(p.parent, p.name)
+    require(hashlib.sha256(raw).hexdigest() == expected_sha, 'artifact digest mismatch')
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        require(len(z.infolist()) <= 1024 and sum(m.file_size for m in z.infolist()) <= 64*1024*1024,
+                'artifact unpacked-size or member cap exceeded')
+        require(z.testzip() is None, 'artifact CRC failure')
+        identity = json.loads(z.read('artifacts/ci-reader-identity.json'))
+        require(identity['tree'] == expected_tree and identity.get('passed') is True, 'artifact source identity mismatch')
+        prefix = 'runtime/browser-build/'
+        names = {n[len(prefix):] for n in z.namelist() if n.startswith(prefix) and not n.endswith('/')}
+        require(names == set(files), 'artifact build set mismatch')
+        for name, data in files.items():
+            require(z.read(prefix+name) == data, 'artifact build bytes differ')
+    return {'head': identity['head'], 'tree': identity['tree'], 'src': identity['src_tree'],
+            'artifact_sha256': expected_sha, 'artifact_bytes': len(raw),
+            'reactflux': identity['reactflux'], 'pnpm_lock_sha256': identity['pnpm_lock_sha256']}
+
+
+def count_images(records):
+    return sum(r['label'].startswith('image-') and r['method']=='GET' for r in records)
+
+
+def install_network_observer(context, page, events, base):
+    session = context.new_cdp_session(page)
+    session.send('Network.enable')
+    session.send('Network.setCacheDisabled', {'cacheDisabled': False})
+    def record(kind, row):
+        if len(events) >= 12000: raise AssertionError('network evidence budget exhausted')
+        out = {'kind': kind, 'request_id': row.get('requestId'), 'timestamp': row.get('timestamp')}
+        if kind == 'request':
+            request = row['request']; parsed = urlsplit(request['url'])
+            out.update(path=parsed.path if request['url'].startswith(base+'/') else '[blocked-origin]',
+                       url=request['url'] if request['url'].startswith(base+'/') else '[blocked-origin]',
+                       method=request['method'], type=row.get('type'), wall_time=row.get('wallTime'),
+                       priority=request.get('initialPriority'))
+        elif kind == 'response':
+            response = row['response']
+            out.update(status=response['status'], from_disk_cache=response.get('fromDiskCache',False),
+                       from_service_worker=response.get('fromServiceWorker',False), timing=response.get('timing'),
+                       headers={k:v for k,v in response.get('headers',{}).items() if k.lower() in
+                                ('cache-control','etag','content-length','content-type','age','last-modified','content-encoding','vary')})
+        elif kind == 'finished': out['encoded_bytes'] = row.get('encodedDataLength')
+        elif kind == 'failed': out.update(error=row.get('errorText'), canceled=row.get('canceled',False))
+        events.append(out)
+    for event, kind in [('requestWillBeSent','request'),('responseReceived','response'),
+                        ('loadingFinished','finished'),('loadingFailed','failed'),('requestServedFromCache','cache-hit')]:
+        session.on('Network.'+event, lambda row,kind=kind: record(kind,row))
+    return session
+
+
+def activate(locator, input_kind):
+    if input_kind == 'touch': locator.tap()
+    else: locator.focus(); locator.press('Enter')
+
+
+def wait_for_observation(page, locator, predicate, timeout_ms=15000):
+    """Poll a synchronous DOM observation via CDP, without page-side eval timers.
+
+    Keep the prior wait_for_function 15s readiness deadline. The initial list's
+    separate 5s expectation is untouched. Each DOM call shares this one deadline.
+    """
+    require(type(timeout_ms) is int and 0 < timeout_ms <= 15000, 'invalid observation deadline')
+    deadline=time.monotonic()+timeout_ms/1000
+    while True:
+        remaining=deadline-time.monotonic()
+        if remaining<=0: raise TimeoutError('DOM observation readiness deadline exceeded')
+        value=locator.evaluate(predicate,timeout=max(1,math.ceil(remaining*1000)))
+        if time.monotonic()>deadline: raise TimeoutError('DOM observation readiness deadline exceeded')
+        require(type(value) is bool, 'DOM observation did not return a boolean')
+        if value: return
+        remaining=deadline-time.monotonic()
+        if remaining<=0: raise TimeoutError('DOM observation readiness deadline exceeded')
+        # Dispatch real CDP events while waiting; no busy loop or OS sleep.
+        page.wait_for_timeout(min(50,remaining*1000))
+
+
+def open_article(page, input_kind, number=1, observation=None):
+    observation = observation if observation is not None else {}
+    before = time.monotonic()
+    observation.update(contract=BODY_CONTRACT, before=body_mark(page,'driver-before-open',{'entry':number,'input':input_kind}))
+    activate(page.locator(f'.entry-list [data-entry-id="{number}"]').first, input_kind)
+    page.locator('.article-body').wait_for(state='visible')
+    wait_for_observation(page,page.locator('.article-body'),"e=>(e.innerText.length>100 && !e.getAttribute('aria-busy'))")
+    observation['container_ready_ms']=(time.monotonic()-before)*1000
+    observation['container_ready']=body_mark(page,'container-ready-not-prose-proof')
+    wait_for_observation(page,page.locator('.article-body'),"e=>Boolean(window.__readerBodyObservation.opens.at(-1)?.first_prose && window.__readerBodySnapshot().ready)")
+    observation['prose_ready']=body_mark(page,'prose-dom-ready')
+    validate_ready(observation['prose_ready'])
+    opening=page.evaluate('(sequence)=>window.__readerBodyOpenResult(sequence)',observation['before']['openSequence'])
+    require(opening and opening['activation'] and opening['first_prose'],'missing passive activation/prose observation')
+    observation['activation']=opening['activation'];observation['first_prose']=opening['first_prose']
+    observation['legacy_driver_wait_ms']=(time.monotonic()-before)*1000
+    observation['prose_dom_ready_ms']=opening['first_prose']['at']-opening['activation']['at']
+    validate_open_observation(observation)
+    return observation['prose_dom_ready_ms']
+
+
+def close_article(page, input_kind):
+    body_mark(page,'driver-before-close')
+    activate(page.get_by_role('button', name='关闭文章', exact=True), input_kind)
+    page.locator('.article-body').wait_for(state='hidden')
+    body_mark(page,'driver-after-body-hidden')
+
+
+def image_sweep(page):
+    rows=[]
+    for number in range(1,7):
+        item=page.locator(f'.article-body img[src="/fixture-images/{number}.png"]').first
+        start=time.monotonic(); item.scroll_into_view_if_needed()
+        wait_for_observation(page,item,"e=>Boolean(e.complete && e.naturalWidth>0)")
+        detail=item.evaluate("async e=>{await e.decode();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=e.getBoundingClientRect();return {naturalWidth:e.naturalWidth,naturalHeight:e.naturalHeight,width:b.width,height:b.height,top:b.top,visible:b.bottom>0&&b.top<innerHeight,loading:e.loading,fetchPriority:e.fetchPriority,at:performance.timeOrigin+performance.now()}}")
+        require(detail['visible'], 'loaded image is not in viewport')
+        rows.append({'image':number,'scroll_to_visible_ms':(time.monotonic()-start)*1000,**detail})
+    return rows
+
+
+def join_image_network(rows, events, base):
+    for image in rows:
+        expected=f"{base}/fixture-images/{image['image']}.png"
+        matches=[event for event in events if event['kind']=='request' and event.get('url')==expected and event.get('type')=='Image']
+        if len(matches)!=1:
+            image['network_timing']='NO_UNIQUE_REQUEST_EVENT_OBSERVED'
+            continue
+        request=matches[0]
+        related=[event for event in events if event.get('request_id')==request['request_id']]
+        finishes=[event for event in related if event['kind']=='finished']
+        responses=[event for event in related if event['kind']=='response']
+        image['request_to_visible_ms']=image['at']-request['wall_time']*1000
+        image['request_id']=request['request_id']
+        image['browser_cache_event']=any(event['kind']=='cache-hit' for event in related)
+        if finishes:
+            image['request_to_finished_ms']=(finishes[-1]['timestamp']-request['timestamp'])*1000
+            image['encoded_bytes']=finishes[-1].get('encoded_bytes')
+        if responses:
+            image['response_status']=responses[-1]['status']
+            image['from_disk_cache']=responses[-1]['from_disk_cache']
+            image['http_timing']=responses[-1].get('timing')
+    return rows
+
+
+def warm_image_proof(events, rows, base, start_ms, end_ms):
+    """Every displayed image needs its own completed, warm-window cache request."""
+    finite_nonnegative(start_ms,'warm start');finite_nonnegative(end_ms,'warm end')
+    require(end_ms>=start_ms,'reversed warm window')
+    require([row.get('image') for row in rows]==list(range(1,7)) and
+            all(type(row.get('image')) is int for row in rows),'wrong six-image identity set')
+    proof=[];used_ids=set()
+    for row in rows:
+        number=row['image'];expected=f'{base}/fixture-images/{number}.png'
+        visible_ms=finite_nonnegative(row['at'],'image visible time')
+        require(start_ms<=visible_ms<=end_ms and row.get('visible') is True and
+                finite_nonnegative(row['naturalWidth'],'natural width')>0 and
+                finite_nonnegative(row['naturalHeight'],'natural height')>0,'image visibility or decode not established')
+        requests=[event for event in events if event['kind']=='request' and event.get('url')==expected and event.get('type')=='Image']
+        require(len(requests)==1,'expected one exact warm image request: '+str(number))
+        request=requests[0];request_id=request['request_id']
+        require(isinstance(request_id,str) and request_id and request_id not in used_ids,'image request identity reused')
+        used_ids.add(request_id)
+        require(sum(event['kind']=='request' and event.get('request_id')==request_id for event in events)==1,
+                'request ID was redirected or reused')
+        wall_ms=finite_nonnegative(request['wall_time'],'request wall time')*1000
+        request_time=finite_nonnegative(request['timestamp'],'request monotonic time')
+        require(start_ms<=wall_ms<=visible_ms,'image request predates warm trigger or follows visibility')
+        related=[event for event in events if event.get('request_id')==request_id]
+        responses=[event for event in related if event['kind']=='response']
+        finishes=[event for event in related if event['kind']=='finished']
+        require(len(responses)==len(finishes)==1 and not any(event['kind']=='failed' for event in related),
+                'image lacks a unique successful completed request')
+        response=responses[0];finish=finishes[0]
+        require(response['status']==200 and not response.get('from_service_worker',False),'unexpected warm image response')
+        headers={key.lower():value for key,value in response.get('headers',{}).items()}
+        require(headers.get('content-type','').split(';',1)[0]=='image/png','warm response is not the expected image type')
+        response_time=finite_nonnegative(response['timestamp'],'response time')
+        finish_time=finite_nonnegative(finish['timestamp'],'finish time')
+        late_disk_timing=None
+        if response_time>finish_time:
+            # Chromium 153 sends responseReceived with TimeTicks::Now(), but
+            # loadingFinished carries the underlying monotonic_finish_time.
+            # Disk-cache completion may precede that response notification.
+            # Admit only exact ResourceTiming causality, never a time tolerance.
+            require(response.get('from_disk_cache') is True,'late response is not a disk-cache hit')
+            timing=response.get('timing')
+            require(isinstance(timing,dict),'late disk-cache response lacks timing')
+            used={key:Decimal(str(finite_nonnegative(timing.get(key),key))) for key in
+                  ('requestTime','sendStart','sendEnd','receiveHeadersStart','receiveHeadersEnd')}
+            require(used['sendStart']<=used['sendEnd']<=used['receiveHeadersStart']<=used['receiveHeadersEnd'],
+                    'disk-cache resource phases are reversed')
+            headers_end=used['requestTime']+used['receiveHeadersEnd']/1000
+            require(Decimal(str(request_time))<=used['requestTime']<=headers_end<=Decimal(str(finish_time)),
+                    'disk-cache headers do not precede completion in this request')
+            notification_wall_ms=wall_ms+(response_time-request_time)*1000
+            require(start_ms<=notification_wall_ms<=visible_ms<=end_ms,
+                    'disk-cache response notification is outside its visible warm window')
+            late_disk_timing={'basis':'disk-cache-resource-timing',
+                              'headers_end_monotonic':float(headers_end),
+                              'response_notification_wall_ms':notification_wall_ms}
+        else:
+            require(request_time<=response_time<=finish_time,'image event order is invalid')
+        finish_wall_ms=wall_ms+(finish_time-request_time)*1000
+        require(finish_wall_ms<=visible_ms<=end_ms,'image completion is outside the visible warm window')
+        bytes_received=finite_nonnegative(finish.get('encoded_bytes'),'encoded bytes')
+        cached=any(event['kind']=='cache-hit' for event in related)
+        disk=response.get('from_disk_cache') is True
+        require(cached or disk,'this image has no cache evidence')
+        metrics={'request_id':request_id,'request_to_visible_ms':visible_ms-wall_ms,
+                 'request_to_finished_ms':(finish_time-request_time)*1000,'encoded_bytes':bytes_received,
+                 'response_status':response['status'],'from_disk_cache':disk,'browser_cache_event':cached,
+                 'http_timing':response.get('timing')}
+        # The gate and published timing use this same verified record. No later
+        # pathname search is allowed to replace the request with a different URL.
+        row.update(metrics)
+        proof.append({'image':number,'url':expected,'request_id':request_id,'cache_event':cached,
+                      'from_disk_cache':disk,'request_wall_ms':wall_ms,'finished_wall_ms':finish_wall_ms,
+                      'visible_wall_ms':visible_ms,'encoded_bytes':bytes_received,'published_metrics':metrics,
+                      **({'late_disk_cache_timing':late_disk_timing} if late_disk_timing else {})})
+    return proof
+
+
+def await_warm_image_proof(page, events, event_start, rows, base, start_ms):
+    deadline=time.monotonic()+2
+    while True:
+        end_ms=page.evaluate('performance.timeOrigin+performance.now()')
+        try: return warm_image_proof(events[event_start:],rows,base,start_ms,end_ms),end_ms
+        except ValueError:
+            if time.monotonic()>=deadline: raise
+            page.wait_for_timeout(10)
+
+
+MEASUREMENT_CONTRACT='fixture-prose-dom-and-separate-http-cache-v3'
+
+
+def page_identity(session):
+    info=session.send('Target.getTargetInfo')['targetInfo']
+    require(info.get('type')=='page' and isinstance(info.get('targetId'),str) and info['targetId'] and
+            isinstance(info.get('browserContextId'),str) and info['browserContextId'], 'missing isolated page identity')
+    return {'target_id':info['targetId'],'browser_context_id':info['browserContextId']}
+
+
+def require_new_page_same_cache(original, current):
+    require(all(isinstance(identity.get(key),str) and identity[key]
+                for identity in (original,current) for key in ('target_id','browser_context_id')),
+            'missing isolated page/context identity')
+    require(original['target_id']!=current['target_id'], 'HTTP-cache probe reused the original page')
+    require(original['browser_context_id']==current['browser_context_id'], 'HTTP-cache probe changed browser context')
+
+
+def decoded_reopen_observation(rows,start_ms,end_ms):
+    finite_nonnegative(start_ms,'reopen start');finite_nonnegative(end_ms,'reopen end')
+    require(end_ms>=start_ms,'reversed reopen window')
+    require([row.get('image') for row in rows]==list(range(1,7)) and
+            all(type(row.get('image')) is int for row in rows),'wrong reopen image identities')
+    for row in rows:
+        require(start_ms<=finite_nonnegative(row['at'],'reopen visible time')<=end_ms and
+                row.get('visible') is True and finite_nonnegative(row['naturalWidth'],'natural width')>0 and
+                finite_nonnegative(row['naturalHeight'],'natural height')>0,'reopen decode/visibility not established')
+        require(not any(key in row for key in ('request_id','from_disk_cache','browser_cache_event')),
+                'same-page observation cannot claim a network cache identity')
+        require(all(row.get(key) is None for key in ('request_to_visible_ms','request_to_finished_ms')),
+                'same-page observation cannot publish unbound network timing')
+
+
+LIST_SCROLL_ROOT='.entry-list[data-native-scroll="true"], .entry-list .simplebar-content-wrapper'
+LIST_GEOMETRY="""e=>{
+  const r=e.getBoundingClientRect(),native=e.matches('.entry-list[data-native-scroll="true"]');
+  const rows=[...e.querySelectorAll('[data-entry-id]')].map(n=>{const b=n.getBoundingClientRect();return {
+    id:Number(n.dataset.entryId),top:b.top,bottom:b.bottom,
+    visible:Math.min(b.right,r.right,innerWidth)>Math.max(b.left,r.left,0)&&
+      Math.min(b.bottom,r.bottom,innerHeight)>Math.max(b.top,r.top,0)}});
+  return {kind:native?'native':e.matches('.simplebar-content-wrapper')?'simplebar':'unknown',
+    scrollTop:e.scrollTop,scrollHeight:e.scrollHeight,clientHeight:e.clientHeight,
+    rect:{top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height},
+    rows,loadedCount:Number(document.querySelector('.load-more-container')?.dataset.loadedCount),
+    at:performance.timeOrigin+performance.now()};
+}"""
+
+
+def seek_list_entry(page,target,trace,timeout_ms=15000):
+    """Materialize a virtual row by scrolling only the real list root.
+
+    Root discovery, bounded scrolls and the original target alignment share the
+    same 15s deadline. No virtualizer/store API or direct pagination request.
+    """
+    require(type(target) is int and 1<=target<=72,'unexpected list target')
+    require(type(timeout_ms) is int and 0<timeout_ms<=15000,'invalid list seek deadline')
+    deadline=time.monotonic()+timeout_ms/1000
+    def remaining():
+        value=deadline-time.monotonic()
+        if value<=0:raise TimeoutError('virtual list target readiness deadline exceeded')
+        return max(1,math.ceil(value*1000))
+    root=page.locator(LIST_SCROLL_ROOT)
+    root.wait_for(state='visible',timeout=remaining())
+    require(root.count()==1,'ambiguous list scroll root')
+    for step in range(1024):
+        state=root.evaluate(LIST_GEOMETRY,timeout=remaining())
+        remaining()
+        require(state['kind'] in ('native','simplebar'),'unrecognized list scroll root')
+        for key in ('scrollTop','scrollHeight','clientHeight'):finite_nonnegative(state[key],key)
+        require(state['clientHeight']>0 and state['scrollHeight']>=state['clientHeight'],'invalid list scroll geometry')
+        ids=sorted(set(row['id'] for row in state['rows']))
+        require(len(state['rows'])<=144 and all(type(n) is int and 1<=n<=72 for n in ids),'unexpected rendered row identity')
+        sample={'target':target,'step':step,**state};trace.append(sample)
+        if target in ids:
+            page.locator(f'.entry-list [data-entry-id="{target}"]').first.evaluate(
+                "e=>e.scrollIntoView({block:'start',behavior:'instant'})",timeout=remaining())
+            remaining()
+            sample['aligned']=root.evaluate(LIST_GEOMETRY,timeout=remaining())
+            remaining()
+            require(any(row['id']==target and row['visible'] is True
+                        for row in sample['aligned']['rows']),
+                    'aligned list target is not visibly mounted')
+            return root
+        if ids:
+            require(target<ids[0] or target>ids[-1],'missing target within rendered identity range')
+            direction=-1 if target<ids[0] else 1
+            distance=direction*max(1,state['clientHeight']*.7)
+            sample['scroll_delta']=distance
+            root.evaluate("(e,delta)=>e.scrollBy({top:delta,behavior:'instant'})",distance,timeout=remaining())
+        # A bounded two-frame wait lets the real scroll event/React virtualizer
+        # commit. Its timer only rejects the shared deadline, never fabricates a row.
+        root.evaluate("""(e,ms)=>new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>reject(Error('list frame deadline exceeded')),ms);
+          requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(timer);resolve(true)}));
+        })""",remaining(),timeout=remaining())
+    raise TimeoutError('virtual list seek observation budget exceeded')
+
+
+def one_pair(browser, fixture, output, index, input_kind, weak):
+    from playwright.sync_api import expect
+    options = {'viewport': {'width':390,'height':844} if input_kind=='touch' else {'width':1440,'height':960},
+               'is_mobile': input_kind=='touch', 'has_touch':input_kind=='touch',
+               'locale':'zh-CN','service_workers':'block','accept_downloads':False}
+    context = browser.new_context(**options)
+    events=[]; errors=[]; page=None
+    pair={'pair':index,'status':'FAILED','input':input_kind,'hover_dwell':False,'weak_network':weak,'body_observations':[],
+          'measurement_contract':MEASUREMENT_CONTRACT,'transport_profile':fixture.transport_profile}
+    start_record=len(fixture.records)
+    try:
+        context.add_init_script("localStorage.setItem('auth',JSON.stringify({server:location.origin+'/mf',token:"+json.dumps(TOKEN)+",username:'',password:''}));localStorage.setItem('settings',JSON.stringify({articleListLayout:'card',showStatus:'all',theme:'light',markReadOnScroll:false}));localStorage.setItem('ai-view-state',JSON.stringify({mode:'recommended',minimum:6,sort:'score',direction:'desc',auxiliary:'none'}));")
+        context.add_init_script(PROBE)
+        context.add_init_script(BODY_OBSERVER)
+        page=context.new_page(); page.set_default_timeout(15000); page.set_default_navigation_timeout(15000)
+        page.on('pageerror',lambda error:errors.append(str(error)))
+        page.on('download', lambda download: download.cancel())
+        session=install_network_observer(context,page,events,fixture.base)
+        original_page=page_identity(session)
+        if weak:
+            session.send('Network.emulateNetworkConditions',{'offline':False,'latency':150,'downloadThroughput':250000,'uploadThroughput':125000,'connectionType':'cellular3g'})
+        navigation=NavigationObservation(session,fixture.base+'/inbox/all')
+        pair['navigation']=navigation.record
+        began=navigation.mark('goto_start')
+        try:
+            try: page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
+            finally: navigation.mark('goto_end')
+            navigation.mark('assert_start')
+            try: expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')
+            finally: navigation.mark('assert_end')
+            pair['list_initial_ms']=(time.monotonic()-began)*1000
+        finally: navigation.finish()
+        require(navigation.record['status']=='COMPLETE','navigation observation incomplete')
+        page.mouse.move(0,0)
+        pair['before_activation_requests']=len(fixture.records)-start_record
+        pair['before_activation_detail_requests']=sum(r['label'].startswith('detail:') for r in fixture.records[start_record:])
+        pair['cold_body_observation']={}
+        pair['cold_click_to_body_ms']=open_article(page,input_kind,observation=pair['cold_body_observation'])
+        pair['cold_images']=image_sweep(page)
+        join_image_network(pair['cold_images'],events,fixture.base)
+        pair['cold_image_http_requests']=count_images(fixture.records[start_record:])
+        require(pair['cold_image_http_requests']>=6, 'cold context did not issue all six image requests')
+        close_article(page,input_kind)
+        warm_start=len(fixture.records);event_start=len(events)
+        pair['warm_start_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
+        pair['warm_body_observation']={}
+        pair['warm_click_to_body_ms']=open_article(page,input_kind,observation=pair['warm_body_observation'])
+        pair['warm_images']=image_sweep(page)
+        pair['warm_end_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
+        decoded_reopen_observation(pair['warm_images'],pair['warm_start_wall_ms'],pair['warm_end_wall_ms'])
+        pair['warm_observation_class']='SAME_PAGE_DECODED_REOPEN; HTTP_CACHE_HIT_NOT_CLAIMED'
+        pair['warm_page_identity']=original_page
+        pair['warm_cdp_event_range']=[event_start,len(events)]
+        pair['warm_image_http_requests']=count_images(fixture.records[warm_start:])
+        pair['warm_detail_http_requests']=sum(r['label']=='detail:1' for r in fixture.records[warm_start:])
+        require(pair['warm_image_http_requests']==0, 'warm image issued another HTTP GET despite fresh cache')
+        close_article(page,input_kind)
+        pair['next_pages']=[]
+        pair['list_scroll_trace']=[]
+        for target, expected in [(7,48),(31,72)]:
+            start=time.monotonic()
+            scroll_root=seek_list_entry(page,target,pair['list_scroll_trace'])
+            sought=time.monotonic()
+            scroll_root.evaluate("root=>{root.scrollTop=root.scrollHeight}")
+            bottom=time.monotonic()
+            expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count',str(expected))
+            finished=time.monotonic()
+            pair['next_pages'].append({'target_entry':target,'loaded':expected,'trigger_to_append_ms':(finished-start)*1000,
+                                       'seek_to_rendered_row_ms':(sought-start)*1000,
+                                       'fast_scroll_bottom_wait_ms':(finished-bottom)*1000})
+        expect(page.locator('.load-more-container')).to_have_attribute('data-more','false')
+        pair['list_http_offsets']=[r['label'] for r in fixture.records[start_record:] if r['label'].startswith('list:')]
+        require(pair['list_http_offsets']==['list:0:24','list:24:24','list:48:24'], 'pagination refetched or skipped a bounded page')
+        pair['probe']=page.evaluate('window.__perfProbe')
+        pair['original_page_http_record_count']=len(fixture.records)-start_record
+        # A same-page reopen may reuse decoded images without a new network
+        # request. Keep that user timing above, but do not call it HTTP-cache
+        # evidence. A separate new document in this SAME context must satisfy
+        # the original strict six-image request/cache/completion proof below.
+        original_body_trace=collect_body(page)
+        require(original_body_trace and not original_body_trace['truncated'],'body observation budget exhausted or missing')
+        pair['body_observations'].append({'page':'original','observations':original_body_trace})
+        page.close()
+        cache_events=[];cache_start=len(fixture.records)
+        page=context.new_page();page.set_default_timeout(15000);page.set_default_navigation_timeout(15000)
+        page.on('pageerror',lambda error:errors.append(str(error)))
+        page.on('download',lambda download:download.cancel())
+        cache_session=install_network_observer(context,page,cache_events,fixture.base)
+        cache_identity=page_identity(cache_session)
+        require_new_page_same_cache(original_page,cache_identity)
+        cache={'scope':'NEW_PAGE_SAME_BROWSER_CONTEXT_HTTP_CACHE','identity':cache_identity,
+               'previous_page_identity':original_page,'http_record_start':cache_start,
+               'origin':fixture.base,'cdp':cache_events,'status':'FAILED'}
+        pair['http_cache_page']=cache
+        if weak:
+            cache_session.send('Network.emulateNetworkConditions',{'offline':False,'latency':150,'downloadThroughput':250000,'uploadThroughput':125000,'connectionType':'cellular3g'})
+        navigation=NavigationObservation(cache_session,fixture.base+'/inbox/all')
+        cache['navigation']=navigation.record
+        began=navigation.mark('goto_start')
+        try:
+            try: page.goto(fixture.base+'/inbox/all',wait_until='domcontentloaded')
+            finally: navigation.mark('goto_end')
+            navigation.mark('assert_start')
+            try: expect(page.locator('.load-more-container')).to_have_attribute('data-loaded-count','24')
+            finally: navigation.mark('assert_end')
+            cache['bootstrap_ms']=(time.monotonic()-began)*1000
+        finally: navigation.finish()
+        require(navigation.record['status']=='COMPLETE','navigation observation incomplete')
+        page.mouse.move(0,0)
+        cache['image_http_before_activation']=count_images(fixture.records[cache_start:])
+        require(cache['image_http_before_activation']==0,'cache probe loaded article images before user activation')
+        cache_event_start=len(cache_events);cache_image_start=len(fixture.records)
+        cache['image_event_start']=cache_event_start;cache['image_http_record_start']=cache_image_start
+        cache['start_wall_ms']=page.evaluate('performance.timeOrigin+performance.now()')
+        cache['body_observation']={}
+        cache['click_to_body_ms']=open_article(page,input_kind,observation=cache['body_observation'])
+        cache['images']=image_sweep(page)
+        proof,cache['end_wall_ms']=await_warm_image_proof(page,cache_events,cache_event_start,cache['images'],fixture.base,cache['start_wall_ms'])
+        cache['image_http_requests']=count_images(fixture.records[cache_image_start:])
+        cache['image_cache_proof']=proof
+        cache['cdp_cache_events']=sum(x['cache_event'] for x in proof)
+        cache['cdp_image_disk_hits']=sum(x['from_disk_cache'] for x in proof)
+        cache['detail_http_requests']=sum(r['label']=='detail:1' for r in fixture.records[cache_image_start:])
+        cache['http_records']=fixture.records[cache_start:]
+        require(cache['image_http_requests']==0, 'new-page warm image issued another HTTP GET despite fresh cache')
+        require(len(proof)==6, 'six individual image cache proofs are required')
+        cache['status']='PASSED'
+        require(not errors, 'browser emitted a page error')
+        require(not any(r['label'] in ('unsupported-api','budget') for r in fixture.records[start_record:]), 'unsupported API or budget exhaustion')
+        pair.update(status='PASSED',http_records=fixture.records[start_record:],cdp=events,errors=errors)
+    except Exception as exc:
+        pair.update(error_type=type(exc).__name__,error=str(exc),http_records=fixture.records[start_record:],cdp=events,errors=errors)
+        if page:
+            try: page.screenshot(path=str(output/f'pair-{index}-failure.png'),full_page=False)
+            except Exception as screenshot_error: pair['screenshot_error']=type(screenshot_error).__name__+': '+str(screenshot_error)
+        raise
+    finally:
+        observation_was_passed=pair['status']=='PASSED';body_close_error=None
+        if page and not page.is_closed():
+            try:
+                body_trace=collect_body(page)
+                pair['body_observations'].append({'page':'current-at-finish','observations':body_trace})
+                require(body_trace and not body_trace['truncated'],'body observation budget exhausted or missing')
+            except Exception as exc:
+                body_close_error=exc
+                pair.update(status='FAILED',body_observation_error=type(exc).__name__+': '+str(exc))
+        close_error=None
+        try: context.close()
+        except Exception as exc:
+            close_error=exc
+            pair['context_close_error']=type(exc).__name__+': '+str(exc)
+        was_passed=pair['status']=='PASSED'
+        if close_error: pair['status']='FAILED'
+        save_new(output/f'pair-{index}.json',pair)
+        if close_error and was_passed: raise close_error
+        if body_close_error and observation_was_passed: raise body_close_error
+    return pair
+
+
+def boundary_check(browser, fixture):
+    """Actual browser proves unknown HTTP/CONNECT and other-loopback do not bypass proxy."""
+    import http.server, threading
+    from urllib.request import build_opener, ProxyHandler
+    arrivals=[]
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            arrivals.append(self.path);self.send_response(200);self.end_headers();self.wfile.write(b'positive')
+        def log_message(self,*args):pass
+    sentinel=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    thread=threading.Thread(target=sentinel.serve_forever,daemon=True);thread.start()
+    origin=f'http://127.0.0.1:{sentinel.server_port}'
+    context=browser.new_context(service_workers='block',accept_downloads=False)
+    try:
+        with build_opener(ProxyHandler({})).open(origin+'/parent-positive-control',timeout=3) as response:
+            require(response.read()==b'positive','sentinel positive control failed')
+        page=context.new_page();page.set_default_navigation_timeout(5000)
+        start=len(fixture.records)
+        for url in [origin+'/must-not-arrive','http://reader-perf-external.invalid/blocked','https://reader-perf-external.invalid/blocked']:
+            try: page.goto(url,wait_until='domcontentloaded')
+            except Exception: pass
+        observed=fixture.records[start:]
+        require(arrivals==['/parent-positive-control'],'browser escaped exact fixture origin')
+        require(sum(r['label']=='blocked-origin' for r in observed)>=2 and any(r['label']=='blocked-connect' for r in observed),'proxy rejection did not observe all controls')
+        return {'status':'PASSED','sentinel_parent_positive':1,'sentinel_browser_arrivals':0,'rejections':observed}
+    finally:
+        context.close();sentinel.shutdown();sentinel.server_close();thread.join(timeout=3)
+
+
+def main(argv=None, *, pair_index=None):
+    # The A/B coordinator runs one complete unchanged pair at a time. The
+    # ordinary CLI still requires all five; a one-pair report cannot compare.
+    require(pair_index is None or type(pair_index) is int and 1<=pair_index<=5,
+            'invalid isolated A/B pair index')
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--build',required=True);parser.add_argument('--manifest',required=True)
+    parser.add_argument('--manifest-sha',required=True);parser.add_argument('--artifact-zip',required=True)
+    parser.add_argument('--artifact-sha',required=True);parser.add_argument('--source-tree',required=True)
+    parser.add_argument('--phase',choices=['baseline','candidate'],required=True)
+    parser.add_argument('--output-parent',required=True);parser.add_argument('--input',choices=['keyboard','touch'],default='keyboard')
+    parser.add_argument('--weak-network',action='store_true')
+    parser.add_argument('--transport-profile',choices=PROFILES,default=IDENTITY)
+    args=parser.parse_args(argv)
+    if sys.platform!='linux':
+        print(json.dumps({'status':'NOT_RUN','error':'This entry requires Linux directory-FD/O_NOFOLLOW ownership guards; native Windows/macOS are unsupported.',
+                          'platform':sys.platform,'browser_started':False,'output_created':False},ensure_ascii=False))
+        return 1
+    parent=checked_directory(args.output_parent)
+    require(not parent.is_relative_to(checked_directory(args.build)), 'output parent must be outside build')
+    output=Path(tempfile.mkdtemp(prefix='reader-perf-',dir=parent))
+    report={'status':'FAILED','phase':args.phase,'pairs_requested':5 if pair_index is None else 1,'pairs':[], 'production':False,
+            'measurement_contract':MEASUREMENT_CONTRACT,'transport_profile':profile_identity(args.transport_profile),
+            'warm_semantics':{'warm_click_to_body_ms':'same-page user reopen; no HTTP cache-hit claim',
+                              'http_cache_page':'separate new document in the same cache context; strict six-request cache proof'},
+            'physical_device':False,'http_cache_routing_disabled':False,'scenario':SCENARIO,'output':str(output),
+            'started_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()), 'input':args.input,'weak_network':args.weak_network}
+    report['python']=sys.version
+    report['entry_argv']=sys.argv
+    fixture=None;browser=None;pw=None
+    try:
+        files,build=admit_build(args.build,args.manifest,args.manifest_sha)
+        report['build']=build
+        report['identity']=artifact_identity(args.artifact_zip,args.artifact_sha,files,args.source_tree)
+        require(importlib.metadata.version('playwright')==PLAYWRIGHT,'unexpected Playwright version')
+        report['playwright']=PLAYWRIGHT
+        from playwright.sync_api import sync_playwright
+        pw=sync_playwright().start()
+        executable=Path(pw.chromium.executable_path)
+        if not executable.is_file(): raise NotRun('Pinned full Chromium is missing: '+str(executable))
+        checked_directory(executable.parent)
+        require(REVISION in executable.parts and not executable.is_symlink(),'unexpected browser path')
+        fixture=Fixture(files,transport_profile=args.transport_profile)
+        env=browser_env(output)
+        report['browser_environment_names']=sorted(env)
+        report['browser_temporary_directory']={'path':env['TMPDIR'],'path_bytes':len(os.fsencode(env['TMPDIR'])),
+            'owner_uid':os.getuid(),'mode':'0700','outer_directory_retained':True,
+            'socket_suffix_budget_bytes':CHROMIUM_SOCKET_SUFFIX_BYTES,'socket_path_budget_bytes':UNIX_SOCKET_PATH_BYTES}
+        report['browser_executable_sha256']=hashlib.sha256(executable.read_bytes()).hexdigest()
+        browser=pw.chromium.launch(channel='chromium',headless=True,timeout=15000,env=env,chromium_sandbox=True,
+            proxy={'server':fixture.base,'bypass':'<-loopback>'},
+            args=['--disable-background-networking','--disable-component-update','--disable-quic',
+                  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+                  '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'])
+        require(browser.version==CHROMIUM,'unexpected real Chromium version')
+        report['browser_version']=browser.version
+        report['boundary']=boundary_check(browser,fixture)
+        save_new(output/'boundary.json',report['boundary'])
+        for index in range(1,6) if pair_index is None else (pair_index,):
+            report['pairs'].append(one_pair(browser,fixture,output,index,args.input,args.weak_network))
+        report['summary']={key:{'median':statistics.median(row[key] for row in report['pairs']),
+                                'min':min(row[key] for row in report['pairs']),'max':max(row[key] for row in report['pairs'])}
+                           for key in ['list_initial_ms','cold_click_to_body_ms','warm_click_to_body_ms']}
+        report['status']='PASSED'
+    except NotRun as exc:
+        report.update(status='NOT_RUN',error_type=type(exc).__name__,error=str(exc))
+    except Exception as exc:
+        report.update(status='FAILED',error_type=type(exc).__name__,error=str(exc))
+    finally:
+        for name,handle in [('browser',browser),('playwright',pw),('fixture',fixture)]:
+            if handle:
+                try:
+                    handle.stop() if name=='playwright' else handle.close()
+                except Exception as exc:
+                    report.setdefault('close_errors',[]).append({'resource':name,'type':type(exc).__name__,'error':str(exc)})
+                    if report['status']=='PASSED': report['status']='FAILED'
+        if fixture: report['server_records']=list(fixture.records)
+        report['finished_utc']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+        # Detailed pairs have their own immutable files; avoid duplicating large event lists.
+        report['pairs']=[{k:v for k,v in p.items() if k not in ('cdp','http_records','probe','body_observations')} for p in report['pairs']]
+        save_new(output/'result.json',report)
+        print(json.dumps(report,ensure_ascii=False,indent=2))
+    return 0 if report['status']=='PASSED' else 1
+
+
+if __name__=='__main__': raise SystemExit(main())

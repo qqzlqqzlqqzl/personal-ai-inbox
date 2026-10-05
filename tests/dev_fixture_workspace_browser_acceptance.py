@@ -34,8 +34,8 @@ import dev_fixture_workspace as tool
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = Path(__file__).with_name("dev_fixture_workspace.py")
 TOOL_SHA = "068ba17339b5e40c82c0a87a719ea95b72b464ac75974abc2ff656c440c89ba4"
-HARNESS_SHA = "e58e3230d42b2e5b6bf6cf0f79b516ce18e2556dfd12511bd64e1dc1a75be282"
-SRC = "0049640f793f5dd505bf2fea6fd8274f0f074f08"
+HARNESS_SHA = "dd92c06dd9bfdeaeb78d98934106350c56863f383ff03be3aebb931b8db938a6"
+SRC = "3f13dba5dee642a8dd1d5d3a6df87fa5a2a7ee12"
 KEY = "reader.fixture.browser.acceptance.v1"
 NOTE_ID = 987654321
 # The in-page probe has a 12s app deadline and bounded local requests. This

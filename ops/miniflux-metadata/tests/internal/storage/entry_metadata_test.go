@@ -58,7 +58,7 @@ func (c *metadataConn) QueryContext(ctx context.Context, query string, args []dr
 	return &metadataRows{state: c.state}, nil
 }
 func (r *metadataRows) Columns() []string {
-	return []string{"id", "user_id", "feed_id", "title", "published_at", "timezone"}
+	return []string{"id", "user_id", "feed_id", "title", "url", "published_at", "timezone"}
 }
 func (r *metadataRows) Close() error {
 	r.state.rowsClosed++
@@ -72,7 +72,7 @@ func (r *metadataRows) Next(dest []driver.Value) error {
 		return io.EOF
 	}
 	r.index++
-	values := []driver.Value{int64(7), int64(3), int64(2), "fresh title", time.Date(2026, 3, 8, 2, 30, 0, 123456000, time.UTC), "UTC"}
+	values := []driver.Value{int64(7), int64(3), int64(2), "fresh title", "https://example.invalid/current-article", time.Date(2026, 3, 8, 2, 30, 0, 123456000, time.UTC), "UTC"}
 	if r.state.mode == "scan-error" {
 		values[0] = "not-an-integer"
 	}
@@ -94,6 +94,9 @@ func TestMetadataStorageBoundSingleProjection(t *testing.T) {
 	entries, err := s.EntryMetadataByIDs(context.Background(), 3, []int64{7, 9, 7})
 	if err != nil || len(entries) != 1 || entries[0].ID != 7 {
 		t.Fatalf("result=%v error=%v", entries, err)
+	}
+	if entries[0].URL != "https://example.invalid/current-article" {
+		t.Fatalf("current URL missing: %q", entries[0].URL)
 	}
 	if len(state.queries) != 1 || state.queries[0] != entryMetadataSQL || state.rowsClosed != 1 {
 		t.Fatalf("unexpected query/rows lifecycle: %+v", state)

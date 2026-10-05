@@ -18,15 +18,31 @@
     "internal/storage/user.go": "22d0ca92d069f151cf9df41aa4af41a7ba4f12e1",
     "internal/timezone/timezone.go": "a35055eaf1e50f55c7b77c1d2bac7a70cd6eb209"
   },
-  "patch_sha256": "d98f120d0b2841991b63da5836da2bf385b1f85a030bcc3422ce87e11a03e4c5",
+  "patch_sha256": "d0458205c97a3f80ae89ff27b4d318ca9cafba4e957591ae56b9dc67eac3748a",
   "patched_sha256": {
     "internal/api/api.go": "39e67509c3a5a6fe445802cc2e52677ca1d8136a93a75f6e1b2ed797f81e06a3",
     "internal/api/entry_metadata_handler.go": "be4e828726cec4987ab053334830d7fd73faa7aa1ebf003e090c2f4ed9e5dc9d",
-    "internal/storage/entry_metadata.go": "c0058c38616556a8be842f92b643c046c92ef0eab1ba74fb63edc19cfa0305eb"
+    "internal/storage/entry_metadata.go": "ca8c862321b2118ebf562a86d897b738e7342badb15e0dac89160f46f70c2e12"
   },
   "test_sha256": {
     "internal/api/entry_metadata_handler_test.go": "70f45e152c11b2eb1540840e3ab1ed65da4439f5e6fa8d22c77c6b21ac9bfee9",
-    "internal/api/entry_metadata_postgres_test.go": "cb98cc3a71156a50f1ef617ba0f72cc9f5b5b130ac922f1b8292b3cb53e941e0",
-    "internal/storage/entry_metadata_test.go": "b771920bc5c572cb5bc820e9598f975a7769aa0ea85ba2b82d16eac2f4e44e4c"
+    "internal/api/entry_metadata_postgres_test.go": "fa3da552680691b2f9f02ef25da652d164897856fe433c0c05376828726f504f",
+    "internal/storage/entry_metadata_test.go": "baf05f1a89af9329a964dccd356bcd04b2fe85af57791e9839afa8205db700f2"
+  },
+  "candidate_binary": {
+    "platform": "linux/amd64",
+    "sha256": "e73ce7247700c3bc919d2e1f72144599531d3ca77f5307a68bb18818deeb792b",
+    "bytes": 21819554,
+    "version": "2.3.3",
+    "metadata_capability": "1",
+    "metadata_fields": [
+      "id",
+      "user_id",
+      "feed_id",
+      "title",
+      "url",
+      "published_at"
+    ],
+    "acceptance": "compiled locally; exact-source PostgreSQL and paired CI remain required"
   }
 }

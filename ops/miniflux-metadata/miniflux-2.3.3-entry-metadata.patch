@@ -99,7 +99,7 @@ diff --git a/internal/storage/entry_metadata.go b/internal/storage/entry_metadat
 new file mode 100644
 --- /dev/null
 +++ b/internal/storage/entry_metadata.go
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,77 @@
 +// SPDX-License-Identifier: Apache-2.0
 +
 +package storage
@@ -124,13 +124,14 @@ new file mode 100644
 +	UserID      int64     `json:"user_id"`
 +	FeedID      int64     `json:"feed_id"`
 +	Title       string    `json:"title"`
++	URL         string    `json:"url"`
 +	PublishedAt time.Time `json:"published_at"`
 +}
 +
 +// entryMetadataSQL is one statement: all candidate metadata shares one DB snapshot.
 +// Keep the published_at conversion identical to EntryQueryBuilder.fetchEntries.
 +const entryMetadataSQL = `
-+	SELECT e.id, e.user_id, e.feed_id, e.title,
++	SELECT e.id, e.user_id, e.feed_id, e.title, e.url,
 +	       e.published_at AT TIME ZONE u.timezone, u.timezone
 +	FROM entries e
 +	JOIN feeds f ON f.id = e.feed_id AND f.user_id = e.user_id
@@ -165,7 +166,7 @@ new file mode 100644
 +	for rows.Next() {
 +		var entry EntryMetadata
 +		var tz string
-+		if err := rows.Scan(&entry.ID, &entry.UserID, &entry.FeedID, &entry.Title, &entry.PublishedAt, &tz); err != nil {
++		if err := rows.Scan(&entry.ID, &entry.UserID, &entry.FeedID, &entry.Title, &entry.URL, &entry.PublishedAt, &tz); err != nil {
 +			return nil, fmt.Errorf("store: unable to scan entry metadata: %w", err)
 +		}
 +		entry.PublishedAt = timezone.Convert(tz, entry.PublishedAt)

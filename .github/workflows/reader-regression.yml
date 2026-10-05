@@ -69,6 +69,17 @@ jobs:
           timeout --signal=TERM --kill-after=10s 600s node tests/source_history_component_acceptance.mjs
       - name: Build isolated reader
         run: timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py
+      - name: Retain immutable build input separately from full regression evidence
+        if: success() && steps.prepare_evidence.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ci-tested-source.json
+            artifacts/ci-reader-identity.json
+            runtime/browser-build/
+          if-no-files-found: error
+          retention-days: 7
       - name: Install Chromium system dependencies
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
       - name: Install hosted Chromium and headless shell
@@ -111,10 +122,26 @@ jobs:
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/review_console_browser.py
+      - name: Console sticky header geometry across tabs viewports and themes
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/console_header_browser.py
       - name: Reading recovery and navigation in isolated Chromium
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
         run: timeout --signal=TERM --kill-after=10s 600s python tests/review_reading_browser.py
+      - name: Query result ownership across pending reversed empty and failed responses
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/query_result_ownership_browser.py
+      - name: Reading focus layout scroll position and exit focus across viewports and themes
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/reading_focus_browser.py
+      - name: Quality and access badges across raw detail and recommended consumers
+        env:
+          AI_NEWS_TEST_BUILD: runtime/browser-build
+        run: timeout --signal=TERM --kill-after=10s 600s python tests/quality_consumer_browser.py
       - name: Session-owned note privacy and explicit logout regression
         env:
           AI_NEWS_TEST_BUILD: runtime/browser-build
@@ -173,7 +200,11 @@ jobs:
             runtime/browser-failure.png
             runtime/cjk-font/
             runtime/review-console/
+            runtime/console-header/
             runtime/review-reading/
+            runtime/query-result-ownership/
+            runtime/reading-focus-*/
+            runtime/quality-consumer/
             runtime/note-session-privacy/
             runtime/note-request-recovery/
             runtime/note-legacy-*/
@@ -190,6 +221,11 @@ jobs:
             runtime/native-zoom/native-200.png
             runtime/native-zoom/native-200-after300ms.png
             runtime/native-zoom/native-stability.json
+            runtime/native-zoom/native-200-corner-probe.png
+            runtime/native-zoom/native-200-corner-probe.surface.json
+            runtime/native-zoom/native-200-corner-probe.proof.json
+            runtime/native-zoom/native-200.surface.json
+            runtime/native-zoom/native-200-after300ms.surface.json
             artifacts/browser-admission.json
             runtime/calendar-*/
             runtime/browser-build/

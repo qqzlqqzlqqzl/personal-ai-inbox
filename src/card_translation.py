@@ -104,7 +104,31 @@ def _enqueue_card(db, entry, source, model, now, priority, *,admission=None):
 
 
 def enqueue(entries, priority=0, *,admission=None):
+    from feed_consumption import summary_feed_policy, restricted_analysis_fields
     check(admission)
+    # A fixed feed DTO may restrict an already queued card as well as a new one.
+    # Retain existing card data/status; only persist the negative policy marker.
+    allowed=[]
+    restricted=[]
+    for entry in entries:
+        if 'id' not in entry or 'user_id' not in entry or entry.get('content_deferred'):
+            continue
+        policy=summary_feed_policy(entry)
+        if policy:
+            restricted.append((entry,restricted_analysis_fields(policy)['error']))
+        else:
+            allowed.append(entry)
+    if restricted:
+        check(admission)
+        with core.connect() as db:
+            for entry,error in restricted:
+                check(admission)
+                db.execute("""UPDATE card_translations SET error=?
+                    WHERE entry_id=? AND user_id=? AND status NOT IN ('done','native')
+                    AND EXISTS (SELECT 1 FROM analyses a WHERE a.entry_id=card_translations.entry_id
+                        AND a.user_id=card_translations.user_id AND a.url=?)""",
+                    (error,entry['id'],entry['user_id'],entry.get('url')))
+    entries=allowed
     from prepared_content import apply as apply_prepared
     entries = [apply_prepared(e,**options(admission)) for e in entries
                if 'id' in e and 'user_id' in e and not e.get('content_deferred')]
@@ -168,14 +192,18 @@ def validate_items(raw, rows):
     return result
 
 async def translate_once(client=None):
+    from feed_consumption import RESTRICTED_ERRORS
     cfg = core.settings()
     if not cfg.get('translation_enabled',True):
         return {'processed':0,'paused':True}
     now = time.time()
     with core.connect() as db:
-        rows = [dict(r) for r in db.execute('''SELECT * FROM card_translations
-          WHERE status IN ('pending','error','budget_paused','waiting_model','processing')
-          AND attempts<3 AND next_try<=? ORDER BY priority DESC,entry_id DESC LIMIT ?''',(now,BATCH_SIZE))]
+        rows = [dict(r) for r in db.execute('''SELECT c.* FROM card_translations c
+          LEFT JOIN analyses a ON a.entry_id=c.entry_id AND a.user_id=c.user_id
+          WHERE c.status IN ('pending','error','budget_paused','waiting_model','processing')
+          AND c.attempts<3 AND c.next_try<=?
+          AND COALESCE(c.error,'') NOT IN (?,?) AND COALESCE(a.error,'') NOT IN (?,?)
+          ORDER BY c.priority DESC,c.entry_id DESC LIMIT ?''',(now,*RESTRICTED_ERRORS,*RESTRICTED_ERRORS,BATCH_SIZE))]
     if not rows:
         return {'processed':0}
     if rows[0]['attempts'] > 0:

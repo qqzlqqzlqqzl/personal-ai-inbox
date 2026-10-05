@@ -600,6 +600,44 @@ for locale, anchor, additions in [
 # Calendar inputs are checked in; the helper uses the same strict/idempotent anchors.
 exec(compile((ROOT / "patches/calendar-overlay.py").read_text(), str(ROOT / "patches/calendar-overlay.py"), "exec"))
 
+# A retained total belongs to the query/session that produced it, not to whichever
+# route happens to be selected while the next request is pending. Keep the existing
+# request-id, mutation and pagination guards; publish ownership only after those
+# guards and response validation have accepted an initial result.
+patch("src/store/contentState.js", '  articleListError: false,',
+      '  articleListError: false,\n  articleListResultOwner: null,')
+patch("src/store/contentState.js", 'export const dynamicCountState = computed(',
+      '''export const isArticleListResultCurrent = (content, settings, sessionRevision) =>
+  Boolean(content.isArticleListReady && !content.articleListError &&
+    content.articleListResultOwner?.sessionRevision === sessionRevision &&
+    content.articleListResultOwner?.requestKey === createArticleListRequestKey({ content, settings }))
+
+export const dynamicCountState = computed(''')
+patch("src/store/contentState.js", 'import { settingsState } from "./settingsState"',
+      '''import { settingsState } from "./settingsState"
+import createArticleListRequestKey from "@/utils/article-list-request-key"
+import { readingCalendarKeyState } from "@/store/readingCalendarState"''')
+patch("src/store/contentState.js", 'export const activeEntryIndexState = computed(',
+      '''export const articleListResultReadyState = computed(
+  [contentState, settingsState, dataState, aiState, readingCalendarKeyState],
+  (content, settings, data) => isArticleListResultCurrent(content, settings, data.sessionRevision),
+)
+
+export const activeEntryIndexState = computed(''')
+normalize("src/store/contentState.js", [
+      '''    if (!isArticleListResultCurrent(content, settings, data.sessionRevision)) return null
+    const { filterString, infoFrom, total } = content''',
+      '    const { filterString, infoFrom, total } = content'],
+      '''    if (!isArticleListResultCurrent(content, settings, data.sessionRevision)) return null
+    const { filterDate, filterString, infoFrom, total } = content''')
+patch("src/store/contentState.js", '    if (filterString) {', '    if (filterString || filterDate) {')
+patch("src/hooks/useArticleList.js", '      handleResponses(response)',
+      '''      handleResponses(response)
+      contentState.setKey("articleListResultOwner", { requestKey, sessionRevision: requestSessionRevision })''')
+patch("src/hooks/useArticleList.js", '      setArticleListError(true)',
+      '''      contentState.setKey("articleListResultOwner", null)
+      setArticleListError(true)''')
+
 # Rebuild the tracked patch after the final overlay stage.
 diffs = []
 for original in BACK.rglob("*"):

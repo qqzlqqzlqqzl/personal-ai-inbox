@@ -1,0 +1,753 @@
+{
+  "synthetic_only": true,
+  "source_head": "ccc11d62a2ee306b2b7f4e9310630ca461ed1800",
+  "original_error": "image event order is invalid",
+  "replays": [
+    {
+      "mode": "keyboard",
+      "origin": "http://127.0.0.1:35077",
+      "start_wall_ms": 1791140491038.7998,
+      "end_wall_ms": 1791140491994.2,
+      "end_definition": "last actual decoded-visible snapshot; conservative replay bound, original pair FAILED",
+      "events": [
+        {
+          "kind": "request",
+          "request_id": "3024.151",
+          "timestamp": 216.174524,
+          "path": "/fixture-images/1.png",
+          "url": "http://127.0.0.1:35077/fixture-images/1.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140491.477238,
+          "priority": "Low"
+        },
+        {
+          "kind": "request",
+          "request_id": "3024.152",
+          "timestamp": 216.174652,
+          "path": "/fixture-images/2.png",
+          "url": "http://127.0.0.1:35077/fixture-images/2.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140491.477343,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "3024.151",
+          "timestamp": 216.193444,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 216.175048,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.046,
+            "sendEnd": 0.046,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.19,
+            "receiveHeadersEnd": 0.235
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"b35b2b6b747666cffe666a995dc97be610b2590d6cd942af048ae05ab24c603e\"",
+            "Content-Length": "3276",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "3024.151",
+          "timestamp": 216.17589,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "response",
+          "request_id": "3024.152",
+          "timestamp": 216.195668,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 216.175188,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.035,
+            "sendEnd": 0.035,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.078,
+            "receiveHeadersEnd": 0.415
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"f90db353e38a0dbeca037fa7ceb422a560df569d1608b475a38ebd67d38e6c22\"",
+            "Content-Length": "3273",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "3024.152",
+          "timestamp": 216.175988,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "3024.153",
+          "timestamp": 216.277371,
+          "path": "/fixture-images/3.png",
+          "url": "http://127.0.0.1:35077/fixture-images/3.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140491.580077,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "3024.153",
+          "timestamp": 216.279342,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 216.277741,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.76,
+            "sendEnd": 0.76,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.788,
+            "receiveHeadersEnd": 0.822
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"82b328a6b00541453157e65eacdca6e2a5e4ce2989dc57d5795bb80ba970bff5\"",
+            "Content-Length": "3276",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "3024.153",
+          "timestamp": 216.279105,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "3024.154",
+          "timestamp": 216.44312,
+          "path": "/fixture-images/4.png",
+          "url": "http://127.0.0.1:35077/fixture-images/4.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140491.745835,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "3024.154",
+          "timestamp": 216.446186,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 216.443524,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.063,
+            "sendEnd": 0.063,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.09,
+            "receiveHeadersEnd": 0.124
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"1e23e4cd380c4c2fa3576aa9d1b6ce808bb9d177f424a83452b3f5ed8d3a6ab5\"",
+            "Content-Length": "3273",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "3024.154",
+          "timestamp": 216.444119,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "3024.155",
+          "timestamp": 216.50967,
+          "path": "/fixture-images/5.png",
+          "url": "http://127.0.0.1:35077/fixture-images/5.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140491.812381,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "3024.155",
+          "timestamp": 216.513248,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 216.511254,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.06,
+            "sendEnd": 0.06,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.085,
+            "receiveHeadersEnd": 0.118
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"d65e2582bde729d26593f60c7db4ea044d6cbfdd7953a43c00f5a6198ed90834\"",
+            "Content-Length": "3275",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "3024.155",
+          "timestamp": 216.512733,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "3024.156",
+          "timestamp": 216.592817,
+          "path": "/fixture-images/6.png",
+          "url": "http://127.0.0.1:35077/fixture-images/6.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140491.895523,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "3024.156",
+          "timestamp": 216.596223,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 216.594471,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.061,
+            "sendEnd": 0.061,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.088,
+            "receiveHeadersEnd": 0.121
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"56f8ec9694cdc2f0103bc22f7dfcbe28bc761102c4e97c921942c8c72c898194\"",
+            "Content-Length": "3276",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "3024.156",
+          "timestamp": 216.595166,
+          "encoded_bytes": 0
+        }
+      ],
+      "images": [
+        {
+          "image": 1,
+          "scroll_to_visible_ms": 90.09817700001577,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140491613.0999
+        },
+        {
+          "image": 2,
+          "scroll_to_visible_ms": 80.8489010000244,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140491694.2998
+        },
+        {
+          "image": 3,
+          "scroll_to_visible_ms": 65.91405099999292,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140491761.0999
+        },
+        {
+          "image": 4,
+          "scroll_to_visible_ms": 83.08622699999546,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140491844.2998
+        },
+        {
+          "image": 5,
+          "scroll_to_visible_ms": 67.40943400001242,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140491911.0999
+        },
+        {
+          "image": 6,
+          "scroll_to_visible_ms": 82.47668800001406,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140491994.2
+        }
+      ],
+      "source_artifact_id": 11312355807,
+      "source_artifact_sha256": "dab0f1cc94086dc476c0e1d4123c72120f31491d4a69943043b831a303ff344d"
+    },
+    {
+      "mode": "touch",
+      "origin": "http://127.0.0.1:34697",
+      "start_wall_ms": 1791140483229.7,
+      "end_wall_ms": 1791140484056.6,
+      "end_definition": "last actual decoded-visible snapshot; conservative replay bound, original pair FAILED",
+      "events": [
+        {
+          "kind": "request",
+          "request_id": "2968.135",
+          "timestamp": 148.315189,
+          "path": "/fixture-images/1.png",
+          "url": "http://127.0.0.1:34697/fixture-images/1.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140483.627526,
+          "priority": "Low"
+        },
+        {
+          "kind": "request",
+          "request_id": "2968.136",
+          "timestamp": 148.315301,
+          "path": "/fixture-images/2.png",
+          "url": "http://127.0.0.1:34697/fixture-images/2.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140483.627607,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "2968.135",
+          "timestamp": 148.326897,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 148.318592,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.059,
+            "sendEnd": 0.059,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.087,
+            "receiveHeadersEnd": 1.578
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"b35b2b6b747666cffe666a995dc97be610b2590d6cd942af048ae05ab24c603e\"",
+            "Content-Length": "3276",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "2968.135",
+          "timestamp": 148.321194,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "response",
+          "request_id": "2968.136",
+          "timestamp": 148.327593,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 148.318779,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 1.367,
+            "sendEnd": 1.367,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 2.379,
+            "receiveHeadersEnd": 2.569
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"f90db353e38a0dbeca037fa7ceb422a560df569d1608b475a38ebd67d38e6c22\"",
+            "Content-Length": "3273",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "2968.136",
+          "timestamp": 148.322184,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "2968.137",
+          "timestamp": 148.462201,
+          "path": "/fixture-images/3.png",
+          "url": "http://127.0.0.1:34697/fixture-images/3.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140483.774545,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "2968.137",
+          "timestamp": 148.465351,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 148.464264,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.053,
+            "sendEnd": 0.053,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.077,
+            "receiveHeadersEnd": 0.105
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"82b328a6b00541453157e65eacdca6e2a5e4ce2989dc57d5795bb80ba970bff5\"",
+            "Content-Length": "3276",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "2968.137",
+          "timestamp": 148.465084,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "2968.138",
+          "timestamp": 148.528913,
+          "path": "/fixture-images/4.png",
+          "url": "http://127.0.0.1:34697/fixture-images/4.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140483.841258,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "2968.138",
+          "timestamp": 148.531661,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 148.530276,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.062,
+            "sendEnd": 0.062,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.091,
+            "receiveHeadersEnd": 0.124
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"1e23e4cd380c4c2fa3576aa9d1b6ce808bb9d177f424a83452b3f5ed8d3a6ab5\"",
+            "Content-Length": "3273",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "2968.138",
+          "timestamp": 148.531407,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "2968.143",
+          "timestamp": 148.595372,
+          "path": "/fixture-images/5.png",
+          "url": "http://127.0.0.1:34697/fixture-images/5.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140483.907713,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "2968.143",
+          "timestamp": 148.598542,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 148.597312,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.064,
+            "sendEnd": 0.064,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.092,
+            "receiveHeadersEnd": 0.124
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"d65e2582bde729d26593f60c7db4ea044d6cbfdd7953a43c00f5a6198ed90834\"",
+            "Content-Length": "3275",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "2968.143",
+          "timestamp": 148.597989,
+          "encoded_bytes": 0
+        },
+        {
+          "kind": "request",
+          "request_id": "2968.144",
+          "timestamp": 148.661411,
+          "path": "/fixture-images/6.png",
+          "url": "http://127.0.0.1:34697/fixture-images/6.png",
+          "method": "GET",
+          "type": "Image",
+          "wall_time": 1791140483.973746,
+          "priority": "Low"
+        },
+        {
+          "kind": "response",
+          "request_id": "2968.144",
+          "timestamp": 148.663726,
+          "status": 200,
+          "from_disk_cache": true,
+          "from_service_worker": false,
+          "timing": {
+            "requestTime": 148.66233,
+            "proxyStart": -1,
+            "proxyEnd": -1,
+            "dnsStart": -1,
+            "dnsEnd": -1,
+            "connectStart": -1,
+            "connectEnd": -1,
+            "sslStart": -1,
+            "sslEnd": -1,
+            "workerStart": -1,
+            "workerReady": -1,
+            "workerFetchStart": -1,
+            "workerRespondWithSettled": -1,
+            "sendStart": 0.061,
+            "sendEnd": 0.061,
+            "pushStart": 0,
+            "pushEnd": 0,
+            "receiveHeadersStart": 0.088,
+            "receiveHeadersEnd": 0.121
+          },
+          "headers": {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": "\"56f8ec9694cdc2f0103bc22f7dfcbe28bc761102c4e97c921942c8c72c898194\"",
+            "Content-Length": "3276",
+            "Content-Type": "image/png"
+          }
+        },
+        {
+          "kind": "finished",
+          "request_id": "2968.144",
+          "timestamp": 148.663132,
+          "encoded_bytes": 0
+        }
+      ],
+      "images": [
+        {
+          "image": 1,
+          "scroll_to_visible_ms": 62.50790999999367,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140483723.5
+        },
+        {
+          "image": 2,
+          "scroll_to_visible_ms": 66.66608500000848,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140483790.5
+        },
+        {
+          "image": 3,
+          "scroll_to_visible_ms": 66.64285900001232,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140483857.2
+        },
+        {
+          "image": 4,
+          "scroll_to_visible_ms": 66.91761500002258,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140483923.7
+        },
+        {
+          "image": 5,
+          "scroll_to_visible_ms": 65.69494799998665,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140483990.2
+        },
+        {
+          "image": 6,
+          "scroll_to_visible_ms": 66.5307860000155,
+          "naturalWidth": 960,
+          "naturalHeight": 640,
+          "visible": true,
+          "at": 1791140484056.6
+        }
+      ],
+      "source_artifact_id": 11311958717,
+      "source_artifact_sha256": "a9abd0bafa82f2490e67d55e6a87b2b543b7992d5721f2e38b4874be1ddecab4"
+    }
+  ]
+}

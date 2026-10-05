@@ -154,6 +154,7 @@ def snapshot_lanes(now,states,configs=None):
 
 
 def due_entries(now,config, *,admission=None):
+    from feed_consumption import RESTRICTED_ERRORS
     check(admission)
     claimed=claimed_entries(required_roots(config))
     allow=set(resolve_entry_ids(config,**options(admission)) or [])
@@ -166,7 +167,8 @@ def due_entries(now,config, *,admission=None):
                     AND a.next_try<=? AND a.attempts<3)
                 OR (a.state NOT IN ('removed','requires_source_review')
                     AND c.status IN ('pending','error','budget_paused','waiting_model')
-                    AND c.next_try<=? AND c.attempts<3))""",(now,now)).fetchall()
+                    AND c.next_try<=? AND c.attempts<3))
+                AND COALESCE(a.error,'') NOT IN (?,?)""",(now,now,*RESTRICTED_ERRORS)).fetchall()
     due={int(row[0]) for row in rows}&allow
     if config.get('qwen_exception_review'):
         check(admission)
@@ -177,11 +179,13 @@ def due_entries(now,config, *,admission=None):
                     LEFT JOIN qwen_exception_reviews q ON q.entry_id=a.entry_id
                     WHERE (a.state IN ('requires_fulltext_adapter','insufficient_content')
                            OR (a.state='fetch_error' AND a.attempts>=3))
-                    AND (q.entry_id IS NULL OR q.reviewed_at<?)""",(now-30*86400,)).fetchall()
+                    AND (q.entry_id IS NULL OR q.reviewed_at<?)
+                    AND COALESCE(a.error,'') NOT IN (?,?)""",(now-30*86400,*RESTRICTED_ERRORS)).fetchall()
             else:
                 rows=db.execute("""SELECT entry_id FROM analyses
-                    WHERE state IN ('requires_fulltext_adapter','insufficient_content')
-                       OR (state='fetch_error' AND attempts>=3)""").fetchall()
+                    WHERE (state IN ('requires_fulltext_adapter','insufficient_content')
+                       OR (state='fetch_error' AND attempts>=3))
+                       AND COALESCE(error,'') NOT IN (?,?)""",RESTRICTED_ERRORS).fetchall()
         due|={int(row[0]) for row in rows}&allow
     check(admission)
     with sqlite3.connect(Path(config['database']).resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:

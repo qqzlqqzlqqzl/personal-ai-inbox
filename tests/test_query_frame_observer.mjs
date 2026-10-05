@@ -1,0 +1,86 @@
+// Synthetic geometry controls for the diagnostic, never browser/paint evidence.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+const {JSDOM}=createRequire(new URL('../runtime/history-test-tools/package.json',import.meta.url))('jsdom');
+const dom=new JSDOM('<body><aside><div class="arco-menu-selected"><div class="custom-menu-item"><span>全部</span><div class="item-count"><span class="arco-ellipsis-content-mirror">1965</span><span class="arco-ellipsis-content">1965</span></div></div></div></aside><header class="page-info">全部 · AI精选\n(1965)</header><div class="entry-list"><div data-entry-id="101">Synthetic</div></div></body>',{url:'http://fixture.test/inbox/all',runScripts:'outside-only'});
+const {window:w}=dom, d=w.document, raf=[];
+const errors=[];
+w.addEventListener('error', event=>{errors.push(event.message);event.preventDefault();});
+w.requestAnimationFrame=cb=>{raf.push(cb);return raf.length;};
+Object.defineProperty(w,'innerWidth',{value:1440});Object.defineProperty(w,'innerHeight',{value:900});
+const box=(left=20,top=100,width=300,height=50)=>({left,top,width,height,right:left+width,bottom:top+height});
+const dims=new WeakMap();
+w.HTMLElement.prototype.getBoundingClientRect=function(){return dims.get(this)||box();};
+w.HTMLElement.prototype.getClientRects=function(){return this.isConnected?[this.getBoundingClientRect()]:[];};
+d.elementFromPoint=()=>d.querySelector('[data-entry-id]');
+const count=d.querySelector('.item-count');
+Object.defineProperty(count,'innerText',{get(){return this.querySelector('.arco-ellipsis-content')?.textContent??'';}});
+Object.defineProperty(d.querySelector('.page-info'),'innerText',{get(){return this.textContent;}});
+w.eval(await readFile(new URL('./query_frame_observer.js',import.meta.url),'utf8'));
+const checks=[];
+const check=(name,fn)=>{fn();checks.push(name);};
+const first=w.queryFrame('manual');
+check('legacy fields retain raw mirror text and row IDs',()=>{assert.equal(first.scope,'all');assert.equal(first.count,'19651965');assert.deepEqual([...first.ids],['101']);});
+check('diagnostic rendered text keeps one visible count',()=>assert.equal(first.dom.count_rendered_text,'1965'));
+check('DOM menu/header identity is independent of URL',()=>{assert.equal(first.dom.selected_scope,'all');assert.equal(first.dom.headers[0].text,'全部 · AI精选\n(1965)');});
+check('all layout-present menu candidates are counted',()=>{assert.equal(first.dom.selected_count,1);assert.equal(first.dom.selected_candidates[0].scope,'all');});
+const duplicate=d.querySelector('.arco-menu-selected').cloneNode(true);d.querySelector('aside').append(duplicate);
+const duplicateFrame=w.queryFrame('manual');
+check('multiple selected menus cannot hide behind first find',()=>assert.equal(duplicateFrame.dom.selected_count,2));
+duplicate.remove();
+w.history.pushState({},'', '/inbox/today');
+const ambiguous=w.queryFrame('manual');
+check('URL-before-DOM observation remains a legacy failure',()=>{assert.equal(ambiguous.scope,'today');assert.equal(ambiguous.dom.selected_scope,'all');assert(ambiguous.count&&ambiguous.ids.length);});
+d.querySelector('.custom-menu-item > span').textContent='今天';
+const bad=w.queryFrame('manual');
+check('committed Today with retained old rows is not filtered',()=>{assert.equal(bad.dom.selected_scope,'today');assert.equal(bad.count,'19651965');assert.equal(bad.ids.length,1);});
+d.querySelector('.page-info').textContent='今天 · AI精选 · Asia/Shanghai\n(1965)';
+const badToday=w.queryFrame('manual');
+check('coherent bad Today title retains old result for the negative',()=>{assert.equal(badToday.dom.selected_scope,'today');assert.equal(badToday.dom.headers[0].rendered_text,'今天 · AI精选 · Asia/Shanghai\n(1965)');assert.equal(badToday.ids.length,1);});
+const row=d.querySelector('[data-entry-id]'),list=d.querySelector('.entry-list');
+list.style.overflowY='hidden';dims.set(list,box(0,0,400,60));dims.set(row,box(0,100,300,30));
+for(const [key,value] of Object.entries({offsetWidth:400,offsetHeight:60,clientWidth:400,clientHeight:60,clientLeft:0,clientTop:0}))Object.defineProperty(list,key,{value});
+const clipped=w.queryFrame();
+check('clipped rows remain in original invariant IDs',()=>assert.equal(clipped.ids.length,1));
+check('actual client-box intersection is recorded separately',()=>{assert.equal(clipped.dom.rows[0].geometry.hasArea,false);assert.equal(clipped.dom.rows[0].geometry.intersection.height,0);assert.equal(clipped.dom.rows[0].geometry.clips[0].bottom,60);});
+list.style.overflowY='visible';list.style.opacity='0';
+check('ancestor opacity is recorded without erasing raw rows',()=>{const f=w.queryFrame();assert.equal(f.dom.rows[0].geometry.opacity,0);assert.equal(f.ids.length,1);});
+list.style.opacity='1';d.elementFromPoint=()=>d.body;
+check('center occlusion is observable, not assumed full paint',()=>assert.equal(w.queryFrame().dom.rows[0].geometry.centerHitInside,false));
+count.textContent='';row.remove();d.querySelector('.page-info').textContent='今天 · AI精选 · Asia/Shanghai';
+const emptyToday=w.queryFrame('manual');
+check('new route empty DOM keeps the original pending success shape',()=>{const f=w.queryFrame();assert.equal(f.dom.selected_scope,'today');assert.equal(f.count,'');assert.equal(f.ids.length,0);});
+d.querySelector('.custom-menu-item > span').textContent='constructor';
+check('unknown DOM label has no invented route identity',()=>assert.equal(w.queryFrame().dom.selected_scope,null));
+d.dispatchEvent(new w.Event('DOMContentLoaded'));
+d.querySelector('.page-info').textContent='Synthetic mutation';
+await Promise.resolve();
+check('mutation callback records source count and time',()=>{const f=w.queryFrames.find(f=>f.kind==='mutation');assert(f);assert(f.mutationCount>0);assert.equal(typeof f.time,'number');});
+const pending=raf.splice(0);pending.forEach(cb=>cb(123));
+check('rAF and mutation-rAF carry explicit source and timestamp',()=>{assert(w.queryFrames.some(f=>f.kind==='raf'&&f.rafTime===123));assert(w.queryFrames.some(f=>f.kind==='mutation-raf'&&f.rafTime===123));});
+check('old first observation is retained after more samples',()=>assert.equal(w.queryFrames[0],first));
+for(let i=0;i<2401;i++)w.queryFrame();
+check('bounded evidence reports dropped observations explicitly',()=>{assert.equal(w.queryFrames.length,2400);assert(w.queryObservation.dropped>0);assert.equal(w.queryFrames[0],first);});
+w.stopQueryObservation();
+const stoppedSequence=w.queryObservation.sequence;
+raf.splice(0).forEach(cb=>cb(456));
+d.querySelector('.page-info').textContent='After stop';
+await Promise.resolve();
+check('teardown cancels queued sampling without DOM changes',()=>{assert.equal(w.queryObservation.sequence,stoppedSequence);assert.equal(errors.length,0);});
+const bridge=JSON.parse(execFileSync('python3',['-B','-c',`
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from query_dom_ownership import assess_pending_ui
+d = json.load(sys.stdin)
+good = assess_pending_ui('today', d['baseline'], [d['baseline'], d['url_lead'], d['empty']], dropped=0)
+assert good['passed'], good
+for key, reason in [('bad_today', 'target_pending_borrows_result'), ('mixed', 'menu_header_query_conflict'), ('duplicate', 'unique_menu_identity_not_proven')]:
+    result = assess_pending_ui('today', d['baseline'], [d['baseline'], d[key], d['empty']], dropped=0)
+    assert not result['passed'] and reason in [v['reason'] for v in result['violations']], result
+print(json.dumps({'positive': True, 'bad_today_rejected': True, 'mixed_rejected': True, 'duplicate_rejected': True}))
+`,new URL('./',import.meta.url).pathname],{input:JSON.stringify({baseline:first,url_lead:ambiguous,empty:emptyToday,bad_today:badToday,mixed:bad,duplicate:duplicateFrame}),encoding:'utf8',timeout:10000}));
+check('actual sampler DOM output reaches strict positive and bad-UI negatives',()=>assert.deepEqual(bridge,{positive:true,bad_today_rejected:true,mixed_rejected:true,duplicate_rejected:true}));
+console.log(JSON.stringify({type:'synthetic DOM and geometry; no real browser, no paint',checks},null,2));
+dom.window.close();

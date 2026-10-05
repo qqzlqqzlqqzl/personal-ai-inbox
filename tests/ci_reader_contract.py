@@ -24,6 +24,9 @@ BROWSER_TESTS = (
     'calendar_browser_acceptance.py', 'calendar_identity_browser.py',
     'dev_fixture_workspace_browser_acceptance.py',
     'navigation_focus_transition_browser.py',
+    'query_result_ownership_browser.py', 'reading_focus_browser.py',
+    'console_header_browser.py', 'native_zoom_browser.py',
+    'quality_consumer_browser.py',
 )
 
 
