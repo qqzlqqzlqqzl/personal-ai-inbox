@@ -82,8 +82,8 @@ class StartupInstallerTests(unittest.TestCase):
         self.assertIn('import("./pages/ErrorPage")', routes)
         self.assertIn('return { Component, ErrorBoundary }', routes)
         self.assertIn('lazy: lazyRoute(() => import("./pages/RouterProtect"))', routes)
-        self.assertNotIn('loadContentPage', routes)
-        self.assertIn('{ path: `/${path}/entry/:entryId`, Component: contentPageComponents[pageKey] }', routes)
+        self.assertIn(installer.STARTUP_CONTENT_LOADER, routes)
+        self.assertIn('{ path: `/${path}/entry/:entryId`, lazy: loadContentPage(pageKey) }', routes)
         self.assertNotIn('mock-state.json', first)
 
     def test_upgrades_the_exact_previous_status_overlay(self):
@@ -133,16 +133,20 @@ class StartupInstallerTests(unittest.TestCase):
             installer.install(root)
         self.assertEqual(before, self.snapshot(root))
 
-    def test_business_imports_are_deferred_inside_independent_surfaces(self):
+    def test_app_loads_with_authenticated_route_and_content_is_started_without_waiting(self):
         root, web = self.make_root()
         installer.install(root)
         auth = (web / 'src/pages/AuthenticatedApp.jsx').read_text(encoding='utf-8')
-        self.assertNotIn('import App from', auth)
-        self.assertIn('const App = deferComponent(() => import("@/App"))', auth)
+        self.assertEqual(auth, FIXTURE['files']['src/pages/AuthenticatedApp.jsx']['text'])
         self.assertIn('<AppDataProvider>\n    <App />\n  </AppDataProvider>', auth)
         pages = (web / 'src/pages/ContentPages.jsx').read_text(encoding='utf-8')
         self.assertEqual(pages.count('deferComponent('), 1)
-        self.assertIn('await import("./LoadedContentPages")', pages)
+        self.assertIn('contentPagesPromise = import("./LoadedContentPages")', pages)
+        self.assertIn('return contentPagesPromise', pages)
+        self.assertIn('const SharedContentPage = deferComponent(loadContentPages)', pages)
+        routes = (web / 'src/routes.jsx').read_text(encoding='utf-8')
+        self.assertIn('void loadContentPages().catch(() => null)', routes)
+        self.assertNotIn('await loadContentPages', routes)
         self.assertNotIn('import All from', pages)
         loaded = (web / 'src/pages/LoadedContentPages.jsx').read_text(encoding='utf-8')
         self.assertEqual(loaded, FIXTURE['files']['src/pages/ContentPages.jsx']['text'])
@@ -150,19 +154,21 @@ class StartupInstallerTests(unittest.TestCase):
         self.assertIn('<Suspense fallback={<LoadingSurface />}>', installer.DEFERRED_COMPONENT)
         self.assertNotIn('prefetch', installer.DEFERRED_COMPONENT)
 
-    def test_legacy_early_overlay_upgrades_without_moving_auth_or_provider(self):
+    def test_previous_serial_overlay_upgrades_without_moving_provider_or_auth_gate(self):
         root, web = self.make_root()
         routes = web / 'src/routes.jsx'
         auth = web / 'src/pages/AuthenticatedApp.jsx'
         main = web / 'src/components/Main/Main.jsx'
-        routes.write_text(installer._routes_apply(routes.read_text(encoding='utf-8')), encoding='utf-8')
-        auth.write_text(installer._authenticated_apply(auth.read_text(encoding='utf-8')), encoding='utf-8')
+        routes.write_text(installer._routes_apply_previous(routes.read_text(encoding='utf-8')), encoding='utf-8')
+        auth.write_text(installer._authenticated_apply_previous(auth.read_text(encoding='utf-8')), encoding='utf-8')
         main.write_text(installer._main_apply(main.read_text(encoding='utf-8')), encoding='utf-8')
-        (web / 'src/pages/ContentPages.jsx').write_text(installer.LEGACY_CONTENT_PAGES, encoding='utf-8')
+        (web / 'src/pages/ContentPages.jsx').write_text(installer.PREVIOUS_CONTENT_PAGES, encoding='utf-8')
         (web / 'src/components/DeferredComponent.jsx').write_text(installer.DEFERRED_COMPONENT, encoding='utf-8')
-        auth_before = auth.read_bytes()
+        gate_before = (web / 'src/pages/RouterProtect.jsx').read_bytes()
         installer.install(root)
-        self.assertEqual(auth_before, auth.read_bytes())
+        self.assertEqual(auth.read_text(encoding='utf-8'), FIXTURE['files']['src/pages/AuthenticatedApp.jsx']['text'])
+        self.assertEqual(gate_before, (web / 'src/pages/RouterProtect.jsx').read_bytes())
+        self.assertEqual(routes.read_text(encoding='utf-8'), installer._routes_apply(FIXTURE['files']['src/routes.jsx']['text']))
         self.assertEqual((web / 'src/pages/ContentPages.jsx').read_text(encoding='utf-8'), installer.CONTENT_PAGES)
         self.assertEqual((web / 'src/pages/LoadedContentPages.jsx').read_text(encoding='utf-8'),
                          FIXTURE['files']['src/pages/ContentPages.jsx']['text'])
@@ -173,8 +179,8 @@ class StartupInstallerTests(unittest.TestCase):
         pages = (web / 'src/pages/ContentPages.jsx').read_text(encoding='utf-8')
         self.assertLess(pages.index('const SharedContentPage = deferComponent('), pages.index('const contentRoute ='))
         self.assertEqual(pages.count('deferComponent('), 1)
-        self.assertEqual(pages.count('await import('), 1)
-        self.assertIn('const Page = pages[pageKey]\n    return <Page {...props} />', pages)
+        self.assertEqual(pages.count('import("./LoadedContentPages")'), 1)
+        self.assertIn('const Page = pages[pageKey]\n        return <Page {...props} />', pages)
         self.assertIn('return <SharedContentPage {...props} pageKey={pageKey} />', pages)
         self.assertNotIn('key={', pages)
         self.assertNotIn('contentState', pages)
@@ -183,7 +189,7 @@ class StartupInstallerTests(unittest.TestCase):
         for scope in ('all', 'category', 'feed', 'history', 'starred', 'today'):
             self.assertIn(f'{scope}: contentRoute("{scope}")', pages)
         routes = (web / 'src/routes.jsx').read_text(encoding='utf-8')
-        self.assertEqual(routes.count('Component: contentPageComponents[pageKey]'), 2)
+        self.assertEqual(routes.count('lazy: loadContentPage(pageKey)'), 2)
 
     def test_loaded_page_authoring_and_duplicate_selector_refuse_before_write(self):
         root, web = self.make_root('authoring')

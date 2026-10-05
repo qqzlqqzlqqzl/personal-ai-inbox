@@ -1,4 +1,4 @@
-"""Final reviewed status and deferred-render overlay; no publish operation."""
+"""Reviewed status overlay and bounded route loading; no publish operation."""
 import hashlib
 import os
 import shutil
@@ -18,14 +18,25 @@ AUTHENTICATED_BEFORE='5a10a06fc73935f978c9b57e45a8a151251d4b617642e959d047b2426c
 CONTENT_PAGES_BEFORE='2e56638e1bf094ce43fdd36c0c620eb005b62afc1069f401c0e6b569a5db1ccf'
 MAIN_BEFORE='e73ea0f9e51097e2b288dbcf5b8dc2368fb43cf92ec1d8aac9822ab1df1b13e3'
 ROUTE_IMPORT='import { createBrowserRouter } from "react-router"\n'
-STARTUP_ROUTE_IMPORT=ROUTE_IMPORT+'''import deferComponent from "./components/DeferredComponent"
+PREVIOUS_STARTUP_ROUTE_IMPORT=ROUTE_IMPORT+'''import deferComponent from "./components/DeferredComponent"
 import contentPageComponents from "./pages/ContentPages"
 
 const HomeRedirectRoute = deferComponent(() => import("./components/HomeRedirect"))
 const AgentStatusRoute = deferComponent(() => import("./pages/AgentStatus"))
 '''
+STARTUP_ROUTE_IMPORT=PREVIOUS_STARTUP_ROUTE_IMPORT.replace(
+    'import contentPageComponents from "./pages/ContentPages"',
+    'import contentPageComponents, { loadContentPages } from "./pages/ContentPages"')
 CONTENT_LOADER='''const loadContentPage = (pageKey) => async () => {
   const { default: contentPageComponents } = await import("./pages/ContentPages")
+  return { Component: contentPageComponents[pageKey] }
+}
+
+'''
+STARTUP_CONTENT_LOADER='''const loadContentPage = (pageKey) => async () => {
+  // Start only the matched content route while auth/bootstrap can proceed.
+  // React.lazy consumes the same promise and reports failures to ErrorBoundary.
+  void loadContentPages().catch(() => null)
   return { Component: contentPageComponents[pageKey] }
 }
 
@@ -107,7 +118,7 @@ const contentPageComponents = {
 
 export default contentPageComponents
 '''
-CONTENT_PAGES='''import deferComponent from "@/components/DeferredComponent"
+PREVIOUS_CONTENT_PAGES='''import deferComponent from "@/components/DeferredComponent"
 
 // This single lazy identity loads the original, bounded page map once. After
 // any content page mounts, switching scope does not suspend on another module.
@@ -137,24 +148,56 @@ const contentPageComponents = {
 
 export default contentPageComponents
 '''
+CONTENT_PAGES=PREVIOUS_CONTENT_PAGES.replace(
+    '''const SharedContentPage = deferComponent(async () => {
+  const { default: pages } = await import("./LoadedContentPages")
+  const ContentPageSelection = ({ pageKey, ...props }) => {
+    const Page = pages[pageKey]
+    return <Page {...props} />
+  }
+  return { default: ContentPageSelection }
+})''',
+    '''let contentPagesPromise
+
+export const loadContentPages = () => {
+  if (!contentPagesPromise) {
+    contentPagesPromise = import("./LoadedContentPages").then(({ default: pages }) => {
+      const ContentPageSelection = ({ pageKey, ...props }) => {
+        const Page = pages[pageKey]
+        return <Page {...props} />
+      }
+      return { default: ContentPageSelection }
+    })
+  }
+  return contentPagesPromise
+}
+
+const SharedContentPage = deferComponent(loadContentPages)''')
 
 
 def _sha(text):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def _reviewed_base(text, expected_sha, apply, undo, label, legacy=None):
+def _reviewed_base(text, expected_sha, apply, undo, label, legacy=()):
     """Accept the pinned source or an exact generated result; reject other drift."""
     if _sha(text)==expected_sha:
         return text
     base=undo(text)
-    if _sha(base)==expected_sha and (apply(base)==text or legacy and legacy(base)==text):
+    if _sha(base)==expected_sha and text in (apply(base), *(version(base) for version in legacy)):
         return base
     raise RuntimeError(f'Unreviewed {label}; refusing startup overlay')
 
 
 def _routes_apply(base):
     return (base.replace(ROUTE_IMPORT,STARTUP_ROUTE_IMPORT,1)
+            .replace(CONTENT_LOADER,STARTUP_CONTENT_LOADER,1)
+            .replace(HOME_ROUTE,STARTUP_HOME_ROUTE,1)
+            .replace(ANCHOR,STARTUP_ADDITION,1))
+
+
+def _routes_apply_previous(base):
+    return (base.replace(ROUTE_IMPORT,PREVIOUS_STARTUP_ROUTE_IMPORT,1)
             .replace(CONTENT_LOADER,'',1)
             .replace('lazy: loadContentPage(pageKey)','Component: contentPageComponents[pageKey]')
             .replace(HOME_ROUTE,STARTUP_HOME_ROUTE,1)
@@ -163,17 +206,24 @@ def _routes_apply(base):
 
 def _routes_undo(text):
     text=text.replace(STARTUP_ADDITION,ANCHOR,1).replace(ADDITION,ANCHOR,1)
-    if STARTUP_ROUTE_IMPORT not in text:
+    if STARTUP_ROUTE_IMPORT in text:
+        return (text.replace(STARTUP_ROUTE_IMPORT,ROUTE_IMPORT,1)
+                .replace(STARTUP_CONTENT_LOADER,CONTENT_LOADER,1)
+                .replace(STARTUP_HOME_ROUTE,HOME_ROUTE,1))
+    if PREVIOUS_STARTUP_ROUTE_IMPORT not in text:
         return text
-    text=(text.replace(STARTUP_ROUTE_IMPORT,ROUTE_IMPORT,1)
+    text=(text.replace(PREVIOUS_STARTUP_ROUTE_IMPORT,ROUTE_IMPORT,1)
           .replace('Component: contentPageComponents[pageKey]','lazy: loadContentPage(pageKey)')
           .replace(STARTUP_HOME_ROUTE,HOME_ROUTE,1))
     return text.replace('const routes = Object.entries(pageRoutes)',CONTENT_LOADER+'const routes = Object.entries(pageRoutes)',1)
 
 
 def _authenticated_apply(base):
-    # The provider is outside App's Suspense boundary, so it can commit and
-    # bootstrap while App downloads, after RouterProtect verifies the session.
+    # App belongs to the authenticated route graph, not a second render-time hop.
+    return base
+
+
+def _authenticated_apply_previous(base):
     return (base.replace(AUTH_APP_IMPORT,STARTUP_APP_IMPORT,1)
             .replace('const AuthenticatedApp =',APP_CONSTANT+'const AuthenticatedApp =',1))
 
@@ -198,7 +248,7 @@ def install(root):
     if (web/'UPSTREAM_REVISION').read_text().strip()!=PIN:raise RuntimeError('Unexpected Reader revision')
     routes=web/'src/routes.jsx';before=routes.read_text()
     base=_reviewed_base(before,ROUTES_BEFORE,_routes_apply,_routes_undo,'authenticated routes',
-                        legacy=lambda text:text.replace(ANCHOR,ADDITION,1))
+                        legacy=(lambda text:text.replace(ANCHOR,ADDITION,1), _routes_apply_previous))
     if base.count(ANCHOR)!=1:raise RuntimeError('Unreviewed authenticated routes; refusing status overlay')
     toolbar=web/'src/components/Ai/AiToolbar.jsx';toolbar_base=toolbar.read_text()
     if hashlib.sha256(toolbar_base.encode()).hexdigest()!=TOOLBAR_BEFORE:raise RuntimeError('Unreviewed toolbar; refusing status entry')
@@ -206,9 +256,9 @@ def install(root):
     if hashlib.sha256(panel_base.encode()).hexdigest()!=PANEL_BEFORE or panel_base.count(PANEL_ANCHOR)!=1:raise RuntimeError('Unreviewed settings panel; refusing status entry')
     authenticated=web/'src/pages/AuthenticatedApp.jsx'
     auth_base=_reviewed_base(authenticated.read_text(),AUTHENTICATED_BEFORE,_authenticated_apply,
-                             _authenticated_undo,'authenticated shell')
+                             _authenticated_undo,'authenticated shell', legacy=(_authenticated_apply_previous,))
     content_pages=web/'src/pages/ContentPages.jsx';content_before=content_pages.read_text()
-    if _sha(content_before)!=CONTENT_PAGES_BEFORE and content_before not in (CONTENT_PAGES,LEGACY_CONTENT_PAGES):
+    if _sha(content_before)!=CONTENT_PAGES_BEFORE and content_before not in (CONTENT_PAGES,PREVIOUS_CONTENT_PAGES,LEGACY_CONTENT_PAGES):
         raise RuntimeError('Unreviewed content pages; refusing startup overlay')
     loaded_pages=web/'src/pages/LoadedContentPages.jsx'
     if _sha(LOADED_CONTENT_PAGES)!=CONTENT_PAGES_BEFORE:
