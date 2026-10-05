@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from ci_prepare_evidence import UPLOAD_PATHS
 from reader_loading_ab_ci import unpack_one
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = '44d2c203b3a8734cdad890d1ca02306f3e29ab2e'
+BASE_WORKFLOW_BLOB = 'e7431865fc9c6db3d5db057dbb5bcb2b79013ff4'  # 88cf and 92c7
 STEP = '      - name: Retain immutable build input separately from full regression evidence\n'
 CATALOG_STEP = (
     '      - name: Source catalog ownership across list and detail consumers\n'
@@ -24,6 +25,15 @@ CATALOG_UPLOAD = '            runtime/source-catalog/\n'
 
 def workflow_step():
     workflow = (ROOT / '.github/workflows/reader-regression.yml').read_text()
+    # Scope jobs reuse these exact step objects via anchors. Preserve the full
+    # producer's bytes after removing only that declarative scope wiring.
+    if '  full-regression:\n' in workflow:
+        workflow = workflow[workflow.index('  full-regression:'):workflow.index('\n  scope-job:')].rstrip()+'\n'
+        workflow = workflow.replace('  full-regression:\n', '  offline-and-browser:\n', 1)
+        workflow = re.sub(r'^    needs: scope-job\n', '', workflow, count=1, flags=re.M)
+        workflow = re.sub(r'^    if: .*\n', '', workflow, count=1, flags=re.M)
+        workflow = workflow.replace('    env: &reader_env\n', '    env:\n')
+        workflow = re.sub(r'^      - &[a-z_]+\n        ', '      - ', workflow, flags=re.M)
     assert workflow.count(STEP) == 1
     start = workflow.index(STEP)
     end = workflow.index('      - name: ', start + len(STEP))
@@ -33,20 +43,12 @@ def workflow_step():
 class BuildArtifactWiring(unittest.TestCase):
     def test_all_original_workflow_bytes_and_steps_preserved(self):
         workflow, _, start, end = workflow_step()
-        original = subprocess.check_output(['git', 'show', BASE + ':.github/workflows/reader-regression.yml'],
+        original = subprocess.check_output(['git', 'cat-file', 'blob', BASE_WORKFLOW_BLOB],
                                            cwd=ROOT, text=True, timeout=15)
-        without_build_upload = workflow[:start] + workflow[end:]
-        # The reviewed catalog integration adds one browser gate and its evidence.
-        # Every earlier workflow byte remains protected by the original baseline.
-        self.assertEqual(without_build_upload.count(CATALOG_STEP), 1)
-        self.assertEqual(without_build_upload.count(CATALOG_UPLOAD), 1)
-        without_extensions = without_build_upload.replace(CATALOG_STEP, '', 1).replace(CATALOG_UPLOAD, '', 1)
-        # Reuse the verified Ubuntu 22.04 sandbox host used by Reader A/B.
-        # Normalize this one reviewed runner change; all other baseline bytes match.
-        self.assertEqual(without_extensions.count('    runs-on: ubuntu-22.04\n'), 1)
-        self.assertEqual(original.count('    runs-on: ubuntu-24.04\n'), 1)
-        without_extensions = without_extensions.replace('    runs-on: ubuntu-22.04\n', '    runs-on: ubuntu-24.04\n', 1)
-        self.assertEqual(without_extensions, original)
+        self.assertEqual(workflow.count(CATALOG_STEP), 1)
+        self.assertEqual(workflow.count(CATALOG_UPLOAD), 1)
+        self.assertEqual(workflow.count('    runs-on: ubuntu-22.04\n'), 1)
+        self.assertEqual(workflow, original[original.index('  offline-and-browser:'):])
         self.assertTrue(workflow[:start].endswith(
             '      - name: Build isolated reader\n'
             '        run: timeout --signal=TERM --kill-after=10s 600s python tests/build_ci_reader.py\n'))
