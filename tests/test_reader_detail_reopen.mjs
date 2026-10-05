@@ -50,6 +50,15 @@ const leaf = /(?:FooterPanel|AiToolbar|ActionButtons|ArticleList|SearchAndSortBa
 await build({stdin:{contents:`export {default as Content} from '${webRoot}/src/components/Content/Content.jsx';export {ContextProvider,ContentContext} from '${webRoot}/src/components/Content/ContentContext.jsx';${existsSync(join(webRoot,'src/utils/reader-entry-detail.js'))?`export {default as useReaderEntryDetail} from '${webRoot}/src/utils/reader-entry-detail.js'`:''}`,loader:'jsx',resolveDir:webRoot},bundle:true,platform:'node',format:'cjs',jsx:'automatic',outfile:out,
  plugins:[{name:'controlled-boundaries',setup(b){
   b.onResolve({filter:/^(react(?:\/.*)?|nanostores|@nanostores\/react|validator\/lib\/isURL)$/},({path})=>({path:web.resolve(path),external:true}))
+  // Only the public import completion is controlled; actual loader caching,
+  // hook, atomic store publication, React.lazy and Suspense still execute.
+  b.onLoad({filter:/[/\\]Content\.jsx$/},async({path})=>{
+   const contents=await readFile(path,'utf8'),expression='import("@/components/Article/ArticleDetail")'
+   assert.equal(contents.split(expression).length,2)
+   const fallback='fallback={<div aria-busy="true" style={{ flex: 1 }} />}'
+   assert.equal(contents.split(fallback).length,2)
+   return {contents:contents.replace(expression,'F.loadArticleDetail()').replace(fallback,'fallback={<F.PendingDetail />}'),loader:'jsx'}
+  })
   b.onResolve({filter:/\.css$/},()=>({path:'empty',namespace:'fixture'}))
   b.onResolve({filter:/.*/},({path})=>{
    if(actual.has(path)) return {path:join(webRoot,'src',path.slice(2)+(path==='@/components/Content/ContentContext'?'.jsx':'.js'))}
@@ -61,15 +70,20 @@ await build({stdin:{contents:`export {default as Content} from '${webRoot}/src/c
 const dtos = id => ({id,title:`性能样本 ${String(id).padStart(3,'0')}`,content:'',content_deferred:true,status:'read',feed:{id:7,site_url:'https://example.test',icon:{feed_id:7,icon_id:0}}})
 const full = id => ({...dtos(id),content_deferred:false,content:`<p id="body-${id}">Original paragraph ${id}</p><img src="/fixture-images/${id}.png">`})
 const reports=[]
-async function setup(name, {initialPath='/inbox/all', cold=true, strict=false}={}) {
+async function setup(name, {initialPath='/inbox/all', cold=true, strict=false, holdModule=false}={}) {
  document.body.innerHTML='<div id="root"></div>'
  globalThis.F={frames:[],route:atom({pathname:initialPath}),info:map({from:'all',id:null}),content:map({activeContent:null,isArticleLoading:false,entries:[dtos(1),dtos(2)],infoFrom:'all',infoId:null}),data:map({sessionRevision:1}),auth:map({server:'https://synthetic.test/mf',token:'synthetic-one'}),language:atom({polyglot:{t:x=>x}}),settings:map({markReadBy:'manual'}),layout:atom('magazine'),gestures:atom({contentBrowsingDirection:'left-to-right',enableSwipeGesture:false,swipeSensitivity:1}),pending:[],requests:[],transitions:[],nop:async()=>{}}
+ F.moduleLoads=0;F.module=holdModule?Promise.withResolvers():null;F.boundaryErrors=[];F.suspenseFallbacks=0
+ F.PendingDetail=()=>{F.suspenseFallbacks++;return React.createElement('div',{'aria-busy':'true',style:{flex:1}})}
+ function Detail(){const {activeContent:e}=useStore(F.content);return React.createElement('article',null,React.createElement('h1',null,e?.title),React.createElement('div',{'data-original':true,dangerouslySetInnerHTML:{__html:e?.content||''}}),React.createElement('section',{'data-note':true},'我的笔记'))}
+ F.detailModule={default:Detail};F.loadArticleDetail=()=>{F.moduleLoads++;return F.module?.promise??Promise.resolve(F.detailModule)}
+ class Boundary extends React.Component{state={error:null};static getDerivedStateFromError(error){return {error}};componentDidCatch(error){F.boundaryErrors.push(error)};render(){return this.state.error?React.createElement('p',{'data-module-error':true},'module failed'):this.props.children}}
  F.navigate=path=>{F.pending.push(path);F.transitions.push({kind:'navigate-request',path})}
  F.getEntry=(id,options={})=>new Promise((resolve,reject)=>F.requests.push({id:Number(id),signal:options.signal,resolve,reject,done:false}))
  const require=createRequire(import.meta.url);delete require.cache[out]
  const {Content,ContextProvider,ContentContext}=require(out)
  function Controls(){F.actions=React.useContext(ContentContext);const info=useStore(F.info);return React.createElement(Content,{info,getEntries:F.nop,markAllAsRead:F.nop})}
- const root=createRoot(document.querySelector('#root'));const child=React.createElement(ContextProvider,null,React.createElement(Controls));await act(async()=>root.render(strict?React.createElement(React.StrictMode,null,child):child))
+ const root=createRoot(document.querySelector('#root'));const child=React.createElement(Boundary,null,React.createElement(ContextProvider,null,React.createElement(Controls)));await act(async()=>root.render(strict?React.createElement(React.StrictMode,null,child):child))
  const snapshot=label=>{const e=F.content.get().activeContent;return {label,pathname:F.route.get().pathname,active_id:e?.id??null,deferred:e?.content_deferred??null,content_bytes:e?.content?.length??0,loading:F.content.get().isArticleLoading,session:F.data.get().sessionRevision,requests:F.requests.map(x=>x.id),body_text:document.querySelector('[data-original]')?.textContent??null,note_present:!!document.querySelector('[data-note]')}}
  const commit=async path=>act(async()=>{F.route.set({pathname:path});F.transitions.push({kind:'router-commit',path})})
  const complete=async(index,id)=>act(async()=>{const r=F.requests[index];assert.ok(r);r.done=true;r.resolve(full(id))})
@@ -229,6 +243,70 @@ const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
  reports.push({name:t.name,server_requests:0,client_requests:F.requests.length,observations:[t.snapshot('final')]});console.log('PASS',t.name)
  await act(async()=>root.unmount())
 }
+// Deterministic module/API ordering controls; no browser timing or p75 claim.
+{
+ const t=await setup('no-intent-does-not-import-or-fetch-detail',{cold:false})
+ assert.equal(F.moduleLoads,0);assert.equal(F.requests.length,0);await finish(t)
+}
+for(const moduleFirst of [false,true]){
+ const t=await setup('parallel-module-api-atomic-readiness-'+(moduleFirst?'module-first':'api-first'),{cold:false,holdModule:true})
+ await open(dtos(1));await t.commit(F.pending.at(-1))
+ assert.equal(F.moduleLoads,1);assert.equal(F.requests.length,1)
+ const observed=[],stop=F.content.listen(value=>observed.push(value))
+ try{
+  if(moduleFirst)await act(async()=>F.module.resolve(F.detailModule));else await t.complete(0,1)
+  assert.equal(F.content.get().isArticleLoading,true);assert.equal(F.content.get().activeContent.content_deferred,true);assert.equal(observed.length,0)
+  if(moduleFirst)await t.complete(0,1);else await act(async()=>F.module.resolve(F.detailModule))
+  assert.equal(observed.length,1);assert.equal(observed[0].isArticleLoading,false);original(1)
+  assert.equal(document.querySelector('[data-original]').textContent,'Original paragraph 1')
+ }finally{stop()}
+ await close();await t.commit(F.pending.at(-1));await open(dtos(1));await t.commit(F.pending.at(-1));await t.complete(1,1)
+ assert.equal(F.moduleLoads,1,'ready module must reuse the same import');original(1);await finish(t)
+}
+{
+ const t=await setup('ready-module-first-lazy-mount-still-may-suspend',{initialPath:'/inbox/all/entry/1',cold:false})
+ assert.equal(F.moduleLoads,1);assert.equal(F.suspenseFallbacks,0)
+ // The hook has awaited an already-fulfilled import; React.lazy has never
+ // rendered yet because this deep link has no active DTO until API completion.
+ await t.complete(0,1);original(1)
+ assert.ok(F.suspenseFallbacks>0,'a fulfilled import is not a synchronous React.lazy initialization')
+ assert.ok(document.querySelector('[data-original]'));assert.equal(F.moduleLoads,1)
+ t.record.push({ready_first_mount_fallback_renders:F.suspenseFallbacks,timing_claim:false})
+ console.log('OBSERVED ready-first-mount fallback renders',F.suspenseFallbacks)
+ await finish(t)
+}
+for(const cancel of ['close','auth','source']){
+ const t=await setup('module-pending-'+cancel+'-cannot-publish-old-detail',{cold:false,holdModule:true})
+ await open(dtos(1));await t.commit(F.pending.at(-1));await t.complete(0,1)
+ assert.equal(F.content.get().isArticleLoading,true)
+ if(cancel==='close')await close()
+ else if(cancel==='auth')await act(async()=>F.auth.setKey('token','different-owner'))
+ else await act(async()=>F.info.set({from:'feed',id:'9'}))
+ assert.equal(F.requests[0].signal.aborted,true)
+ const before=F.content.get()
+ await act(async()=>F.module.resolve(F.detailModule))
+ assert.equal(F.content.get(),before,'old module completion must not change the current owner snapshot')
+ if(cancel==='source'){assert.equal(F.requests.length,2);await t.complete(1,1);original(1)}
+ await finish(t)
+}
+{
+ const t=await setup('module-rejection-reaches-react-error-boundary',{cold:false,holdModule:true})
+ await open(dtos(1));await t.commit(F.pending.at(-1));await t.complete(0,1)
+ const error=Error('synthetic import failure'),old=console.error;console.error=()=>{}
+ try{await act(async()=>F.module.reject(error))}finally{console.error=old}
+ assert.deepEqual(F.boundaryErrors,[error]);assert.ok(document.querySelector('[data-module-error]'))
+ assert.equal(F.moduleLoads,1);await finish(t)
+}
+{
+ const t=await setup('api-error-does-not-wait-for-unresolved-module',{cold:false,holdModule:true})
+ await open(dtos(1));await t.commit(F.pending.at(-1))
+ const old=console.error,errors=[];console.error=(...args)=>errors.push(args)
+ try{await act(async()=>F.requests[0].reject(Error('synthetic current API failure')))}finally{console.error=old}
+ assert.equal(F.content.get().isArticleLoading,false);assert.equal(errors.length,1)
+ await close();await act(async()=>F.module.resolve(F.detailModule));assert.equal(F.content.get().activeContent,null)
+ await finish(t)
+}
+
 // Real HTTP cancellation through the owned hook -> actual getEntry -> actual
 // ofetch client. The endpoint is a bounded loopback stream, never a user server.
 {

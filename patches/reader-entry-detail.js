@@ -18,7 +18,7 @@ export function invalidateReaderEntryDetail() {
   setIsArticleLoading(false)
 }
 
-export default function useReaderEntryDetail({ entryId, source, sourceId, activeContent, entryRequestIdRef, restoreEntryListFocus }) {
+export default function useReaderEntryDetail({ entryId, source, sourceId, activeContent, entryRequestIdRef, restoreEntryListFocus, loadArticleDetail }) {
   const { sessionRevision } = useStore(dataState, { keys: ['sessionRevision'] })
   const routeKey = JSON.stringify([source, sourceId ?? null, entryId ?? null])
   const currentRoute = useRef(routeKey)
@@ -89,7 +89,12 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
     activeDetailRequests.add(controller)
     try {
       setIsArticleLoading(true)
-      const entry = await getEntry(requestedId, { signal: controller.signal })
+      // Keep the loading view until both independently started resources settle.
+      // The shared import promise stays rejected for React.lazy/ErrorBoundary.
+      const moduleSettled = Promise.resolve().then(loadArticleDetail).then(() => {}, () => {})
+      const [entry] = await Promise.all([
+        getEntry(requestedId, { signal: controller.signal }), moduleSettled,
+      ])
       if (isCurrent()) {
         if (entry?.id !== numericId || entry.content_deferred) throw new Error('Unexpected detail identity')
         const prepared = prepareEntry(entry)
@@ -106,7 +111,7 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
       if (isCurrent()) setIsArticleLoading(false)
       if (pendingOwner.current?.requestId === requestId) pendingOwner.current = null
     }
-  }, [entryRequestIdRef, cancelPending])
+  }, [entryRequestIdRef, cancelPending, loadArticleDetail])
 
   useEffect(() => {
     const routeChanged = previousRoute.current !== routeKey

@@ -1244,6 +1244,9 @@ app.include_router(create_agent_status_router(authorize))
 )
 async def proxy(path: str, request: Request):
     try:
+        if path.startswith("proxy/") and "reader_width" in request.query_params:
+            from reader_image_proxy import proxy_reader_image
+            return await proxy_reader_image(path, request, MF)
         if request.method not in ("GET", "HEAD", "OPTIONS") and path.startswith(("v1/feeds", "v1/import")):
             await authorize(request, admin=True)
         ai_scope = None

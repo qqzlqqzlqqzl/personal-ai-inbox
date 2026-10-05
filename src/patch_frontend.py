@@ -71,6 +71,7 @@ def install_reader_entry_detail(root, web):
     previous_helper_shas = {
         '17bce4248c73d81574c82c6570edc18db786520b095785f7dc4eb1c484b6f206',
         '82cc620457d6ee140e90a1edc85523d3c39532d5b51c36d0b9d26bf1cecc9ee4',
+        '4a68e34d40cc4e57d79d91cb39c89f05a06db083986232d73202ac4832ae1bb3',
     }
     if target.exists() and target.read_bytes() != helper and hashlib.sha256(target.read_bytes()).hexdigest() not in previous_helper_shas:
         raise RuntimeError('Unreviewed reader detail helper')
@@ -88,7 +89,23 @@ def install_reader_entry_detail(root, web):
     else:
         raise RuntimeError('Unreviewed reader detail transport source')
     hook_import = 'import useReaderEntryDetail from "@/utils/reader-entry-detail"'
-    hook_call = '  useReaderEntryDetail({ entryId, source, sourceId, activeContent, entryRequestIdRef, restoreEntryListFocus })'
+    legacy_hook_call = '  useReaderEntryDetail({ entryId, source, sourceId, activeContent, entryRequestIdRef, restoreEntryListFocus })'
+    hook_call = legacy_hook_call.replace('restoreEntryListFocus })', 'restoreEntryListFocus, loadArticleDetail })')
+    lazy_before = 'const ArticleDetail = lazy(() => import("@/components/Article/ArticleDetail"))'
+    lazy_after = ('let articleDetailPromise\n'
+                  'const loadArticleDetail = () => (articleDetailPromise ??= import("@/components/Article/ArticleDetail"))\n'
+                  'const ArticleDetail = lazy(loadArticleDetail)')
+    if lazy_after in text:
+        if text.count(lazy_after) != 1 or text.count('const loadArticleDetail =') != 1 or text.count('const ArticleDetail = lazy(') != 1:
+            raise RuntimeError('Unreviewed reader detail module loader')
+    elif text.count(lazy_before) == 1 and 'loadArticleDetail' not in text:
+        text = text.replace(lazy_before, lazy_after, 1)
+    else:
+        raise RuntimeError('Unreviewed reader detail module loader')
+    if legacy_hook_call in text:
+        if text.count(legacy_hook_call) != 1 or hook_call in text:
+            raise RuntimeError('Unreviewed reader detail wiring')
+        text = text.replace(legacy_hook_call, hook_call, 1)
     old_fetch = '  const fetchSingleEntry = useCallback(async (entryId) => {\n    const requestId = ++entryRequestIdRef.current\n    const isCurrentRequest = () => entryRequestIdRef.current === requestId\n    const numericEntryId = Number(entryId)\n    const existingEntry = contentState.get().entries.find((entry) => entry.id === numericEntryId)\n\n    if (existingEntry) {\n      setIsArticleLoading(false)\n      setActiveContent(existingEntry)\n      return\n    }\n\n    try {\n      setIsArticleLoading(true)\n      const entry = await getEntry(entryId)\n      if (isCurrentRequest()) {\n        setActiveContent(prepareEntry(entry))\n      }\n    } catch (error) {\n      if (isCurrentRequest()) {\n        console.error("Failed to fetch entry:", error)\n      }\n    } finally {\n      if (isCurrentRequest()) {\n        setIsArticleLoading(false)\n      }\n    }\n  }, [])\n'
     old_effect = '  useEffect(() => {\n    const currentActiveContent = contentState.get().activeContent\n\n    if (entryId) {\n      if (currentActiveContent?.id !== Number(entryId)) {\n        fetchSingleEntry(entryId)\n      }\n    } else {\n      entryRequestIdRef.current += 1\n      if (currentActiveContent) {\n        setActiveContent(null)\n        restoreEntryListFocus(currentActiveContent.id)\n      }\n      setIsArticleLoading(false)\n    }\n  }, [entryId, fetchSingleEntry, restoreEntryListFocus, source, sourceId])'
     reviewed_fetch = old_fetch.replace('if (existingEntry) {', 'if (existingEntry && !existingEntry.content_deferred) {')

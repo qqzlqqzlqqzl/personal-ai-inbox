@@ -25,9 +25,12 @@ await build({stdin:{contents:`export {default as AiPanel} from '${base}Ai/AiPane
  b.onResolve({filter:/SourceHistory$|NavigationPalette$|ImageLinkTag$/},()=>({path:'unused',namespace:'fixture'}))
  b.onResolve({filter:/^(classnames|html-react-parser)$/},({path})=>({path,namespace:'fixture'}))
  b.onResolve({filter:/^@/},({path})=>({path,namespace:'fixture'}))
- b.onLoad({filter:/.*/,namespace:'fixture'},({path})=>({loader:'js',contents:path==='css'?'':path==='unused'?'export default ()=>null':path==='classnames'?`export default (...args)=>args.filter(x=>typeof x==='string').join(' ')`:path==='html-react-parser'?`export const attributesToProps=attrs=>attrs`:path==='@arco-design/web-react'?`export const Tooltip=({children})=>children`:path==='@/hooks/useLanguage'?`const value={polyglot:{t:key=>key}};export const polyglotState={get:()=>value,subscribe:()=>()=>{}}`:path==='@/hooks/usePhotoSlider'?`export default ()=>({isPhotoSliderVisible:false,photoSliderSessionId:1})`:path==='@/store/settingsState'?`export const articleFontSizeState={get:()=>1,subscribe:()=>()=>{}}`:path==='@/utils/constants'?`export const MIN_THUMBNAIL_SIZE=32`:path==='@/utils/note-session'?`export const noteSession=new Proxy({},{get:(_,key)=>{const value=fixture.noteManager[key];return typeof value==='function'?value.bind(fixture.noteManager):value}})`:path==='@/apis/ofetch'?`export default Object.fromEntries(['get','put','post'].map(method=>[method,(...args)=>globalThis.fixture.api(method,...args)]))`:path==='@/hooks/useAppData'?'export default ()=>({refreshFeedData:async()=>{}})':path==='@nanostores/react'?`import {useSyncExternalStore} from 'react';export const useStore=store=>useSyncExternalStore(store.subscribe,store.get,store.get)`:path==='@/store/aiState'?`export const aiState={get:()=>fixture.ai.get(),set:v=>fixture.ai.set(v),setKey:(k,v)=>fixture.ai.setKey(k,v),subscribe:fn=>fixture.ai.subscribe(fn)}`:path==='@/store/authState'?`export const authState={get:()=>fixture.auth.get(),subscribe:fn=>fixture.auth.subscribe(fn)}`:path==='@/store/dataState'?`export const dataState={get:()=>fixture.data.get(),subscribe:fn=>fixture.data.subscribe(fn)};export const getDataSessionRevision=()=>fixture.revision`:path==='@/store/contentState'?`export const invalidateArticleList=()=>fixture.invalidations++;export const contentState={get:()=>fixture.content};export const setActiveContent=v=>{fixture.content.activeContent=v};export const setEntries=v=>{fixture.content.entries=v};export const activeContentState={get:()=>fixture.active,subscribe:()=>()=>{}}`:(()=>{throw Error('Unexpected dependency '+path)})()}))
+ b.onLoad({filter:/.*/,namespace:'fixture'},({path})=>({loader:'js',contents:path==='css'?'':path==='unused'?'export default ()=>null':path==='classnames'?`export default (...args)=>args.filter(x=>typeof x==='string').join(' ')`:path==='html-react-parser'?`export const attributesToProps=attrs=>attrs`:path==='@arco-design/web-react'?`export const Tooltip=({children})=>children`:path==='@/hooks/useLanguage'?`const value={polyglot:{t:key=>key}};export const polyglotState={get:()=>value,subscribe:()=>()=>{}}`:path==='@/hooks/usePhotoSlider'?`export default ()=>({isPhotoSliderVisible:false,photoSliderSessionId:1})`:path==='@/hooks/useScreenWidth'?`export default ()=>({isBelowMedium:window.innerWidth<=768})`:path==='@/store/settingsState'?`export const articleFontSizeState={get:()=>1,subscribe:()=>()=>{}}`:path==='@/utils/constants'?`export const MIN_THUMBNAIL_SIZE=32`:path==='@/utils/note-session'?`export const noteSession=new Proxy({},{get:(_,key)=>{const value=fixture.noteManager[key];return typeof value==='function'?value.bind(fixture.noteManager):value}})`:path==='@/apis/ofetch'?`export default Object.fromEntries(['get','put','post'].map(method=>[method,(...args)=>globalThis.fixture.api(method,...args)]))`:path==='@/hooks/useAppData'?'export default ()=>({refreshFeedData:async()=>{}})':path==='@nanostores/react'?`import {useSyncExternalStore} from 'react';export const useStore=store=>useSyncExternalStore(store.subscribe,store.get,store.get)`:path==='@/store/aiState'?`export const aiState={get:()=>fixture.ai.get(),set:v=>fixture.ai.set(v),setKey:(k,v)=>fixture.ai.setKey(k,v),subscribe:fn=>fixture.ai.subscribe(fn)}`:path==='@/store/authState'?`export const authState={get:()=>fixture.auth.get(),subscribe:fn=>fixture.auth.subscribe(fn)}`:path==='@/store/dataState'?`export const dataState={get:()=>fixture.data.get(),subscribe:fn=>fixture.data.subscribe(fn)};export const getDataSessionRevision=()=>fixture.revision`:path==='@/store/contentState'?`export const invalidateArticleList=()=>fixture.invalidations++;export const contentState={get:()=>fixture.content};export const setActiveContent=v=>{fixture.content.activeContent=v};export const setEntries=v=>{fixture.content.entries=v};export const activeContentState={get:()=>fixture.active,subscribe:()=>()=>{}}`:(()=>{throw Error('Unexpected dependency '+path)})()}))
 }}]})
 const {AiPanel,AiToolbar,ArticleNote,RecoverableImage,ImageOverlayButton}=createRequire(import.meta.url)(output)
+const {readerImageProps}=await import('../frontend-review/after/src/components/Article/reader-image-variants.js')
+const {default:buildArticleImageModel}=await import('../upstream/reactflux/src/utils/images.js')
+globalThis.DOMParser=dom.window.DOMParser
 const config={enabled:false,translation_enabled:false,base_url:'https://example.test/v1',model:'initial-model',prompt:'initial prompt',minimum_score:6,daily_articles:80,daily_tokens:500000,max_chars:40000,json_mode:true}
 const samples={settings:config,status:{counts:{done:3},coverage:{reader_total:7},kaggle:{enabled:false}},catalog:[{name:'stored source',url:'https://example.test/feed',category:'test',status:'ok',subscription_supported:true,subscribed:false}],roster:{counts:{total:2},sources:[]}}
 function store(value){const listeners=new Set();return{get:()=>value,set(next){value=next;listeners.forEach(fn=>fn())},setKey(k,v){this.set({...value,[k]:v})},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)}}}
@@ -147,6 +150,58 @@ await test('R07 actual image-overlay src/article changes reset retries and readi
  await click('重试这张图片');await fail();await act(async()=>root.render(render('https://example.test/two.png','102')));await fail();assert.match(document.body.textContent,/已手动重试 0 \/ 3/);assert.equal(opens,0)
  await click('重试这张图片');await act(async()=>{const img=document.querySelector('img');Object.defineProperties(img,{naturalWidth:{value:900},naturalHeight:{value:600}});img.dispatchEvent(new dom.window.Event('load'))});assert.equal(document.querySelector('.image-overlay-button').disabled,false)
  await act(async()=>document.querySelector('.image-overlay-button').click());assert.equal(opens,1);await act(async()=>root.unmount())
+})
+await test('R08 signed image display variant leaves original gallery and recovery source intact',async()=>{
+ const signed='/mf/proxy/'+'A'.repeat(43)+'=/aHR0cHM6Ly9leGFtcGxlLnRlc3QvcGhvdG8uanBn'
+ const source={src:signed,alt:'signed image',width:'2807',height:'1870'}
+ assert.equal(readerImageProps(source,390,1).src,signed+'?reader_width=960')
+ assert.equal(readerImageProps(source,390,3).src,signed+'?reader_width=1600')
+ const origin=window.location.origin,absolute=origin+signed
+ assert.equal(readerImageProps({src:absolute},390,1,origin).src,absolute+'?reader_width=960')
+ for(const props of [{src:'https://external.test'+signed},{src:absolute},{src:origin+signed+'#fragment'},{src:origin+signed+'?unknown=1'},{src:'https://user@reader.example.test'+signed},{src:'//reader.example.test'+signed},{src:signed,srcSet:'original-480.jpg 480w'},{src:signed,width:100},{src:signed+'?unknown=1'},{src:'/mf/proxy/bad/unsigned'}])assert.equal(readerImageProps(props,390,2,props.src===absolute?undefined:origin),props)
+ const model=buildArticleImageModel(`<img src="${signed}">`)
+ const root=setup();let preview
+ const originalWidth=window.innerWidth,originalRatio=window.devicePixelRatio
+ Object.defineProperty(window,'innerWidth',{value:390,configurable:true});Object.defineProperty(window,'devicePixelRatio',{value:2,configurable:true})
+ try{
+  await act(async()=>root.render(React.createElement(ImageOverlayButton,{node:{attribs:source},index:model.getImageIndex(signed),togglePhotoSlider:index=>{preview=model.imageSources[index]}})))
+  const img=document.querySelector('img')
+  assert.equal(img.getAttribute('src'),signed+'?reader_width=960');assert.equal(img.getAttribute('srcset'),null)
+  assert.equal(source.src,signed);assert.deepEqual(model.imageSources,[signed]);assert.equal(fixture.requests.length,0)
+  await act(async()=>{Object.defineProperties(img,{naturalWidth:{value:960},naturalHeight:{value:639}});img.dispatchEvent(new dom.window.Event('load'))})
+  await act(async()=>document.querySelector('.image-overlay-button').click());assert.equal(preview,signed)
+  await act(async()=>img.dispatchEvent(new dom.window.Event('error')))
+  assert.equal(document.querySelector('img').getAttribute('src'),signed);assert.equal(document.querySelector('.image-overlay-button').disabled,true)
+  await act(async()=>document.querySelector('img').dispatchEvent(new dom.window.Event('error')));assert.match(document.body.textContent,/图片未能加载/)
+  await click('重试这张图片');assert.equal(document.querySelector('img').getAttribute('src'),signed)
+ }finally{await act(async()=>root.unmount());Object.defineProperty(window,'innerWidth',{value:originalWidth,configurable:true});Object.defineProperty(window,'devicePixelRatio',{value:originalRatio,configurable:true})}
+})
+await test('R08 variant failure uses original once for relative and same-origin absolute URLs; source changes reset fallback',async()=>{
+ const signed='/mf/proxy/'+'B'.repeat(43)+'=/aHR0cHM6Ly9leGFtcGxlLnRlc3QvcGhvdG8uanBn'
+ const root=setup();let opens=0
+ const render=(src,key='entry')=>React.createElement(ImageOverlayButton,{key,node:{attribs:{src,alt:'signed image'}},index:0,togglePhotoSlider:()=>opens++})
+ const fail=async()=>act(async()=>document.querySelector('img').dispatchEvent(new dom.window.Event('error')))
+ try{
+  // Native img errors contain no HTTP status. 413 and 504 share this failure
+  // path; backend status contracts are tested in test_reader_image_proxy.py.
+  for(const src of [signed,window.location.origin+signed]){
+   await act(async()=>root.render(render(src)))
+   const variant=document.querySelector('img')
+   assert.match(variant.getAttribute('src'),/\?reader_width=(960|1600)$/)
+   await fail();assert.notEqual(document.querySelector('img'),variant);assert.equal(document.querySelector('img').getAttribute('src'),src)
+   assert.equal(document.querySelector('.image-overlay-button').disabled,true)
+   await act(async()=>variant.dispatchEvent(new dom.window.Event('error')));assert.equal(document.querySelector('img').getAttribute('src'),src)
+   await fail();assert.match(document.body.textContent,/已手动重试 0 \/ 3/)
+   for(let i=0;i<3;i++){await click('重试这张图片');assert.equal(document.querySelector('img').getAttribute('src'),src);await fail()}
+   assert.equal(button('已达本次重试上限').disabled,true);assert.equal(opens,0)
+  }
+  const src=window.location.origin+signed
+  await act(async()=>root.render(render(src,'new-entry')));assert.match(document.querySelector('img').getAttribute('src'),/\?reader_width=/)
+  await fail();const original=document.querySelector('img')
+  await act(async()=>{Object.defineProperties(original,{naturalWidth:{value:2807},naturalHeight:{value:1870}});original.dispatchEvent(new dom.window.Event('load'))})
+  assert.equal(document.querySelector('.image-overlay-button').disabled,false)
+  await act(async()=>document.querySelector('.image-overlay-button').click());assert.equal(opens,1)
+ }finally{await act(async()=>root.unmount())}
 })
 await test('privacy closed A+B failed PUTs survive navigation but are purged together at session exit',async()=>{
  const root=setup()

@@ -50,6 +50,40 @@ class DetailInstallTests(unittest.TestCase):
                 install(root, web); self.assertEqual(path.read_bytes(), first)
                 self.assertIn('getEntry = async (entryId, options = {})', (web / 'src/apis/entries.js').read_text())
 
+    def test_shared_loader_is_public_and_legacy_hook_upgrades(self):
+        root, web, path, install = self.fixture()
+        install(root, web)
+        first = path.read_text()
+        self.assertIn('const ArticleDetail = lazy(loadArticleDetail)', first)
+        self.assertEqual(first.count('import("@/components/Article/ArticleDetail")'), 1)
+        self.assertIn('restoreEntryListFocus, loadArticleDetail })', first)
+        # A reviewed installed Content from before the shared loader upgrade.
+        legacy = first.replace('let articleDetailPromise\nconst loadArticleDetail = () => (articleDetailPromise ??= import("@/components/Article/ArticleDetail"))\nconst ArticleDetail = lazy(loadArticleDetail)',
+                               'const ArticleDetail = lazy(() => import("@/components/Article/ArticleDetail"))')
+        legacy = legacy.replace('restoreEntryListFocus, loadArticleDetail })', 'restoreEntryListFocus })')
+        path.write_text(legacy)
+        install(root, web)
+        self.assertEqual(path.read_text(), first)
+
+    def test_unknown_or_duplicate_loader_refuses_before_any_writes(self):
+        for change in ('different-import', 'duplicate', 'missing'):
+            with self.subTest(change=change):
+                root, web, path, install = self.fixture()
+                lazy = 'const ArticleDetail = lazy(() => import("@/components/Article/ArticleDetail"))'
+                original = path.read_text()
+                if change == 'different-import': original = original.replace('import("@/components/Article/ArticleDetail")', 'import("unknown")')
+                elif change == 'duplicate': original += '\n' + lazy + '\n'
+                else: original = original.replace(lazy, '')
+                path.write_text(original)
+                context = (path.parent / 'ContentContext.jsx').read_bytes()
+                entries = (web / 'src/apis/entries.js').read_bytes()
+                with self.assertRaisesRegex(RuntimeError, 'Unreviewed reader detail module loader'):
+                    install(root, web)
+                self.assertEqual(path.read_text(), original)
+                self.assertEqual((path.parent / 'ContentContext.jsx').read_bytes(), context)
+                self.assertEqual((web / 'src/apis/entries.js').read_bytes(), entries)
+                self.assertFalse((web / 'src/utils/reader-entry-detail.js').exists())
+
     def test_reviewed_previous_helper_upgrade_preserves_wiring(self):
         root, web, path, install = self.fixture()
         install(root, web); before = path.read_bytes()
