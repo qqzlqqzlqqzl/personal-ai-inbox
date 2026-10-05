@@ -1,5 +1,6 @@
 """Exercise the actual narrow installer without executing the production entry."""
 import ast
+import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -48,6 +49,19 @@ class DetailInstallTests(unittest.TestCase):
                                  (root / 'patches/reader-entry-detail.js').read_bytes())
                 install(root, web); self.assertEqual(path.read_bytes(), first)
                 self.assertIn('getEntry = async (entryId, options = {})', (web / 'src/apis/entries.js').read_text())
+
+    def test_reviewed_previous_helper_upgrade_preserves_wiring(self):
+        root, web, path, install = self.fixture()
+        install(root, web); before = path.read_bytes()
+        previous = subprocess.check_output(['git', '-C', str(ROOT), 'show',
+            '3045d90dc1c4e4edc952705331c1b393fbba4ca1:patches/reader-entry-detail.js'], timeout=15)
+        self.assertEqual(hashlib.sha256(previous).hexdigest(),
+                         '82cc620457d6ee140e90a1edc85523d3c39532d5b51c36d0b9d26bf1cecc9ee4')
+        target = web / 'src/utils/reader-entry-detail.js'
+        target.write_bytes(previous)
+        install(root, web)
+        self.assertEqual(target.read_bytes(), (root / 'patches/reader-entry-detail.js').read_bytes())
+        self.assertEqual(path.read_bytes(), before)
 
     def test_unknown_transport_refuses_before_any_detail_writes(self):
         root, web, path, install = self.fixture(); before = path.read_bytes()

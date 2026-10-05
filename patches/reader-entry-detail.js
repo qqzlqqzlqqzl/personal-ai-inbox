@@ -92,12 +92,12 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
       const entry = await getEntry(requestedId, { signal: controller.signal })
       if (isCurrent()) {
         if (entry?.id !== numericId || entry.content_deferred) throw new Error('Unexpected detail identity')
-        // Publishing complete content changes active identity. Finish this
-        // request's loading state first; a stale finally must not clear a newer one.
-        setIsArticleLoading(false)
+        const prepared = prepareEntry(entry)
+        if (!isCurrent()) return
+        // Detach the completed owner before notifying content observers.
         pendingOwner.current = null
         activeDetailRequests.delete(controller)
-        setActiveContent(prepareEntry(entry))
+        contentState.set({ ...contentState.get(), activeContent: prepared, isArticleLoading: false })
       }
     } catch (error) {
       if (isCurrent()) console.error('Failed to fetch entry:', error)
