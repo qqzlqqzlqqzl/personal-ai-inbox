@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "repository": "qqzlqqzlqqzl/personal-ai-inbox",
-  "purpose": "Measure reviewed 3608 startup and Reader product bytes against the fixed 879 baseline; a successful producer binds the candidate and does not admit a release",
+  "purpose": "Measure deployed PR118 product bytes against the fixed 879 baseline; successful regression does not establish a performance improvement",
   "inputs": {
     "baseline": {
       "artifact_id": 11299074112,
@@ -17,15 +17,15 @@
       "producer_conclusion": "success"
     },
     "candidate": {
-      "artifact_id": 11349122129,
-      "artifact_bytes": 3115203,
-      "artifact_sha256": "cfaee660127ccd4a0026dcf198a72af5e1624b86a7ba3e80d04c97a5b693dfe4",
-      "manifest_sha256": "5d29c89ae2865542fb005a4194fefc30fcd94d6d10cf21a3e1b25e5206acc33e",
+      "artifact_id": 11356804014,
+      "artifact_bytes": 3115848,
+      "artifact_sha256": "cc70c2788a3cec0769099c8e48dac756a3b5774d9f13a410f4163c3464d84efc",
+      "manifest_sha256": "ca32146d75e53d3baed56866b60bb2dba75065642252ed7adfe1fbd0fbf96508",
       "files": 126,
-      "head": "3608d0903177a67e23baa658bd9eb218e09303f1",
-      "tree": "c4b9e4c3a5ff54c5d78fd95f7259b96b6b4414eb",
-      "src": "3465da1dd9e09176efb83afe278227c9268cb1ab",
-      "producer_run": 37318150793,
+      "head": "88cf2706b30d419693eef767e4844dfbae8fc3c1",
+      "tree": "cbb9c13a55da75d8051064cbee0011fc9aac7145",
+      "src": "9bff0684c83157901f2caf70ecb79f128c46e9c1",
+      "producer_run": 37338459274,
       "producer_attempt": 1,
       "producer_conclusion": "success"
     }
