@@ -6,9 +6,11 @@ import { useEffect, useId, useRef, useState } from "react"
 
 import ImageLinkTag from "./ImageLinkTag"
 import {ImageRecoveryNotice} from "./ImageRecovery"
+import {readerImageProps} from "./reader-image-variants"
 
 import { polyglotState } from "@/hooks/useLanguage"
 import usePhotoSlider from "@/hooks/usePhotoSlider"
+import useScreenWidth from "@/hooks/useScreenWidth"
 import { articleFontSizeState } from "@/store/settingsState"
 import { MIN_THUMBNAIL_SIZE } from "@/utils/constants"
 
@@ -91,8 +93,9 @@ const useImageTooltip = (isDisabled) => {
   }
 }
 
-const ImageComponent = ({ imgNode, isIcon, isBigImage, index, onImageLoad, onImageError, ready, togglePhotoSlider }) => {
+const ImageComponent = ({ imgNode, isIcon, isBigImage, index, onImageLoad, onImageError, ready, preferOriginal, togglePhotoSlider }) => {
   const fontSize = useStore(articleFontSizeState)
+  const { isBelowMedium } = useScreenWidth()
   const { polyglot } = useStore(polyglotState)
   const imageInstanceId = useId()
   const imageRef = useRef(null)
@@ -104,7 +107,7 @@ const ImageComponent = ({ imgNode, isIcon, isBigImage, index, onImageLoad, onIma
     "icon-image": isIcon,
   })
   const optimizedImageProps = {
-    ...imageProps,
+    ...(preferOriginal ? imageProps : readerImageProps(imageProps, isBelowMedium ? window.innerWidth : 768, window.devicePixelRatio, window.location.origin)),
     decoding: imageProps.decoding ?? "async",
     loading: imageProps.loading ?? "lazy",
   }
@@ -112,6 +115,7 @@ const ImageComponent = ({ imgNode, isIcon, isBigImage, index, onImageLoad, onIma
   return isIcon ? (
     <Tooltip content={altText} disabled={!altText} {...tooltipProps}>
       <img
+        key={optimizedImageProps.src}
         {...optimizedImageProps}
         {...tooltipTriggerProps}
         alt={altText}
@@ -129,6 +133,7 @@ const ImageComponent = ({ imgNode, isIcon, isBigImage, index, onImageLoad, onIma
   ) : (
     <div style={{ position: "relative" }}>
       <img
+        key={optimizedImageProps.src}
         {...optimizedImageProps}
         ref={imageRef}
         alt={altText}
@@ -166,9 +171,21 @@ const ImageOverlayButton = ({ node, index, togglePhotoSlider, isLinkWrapper = fa
   const [isIcon, setIsIcon] = useState(false)
   const [isBigImage, setIsBigImage] = useState(false)
   const [failed,setFailed]=useState(false),[attempts,setAttempts]=useState(0),[ready,setReady]=useState(false)
+  const [originalSource,setOriginalSource]=useState(null)
 
   const imgNode = findImageNode(node, isLinkWrapper)
-  useEffect(()=>{setFailed(false);setAttempts(0);setReady(false);setIsIcon(false);setIsBigImage(false)},[imgNode.attribs.src])
+  const preferOriginal = originalSource === imgNode.attribs.src
+  useEffect(()=>{setFailed(false);setAttempts(0);setReady(false);setIsIcon(false);setIsBigImage(false);setOriginalSource(null)},[imgNode.attribs.src])
+  const handleImageError = ({currentTarget}) => {
+    const actual = currentTarget.getAttribute('src'), source = imgNode.attribs.src
+    setReady(false)
+    if (!preferOriginal && [960,1600].some(width=>actual===`${source}?reader_width=${width}`)) {
+      // One automatic fallback; retries thereafter use this exact signed original.
+      setOriginalSource(source)
+      return
+    }
+    setFailed(true)
+  }
 
   const handleImageLoad = ({ currentTarget }) => {
     setReady(true)
@@ -190,7 +207,8 @@ const ImageOverlayButton = ({ node, index, togglePhotoSlider, isLinkWrapper = fa
           isBigImage={isBigImage}
           isIcon={isIcon}
           togglePhotoSlider={togglePhotoSlider}
-          onImageError={()=>{setFailed(true);setReady(false)}}
+          onImageError={handleImageError}
+          preferOriginal={preferOriginal}
               ready={ready}
               onImageLoad={handleImageLoad}
         />
@@ -203,7 +221,8 @@ const ImageOverlayButton = ({ node, index, togglePhotoSlider, isLinkWrapper = fa
         isBigImage={isBigImage}
         isIcon={isIcon}
         togglePhotoSlider={togglePhotoSlider}
-        onImageError={()=>{setFailed(true);setReady(false)}}
+        onImageError={handleImageError}
+        preferOriginal={preferOriginal}
         ready={ready}
         onImageLoad={handleImageLoad}
       />
@@ -221,7 +240,8 @@ const ImageOverlayButton = ({ node, index, togglePhotoSlider, isLinkWrapper = fa
               isBigImage={isBigImage}
               isIcon={isIcon}
               togglePhotoSlider={togglePhotoSlider}
-              onImageError={()=>{setFailed(true);setReady(false)}}
+              onImageError={handleImageError}
+              preferOriginal={preferOriginal}
               ready={ready}
               onImageLoad={handleImageLoad}
             />
@@ -234,7 +254,8 @@ const ImageOverlayButton = ({ node, index, togglePhotoSlider, isLinkWrapper = fa
             isBigImage={isBigImage}
             isIcon={isIcon}
             togglePhotoSlider={togglePhotoSlider}
-            onImageError={()=>{setFailed(true);setReady(false)}}
+            onImageError={handleImageError}
+            preferOriginal={preferOriginal}
               ready={ready}
               onImageLoad={handleImageLoad}
           />

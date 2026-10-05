@@ -144,16 +144,18 @@ def _json(path):
         return None
 
 
-def observe(root, entry_ids=(), *, now=None):
+def observe(root, entry_ids=(), *, now=None, control_root=None):
     """Only files and existing mode=ro ledgers; no product imports or migrations.
 
     One bounded snapshot is shared across a page. Never instantiate Controller,
     call month_control.status, query provider quota, or create a missing ledger.
+    control_root selects the live dispatch switches; state and claims stay in root.
     """
     root = Path(root)
+    control_root = root if control_root is None else Path(control_root)
     now = time.time() if now is None else now
     ids = sorted({eid for eid in entry_ids if type(eid) is int and eid > 0})[:100]
-    pause = root/'runtime/qwen-month-20260925/paused.json'
+    pause = control_root/'runtime/qwen-month-20260925/paused.json'
     try:
         pause.stat()
         paused = True
@@ -163,7 +165,7 @@ def observe(root, entry_ids=(), *, now=None):
         paused = None
     configs = {}
     for key in LANES:
-        config = _json(root/f'src/kaggle_batch/cloud-config-month-{key}.json')
+        config = _json(control_root/f'src/kaggle_batch/cloud-config-month-{key}.json')
         if config is not None:
             configs[key] = {name: config.get(name) for name in ('schedule_enabled', 'reconcile_only')}
     raw = _json(root/'state/kaggle-month-dispatch/scheduler.json') or {}

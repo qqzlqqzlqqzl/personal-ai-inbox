@@ -3,7 +3,7 @@ import "./AiNews.css"
 const labels = {
   content_excluded: "原始条目已保留 · 暂不推荐 · 未评分",
   requires_fulltext_adapter: "需要论文全文适配 · 未评分", insufficient_content: "原文信息过少 · 未评分", removed: "原条目已移除", pending: "等待后台处理", fetching: "正在抓取原文", analyzing: "正在分析",
-  waiting_model: "原文已抓取 · 等待模型配置", fetch_error: "原文抓取受限",
+  waiting_model: "原文已抓取 · 等待分析", fetch_error: "原文抓取受限",
   ai_error: "AI 分析失败，可重试", budget_paused: "已达今日预算 · 稍后重试",
 }
 

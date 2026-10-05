@@ -383,7 +383,8 @@ def reader_rows(sql, values):
 
 def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False):
     from processing_status import observe
-    processing_evidence = observe(ROOT, [entry['id'] for entry in entries])
+    from month_control import ROOT as control_root
+    processing_evidence = observe(ROOT, [entry['id'] for entry in entries], control_root=control_root)
     enqueue_cards(entries, priority=40 if detail else 30)
     result = []
     for entry in entries:
@@ -1244,6 +1245,9 @@ app.include_router(create_agent_status_router(authorize))
 )
 async def proxy(path: str, request: Request):
     try:
+        if path.startswith("proxy/") and "reader_width" in request.query_params:
+            from reader_image_proxy import proxy_reader_image
+            return await proxy_reader_image(path, request, MF)
         if request.method not in ("GET", "HEAD", "OPTIONS") and path.startswith(("v1/feeds", "v1/import")):
             await authorize(request, admin=True)
         ai_scope = None
