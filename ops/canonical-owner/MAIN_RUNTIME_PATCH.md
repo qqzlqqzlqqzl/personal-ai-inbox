@@ -1,6 +1,6 @@
 # Canonical-parent virtual environment compatibility
 
-This source starts with the six unmodified files from the reviewed c7bbb3dc5e660ca790cef41922e3cc2f6f3b56c7 package. Only canonical_operator.py is changed; the collector, transport, SOURCE_PINS and original 40 controls remain byte-identical. Nine additional Linux filesystem controls cover interpreter/path compatibility.
+This source starts with the reviewed c7bbb3dc5e660ca790cef41922e3cc2f6f3b56c7 package. canonical_operator.py adds runtime path binding; the collector, transport, SOURCE_PINS and original 40 controls remain byte-identical. README.zh.md now documents canonical-parent execution. Nine additional Linux filesystem controls cover interpreter/path compatibility and retain every fixture, including the original alias before recreation, under OPERATOR_TEST_RETAIN_ROOT.
 
 The current deployment exposes its existing Kaggle venv through a release symlink. Running its Python from the canonical **bin directory**, while retaining the executable leaf, makes importlib locate the same verified packages through canonical paths. Fully resolving bin/python to the system binary loses the venv and is rejected.
 

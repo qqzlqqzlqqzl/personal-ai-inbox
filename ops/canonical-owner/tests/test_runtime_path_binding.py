@@ -1,5 +1,6 @@
 """Linux-only filesystem controls for canonical-parent venv execution."""
 import importlib.util
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -10,13 +11,14 @@ SOURCE = Path(__file__).resolve().parents[1] / 'canonical_operator.py'
 spec = importlib.util.spec_from_file_location('canonical_runtime_binding', SOURCE)
 op = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(op)
+RUN_ROOT = Path(os.environ.get('OPERATOR_TEST_RETAIN_ROOT',
+                              str(SOURCE.parent.parent / 'retained-synthetic-tests')))
+RUN_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class RuntimeBindingControls(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='canonical-venv-binding-')
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(tempfile.mkdtemp(prefix='canonical-venv-binding-', dir=RUN_ROOT))
         self.binary = self.root / 'system-python'
         self.binary.write_bytes(b'SYNTHETIC_EXECUTABLE_ONLY')
         self.venv = self.root / 'retained' / 'venv'
@@ -69,7 +71,7 @@ class RuntimeBindingControls(unittest.TestCase):
     def test_alias_retarget_changes_saved_binding(self):
         with self.runtime():
             first = op.bind_interpreter(self.configured)
-            self.alias.unlink()
+            self.alias.rename(self.root / 'live-before-recreated')
             self.alias.symlink_to(self.venv.parent, target_is_directory=True)
             second = op.bind_interpreter(self.configured)
         self.assertNotEqual(first, second)

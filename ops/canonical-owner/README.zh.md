@@ -16,7 +16,7 @@ stdin 是单个严格 JSON 对象，不能有重复键、NaN、额外字段；�
 
 每项 lane 严格包含：
 
-- `config_path`：该 lane 原 JSON 配置的绝对逻辑路径。读取原 `owner`、`kaggle_python`、`state_root`、`peer_state_roots`、`token_file`，不写配置。`kaggle_python` 必须逐字等于本次启动的 `sys.executable`；不要复制 cfg 或换解释器凑通过
+- `config_path`：该 lane 原 JSON 配置的绝对逻辑路径。读取原 `owner`、`kaggle_python`、`state_root`、`peer_state_roots`、`token_file`，不写配置。`kaggle_python` 可通过原发布别名指向本次启动的同一 venv：configured/running interpreter 叶、bin 目录、venv prefix，以及 `sys.prefix`/`sys.exec_prefix` 的真实路径与身份必须一致，完整七条路径 trace 仍须前后重核。仅解释器路径字面可不同；共用同一系统 Python 二进制的另一 venv 会拒绝。不要复制 cfg 或换 venv 凑通过
 - `context`：精确 e87 私有输入，只有 `lane`、`expected_owner`、`target`。lane 为 primary/secondary/third/fourth/fifth；owner 字面匹配原配置，后续 token owner 仍由官方 identity 原始响应证明
 - `target`：`binding_id` UUIDv4、账本原 `claimed_ref`（owner/slug）、数值 `ledger_observed_at` 原观察时间。可选 `version_receipt` 必须只有同 UUID `binding_id`、已核非零十进制字符串 `version_label`、数值 `verified_at`。无原版本证据不能构造版本。status 无版本回显，所以仍不宣称 specific submission version 已证明
 - `ledger_before`：完整六字段对象 `id,state,remote_status,updated,error,manifest_hash`。id 必须是原 ref 的 slug，state 仅 submitting/submit_unknown，remote_status 必须 null；updated 为原数值时间，error 为原字符串或 null，manifest_hash 为原 64 小写 hex。不得使用新的当前时间替换旧快照字段
@@ -31,11 +31,13 @@ operator 只用 SQLite `mode=ro`、`query_only=ON` 和读事务，不导入产�
 
 本机使用配置里的既有解释器及已核安装的 kaggle 2.2.4 / kagglesdk 0.1.37，不安装、升级、改 auth、改代理或 TLS。已有 AI_NEWS_OUTBOUND_PROXY 为本次唯一代理；NO_PROXY命中、标准有效代理不一致、自定义 CA 均拒绝。token canonical 路径仅传给 child 的 KAGGLE_API_TOKEN；不改当前进程全局环境、原 cfg、原 logical alias 或原代理。
 
-第一步：`timeout 90s /原配置/既有/python -I -B /已核/canonical_operator.py --preflight < /私有/operator-input.json > /私有/preflight-summary.json`
+启动时只规范化原解释器的父 `bin` 目录，保留 `python` 可执行文件叶；不要把整个解释器 realpath 成系统二进制，否则会丢失 venv。原配置保持不变。规范父目录的实际现役 venv 必须通过完整绑定及165 SDK源校验，不得用合成测试替代。
+
+第一步：`timeout 90s /原venv规范bin目录/python -I -B /已核/canonical_operator.py --preflight < /私有/operator-input.json > /私有/preflight-summary.json`
 
 必须退出 0、status=PREFLIGHT_OK。它完成全部 path/ledger 绑定，使用合成 token 执行真实固定 SDK 的导入、request 对象及 client enter/exit；socket/DNS/Requests.send 临时禁止，零业务请求。真实 SDK 初始化能力必须在主本机实际通过，不能拿本包合成测试替代。私有 preflight.json 保存输入摘要、路径和完整账本内容摘要；不保存 token 字节、raw provider 响应或完整 claims 行。
 
-第二步：主确认这是获批的新具名观察后，使用同一输入：`timeout 490s /原配置/既有/python -I -B /已核/canonical_operator.py --execute-reviewed < /私有/operator-input.json > /私有/execution-summary.json`
+第二步：主确认这是获批的新具名观察后，使用同一输入和解释器：`timeout 490s /原venv规范bin目录/python -I -B /已核/canonical_operator.py --execute-reviewed < /私有/operator-input.json > /私有/execution-summary.json`
 
 执行前 O_EXCL 创建 execution.marker，先消耗该具名 attempt。每 lane 开始前另写 started marker，最多一个 child，最多 identity 1 + status 1，总最多 10 个业务尝试。不重试、不跳过拒绝项、不重定向、不换 token/路线。SDK/路径或任何阶段失败都保留 marker，旧 attempt 不能再跑。程序不在不同新 UUID 间提供持久全局预算；主必须把这一份最多五 lane 输入当作本次唯一具名授权清单，不能循环换名字重试。
 
@@ -55,4 +57,4 @@ operator 只用 SQLite `mode=ro`、`query_only=ON` 和读事务，不导入产�
 
 作者 40 项合成测试通过，含真实本地双表 SQLite、六字段/任意 claims/root/config/token漂移、递归 alias、局部可观测 ABA、marker重放、五 lane 预算、超时、不泄漏、时间顺序、最终失效、证据父目录交换与固定 e87 字节。岗6原目录替换探针仅适配 fixture repo 路径，在原 v1 exit1，在 v2 exit0，断言逐字不变。所有测试生成文件保留。测试使用 fake child / mock sdk_preflight；没有声称在云端真实完整 SDK/账号流程通过。
 
-运行测试：`timeout 120s python -B tests/test_canonical_operator.py`。可设置 OPERATOR_TEST_RETAIN_ROOT 为本岗新目录；默认保留在候选目录之外。不要复制或上传测试运行生成的 synthetic token 文件、私有快照或原日志。分享仅审过源、本文、manifest 和安全汇总。原 e87 独审补件与本 operator 独审是两个范围，必须分别绑定。
+运行测试：`timeout 120s python -B tests/test_canonical_operator.py` 与 `timeout 60s python -B tests/test_runtime_path_binding.py`。两者均可设置 OPERATOR_TEST_RETAIN_ROOT 为本岗新目录；默认保留在候选目录之外。新增9项Linux文件系统控保留每个fixture；别名重建控将原alias改名留存后再建立新alias，不直接删除。不要复制或上传测试运行生成的 synthetic token 文件、私有快照或原日志。分享仅审过源、本文、manifest 和安全汇总。原 e87 独审补件与本 operator 独审是两个范围，必须分别绑定。
