@@ -224,10 +224,10 @@ func metadataIDs(t *testing.T, w *httptest.ResponseRecorder, userID int64) []int
 	}
 	ids := make([]int64, 0, len(rows))
 	for _, row := range rows {
-		if len(row) != 6 {
+		if len(row) != 7 {
 			t.Fatalf("wrong field count: %v", row)
 		}
-		for _, key := range []string{"id", "user_id", "feed_id", "title", "url", "published_at"} {
+		for _, key := range []string{"id", "user_id", "feed_id", "title", "url", "published_at", "changed_at"} {
 			if row[key] == nil {
 				t.Fatalf("missing field %q", key)
 			}
@@ -237,6 +237,13 @@ func metadataIDs(t *testing.T, w *httptest.ResponseRecorder, userID int64) []int
 		var published time.Time
 		if json.Unmarshal(row["id"], &id) != nil || json.Unmarshal(row["user_id"], &uid) != nil || json.Unmarshal(row["title"], &title) != nil || json.Unmarshal(row["url"], &articleURL) != nil || articleURL == "" || json.Unmarshal(row["published_at"], &published) != nil || uid != userID {
 			t.Fatalf("invalid metadata types/ownership: %v", row)
+		}
+		var changedAt string
+		if err := json.Unmarshal(row["changed_at"], &changedAt); err != nil {
+			t.Fatalf("changed_at must be a timestamp string: %v", row["changed_at"])
+		}
+		if _, err := time.Parse(time.RFC3339Nano, changedAt); err != nil {
+			t.Fatalf("changed_at must include an RFC3339 timezone: %q / %v", changedAt, err)
 		}
 		if len(ids) > 0 && id <= ids[len(ids)-1] {
 			t.Fatalf("not strictly ascending/deduplicated: %d", id)
@@ -417,7 +424,7 @@ func TestMetadataPostgres(t *testing.T) {
 		for _, tz := range []string{"UTC", "America/Los_Angeles", "Asia/Kathmandu"} {
 			f.exec(t, `UPDATE users SET timezone=$1 WHERE id=$2`, tz, f.users[0].ID)
 			for _, date := range []string{"2026-03-08T09:59:59.123456Z", "2026-03-08T10:00:00.654321Z", "2026-11-01T08:30:00.123456Z", "2026-11-01T09:30:00.123456Z", "2026-10-01T12:34:56.123456+05:45", "0001-01-01T00:00:00Z"} {
-				f.exec(t, `UPDATE entries SET published_at=$1 WHERE id=1`, date)
+				f.exec(t, `UPDATE entries SET published_at=$1, changed_at=$1::timestamptz + interval '7 hours' WHERE id=1`, date)
 				ordinary, err := f.store.NewEntryQueryBuilder(f.users[0].ID).WithEntryIDs(1).GetEntry()
 				if err != nil || ordinary == nil {
 					t.Fatalf("ordinary query: %v", err)
@@ -425,6 +432,9 @@ func TestMetadataPostgres(t *testing.T) {
 				metadata, err := f.store.EntryMetadataByIDs(context.Background(), f.users[0].ID, []int64{1})
 				if err != nil || len(metadata) != 1 || metadata[0].PublishedAt.Format(time.RFC3339Nano) != ordinary.Date.Format(time.RFC3339Nano) {
 					t.Fatalf("timezone=%s date=%s parity failure: metadata=%v ordinary=%v err=%v", tz, date, metadata, ordinary.Date, err)
+				}
+				if metadata[0].ChangedAt.Format(time.RFC3339Nano) != ordinary.ChangedAt.Format(time.RFC3339Nano) || metadata[0].ChangedAt.Equal(metadata[0].PublishedAt) {
+					t.Fatalf("timezone=%s date=%s changed_at parity/independence failure: metadata=%v ordinary=%v", tz, date, metadata[0], ordinary.ChangedAt)
 				}
 			}
 		}

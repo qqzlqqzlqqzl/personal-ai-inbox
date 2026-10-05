@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"io"
 	"reflect"
@@ -58,7 +59,7 @@ func (c *metadataConn) QueryContext(ctx context.Context, query string, args []dr
 	return &metadataRows{state: c.state}, nil
 }
 func (r *metadataRows) Columns() []string {
-	return []string{"id", "user_id", "feed_id", "title", "url", "published_at", "timezone"}
+	return []string{"id", "user_id", "feed_id", "title", "url", "published_at", "changed_at", "timezone"}
 }
 func (r *metadataRows) Close() error {
 	r.state.rowsClosed++
@@ -72,7 +73,10 @@ func (r *metadataRows) Next(dest []driver.Value) error {
 		return io.EOF
 	}
 	r.index++
-	values := []driver.Value{int64(7), int64(3), int64(2), "fresh title", "https://example.invalid/current-article", time.Date(2026, 3, 8, 2, 30, 0, 123456000, time.UTC), "UTC"}
+	values := []driver.Value{int64(7), int64(3), int64(2), "fresh title", "https://example.invalid/current-article", time.Date(2026, 3, 8, 2, 30, 0, 123456000, time.UTC), time.Date(2026, 10, 1, 12, 34, 56, 654321000, time.UTC), "UTC"}
+	if r.state.mode == "changed-timezone" {
+		values[7] = "Asia/Kathmandu"
+	}
 	if r.state.mode == "scan-error" {
 		values[0] = "not-an-integer"
 	}
@@ -90,13 +94,20 @@ func metadataTestStore(t *testing.T, mode string) (*Storage, *metadataDriverStat
 }
 
 func TestMetadataStorageBoundSingleProjection(t *testing.T) {
-	s, state, db := metadataTestStore(t, "")
+	s, state, db := metadataTestStore(t, "changed-timezone")
 	entries, err := s.EntryMetadataByIDs(context.Background(), 3, []int64{7, 9, 7})
 	if err != nil || len(entries) != 1 || entries[0].ID != 7 {
 		t.Fatalf("result=%v error=%v", entries, err)
 	}
 	if entries[0].URL != "https://example.invalid/current-article" {
 		t.Fatalf("current URL missing: %q", entries[0].URL)
+	}
+	if entries[0].ChangedAt.Format(time.RFC3339Nano) != "2026-10-01T18:19:56.654321+05:45" || entries[0].ChangedAt.Equal(entries[0].PublishedAt) {
+		t.Fatalf("changed_at must use its own timestamp and user timezone: %+v", entries[0])
+	}
+	encoded, err := json.Marshal(entries[0])
+	if err != nil || !strings.Contains(string(encoded), `"changed_at":"2026-10-01T18:19:56.654321+05:45"`) {
+		t.Fatalf("changed_at must serialize as RFC3339 with offset: %s / %v", encoded, err)
 	}
 	if len(state.queries) != 1 || state.queries[0] != entryMetadataSQL || state.rowsClosed != 1 {
 		t.Fatalf("unexpected query/rows lifecycle: %+v", state)
@@ -111,7 +122,7 @@ func TestMetadataStorageBoundSingleProjection(t *testing.T) {
 			t.Fatalf("forbidden projection token: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"e.user_id = $1", "e.id = ANY($2)", "f.user_id = e.user_id", "c.user_id = e.user_id", "ORDER BY e.id ASC"} {
+	for _, required := range []string{"e.changed_at", "e.user_id = $1", "e.id = ANY($2)", "f.user_id = e.user_id", "c.user_id = e.user_id", "ORDER BY e.id ASC"} {
 		if !strings.Contains(entryMetadataSQL, required) {
 			t.Fatalf("missing scope invariant: %s", required)
 		}
