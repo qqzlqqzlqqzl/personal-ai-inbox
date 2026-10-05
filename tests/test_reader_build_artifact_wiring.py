@@ -41,6 +41,11 @@ class BuildArtifactWiring(unittest.TestCase):
         self.assertEqual(without_build_upload.count(CATALOG_STEP), 1)
         self.assertEqual(without_build_upload.count(CATALOG_UPLOAD), 1)
         without_extensions = without_build_upload.replace(CATALOG_STEP, '', 1).replace(CATALOG_UPLOAD, '', 1)
+        # Reuse the verified Ubuntu 22.04 sandbox host used by Reader A/B.
+        # Normalize this one reviewed runner change; all other baseline bytes match.
+        self.assertEqual(without_extensions.count('    runs-on: ubuntu-22.04\n'), 1)
+        self.assertEqual(original.count('    runs-on: ubuntu-24.04\n'), 1)
+        without_extensions = without_extensions.replace('    runs-on: ubuntu-22.04\n', '    runs-on: ubuntu-24.04\n', 1)
         self.assertEqual(without_extensions, original)
         self.assertTrue(workflow[:start].endswith(
             '      - name: Build isolated reader\n'
