@@ -23,8 +23,10 @@ class ProductProfileControls(unittest.TestCase):
         self.assertEqual(ab.load_spec()['inputs']['candidate']['producer_conclusion'], 'failure')
 
     def test_unbound_product_is_rejected_before_prepare_or_network(self):
-        self.assertEqual(json.loads(ab.PRODUCT_SPEC.read_text())['binding_state'], 'UNBOUND')
-        with patch.object(sys, 'argv', ['ab', 'prepare', '--comparison-profile', 'product']), \
+        root, old, new, _ = self.bound_fixture()
+        new.write_text(json.dumps({'schema': 1, 'repository': ab.base.REPOSITORY, 'binding_state': 'UNBOUND'}))
+        with patch.object(ab, 'ROOT', root), patch.object(ab, 'SPEC', old), patch.object(ab, 'PRODUCT_SPEC', new), \
+                patch.object(sys, 'argv', ['ab', 'prepare', '--comparison-profile', 'product']), \
                 patch.object(ab.base, 'prepare') as prepare, patch.object(ab, 'gh_json') as gh:
             with self.assertRaisesRegex(ValueError, 'not bound'):
                 ab.main()

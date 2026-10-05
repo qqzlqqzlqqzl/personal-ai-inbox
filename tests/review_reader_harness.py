@@ -1,5 +1,5 @@
 """Serve only an isolated built reader; intercept all APIs and reject external HTTP."""
-import functools,json,os,threading
+import functools,json,os,re,threading
 from pathlib import Path
 from http.server import SimpleHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import urlsplit
@@ -72,8 +72,27 @@ class Harness:
         else:body={}
         route.fulfill(json=body)
     def goto(self,path='/inbox/today'):
+        route_path=urlsplit(path).path
+        detail=re.fullmatch(r'/inbox/[^/]+/entry/([1-9][0-9]*)',route_path)
+        entry=None
+        if '/entry/' in route_path:
+            if not detail:raise ValueError('invalid isolated article route')
+            matches=[item for item in self.entries if str(item['id'])==detail.group(1)]
+            if len(matches)!=1:raise ValueError('article route requires one matching isolated fixture')
+            entry=matches[0]
         self.page.goto(self.base+path,wait_until='domcontentloaded')
-        self.page.get_by_role('button',name='AI 精选',exact=True).wait_for()
+        if entry is None:
+            self.page.get_by_role('button',name='AI 精选',exact=True).wait_for()
+        else:
+            # On mobile the background list is correctly inert/aria-hidden.
+            # Wait for the requested visible article, within the original timeout.
+            article=self.page.locator('.article-content')
+            expect(article).to_be_visible()
+            expect(article.locator('.article-title')).to_have_text(entry['title'])
+            body=article.locator('.article-body')
+            expect(body).to_be_visible()
+            expect(body).not_to_have_attribute('aria-busy','true')
+            expect(article.locator('.article-source-footer a')).to_have_attribute('href',entry['url'])
     def panel(self):
         # Viewport changes return before the matchMedia listener/React commit.
         # Wait for the expected responsive opener instead of branching on count.

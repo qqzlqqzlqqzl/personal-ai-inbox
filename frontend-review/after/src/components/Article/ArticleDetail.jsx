@@ -653,7 +653,7 @@ const ArticleDetail = forwardRef((_, ref) => {
             <AiBadge entry={activeContent} detailed />
             <Divider />
           </div>
-          <ReadingControls key={activeContent.id} scrollContainerRef={scrollContainerRef} maxWidth={responsiveMaxWidth} />
+          <ReadingControls key={activeContent.id} scrollContainerRef={scrollContainerRef} />
           <div
             key={activeContent.id}
             aria-busy={isArticleBodyPending || undefined}

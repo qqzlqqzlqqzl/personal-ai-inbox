@@ -23,7 +23,7 @@ export function restoreReadingAnchor(scroll, anchor, bar) {
  scroll.scrollTop=Math.max(0,Math.min(scroll.scrollHeight-scroll.clientHeight,scroll.scrollTop+delta))
 }
 
-export default function ReadingControls({scrollContainerRef,maxWidth}){
+export default function ReadingControls({scrollContainerRef}){
  const settings=useStore(articleDetailSettingsState),[focus,setFocus]=useState(false),ref=useRef(null)
  const {isBelowMedium}=useScreenWidth()
  const anchor=useRef(null),focusButton=useRef(null)
@@ -41,7 +41,7 @@ export default function ReadingControls({scrollContainerRef,maxWidth}){
   anchor.current=captureReadingAnchor(scrollContainerRef?.current?.getScrollElement(),ref.current,ref.current?.closest('.article-content'))
   setFocus(value=>!value)
  }
- return <div className="review-reading-bar" ref={ref} style={{maxWidth}}>
+ return <div className="review-reading-bar" ref={ref}>
   <details className="review-reading-controls"><summary>阅读排版</summary><div className="review-reading-options">
    <label>字号 <output>{settings.fontSize.toFixed(2)} rem</output><input aria-label="正文字号" type="range" min="1" max="1.5" step="0.05" value={settings.fontSize} onChange={e=>updateSettings({fontSize:Number(e.target.value)})}/></label>
    <label>行距 <output>{(settings.articleLineHeight??1.8).toFixed(1)} 倍</output><input aria-label="正文行距" type="range" min="1.3" max="2.5" step="0.1" value={settings.articleLineHeight??1.8} onChange={e=>updateSettings({articleLineHeight:Number(e.target.value)})}/></label>

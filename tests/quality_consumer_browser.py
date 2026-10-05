@@ -17,6 +17,7 @@ from playwright.sync_api import expect
 from review_reader_harness import Harness
 from quality_consumer_fixture import CASES, MINIMUM, RECOMMENDED_IDS, QualityConsumerFixture, make_entries, validate_badge, validate_capture_png
 from pending_label_contrast import verify_pending_labels
+from quality_label_contrast import verify_quality_label
 
 ROOT = Path(__file__).resolve().parents[1]
 VIEWPORTS = ((1440, 960), (390, 844))
@@ -138,6 +139,8 @@ def run_case(width, height, run_name, identity, theme="light"):
             views.append({"view": "raw", "entry_id": entry_id, "text": text})
             h.check(f'{case["key"]}_raw_badge', True)
             capture(h, card, case['key'] + '-raw', captures)
+            if entry_id in (701, 707):
+                verify_quality_label(h, card, entry_id, 'raw', theme, contrasts)
             if entry_id in (702, 703, 705):
                 verify_pending_labels(h, card, entry_id, 'raw', theme, contrasts,
                     (lambda: capture(h, card, case['key'] + '-raw-legacy', captures)) if entry_id == 702 else None)
@@ -159,6 +162,8 @@ def run_case(width, height, run_name, identity, theme="light"):
             views.append({"view": "detail", "entry_id": entry_id, "text": text, "original_url": expected_url})
             badge.scroll_into_view_if_needed()
             capture(h, badge, case['key'] + '-detail', captures)
+            if entry_id in (701, 707):
+                verify_quality_label(h, detail, entry_id, 'detail', theme, contrasts)
             if entry_id in (702, 703, 705):
                 verify_pending_labels(h, detail, entry_id, 'detail', theme, contrasts,
                     (lambda: capture(h, badge, case['key'] + '-detail-legacy', captures)) if entry_id == 702 else None)

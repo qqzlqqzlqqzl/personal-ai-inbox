@@ -29,6 +29,8 @@ def visual_state(page):
       while(scroll&&!(scroll.scrollHeight>scroll.clientHeight&&/(auto|scroll)/.test(getComputedStyle(scroll).overflowY)))scroll=scroll.parentElement;
       if(!scroll)throw Error('Missing actual overflowing article ancestor');
       const v=visualViewport,a=document.activeElement,toggle=bar.querySelector('button[aria-pressed]');
+      const barRect=bar.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();
+      const ownsPoint=x=>{const hit=document.elementFromPoint(x,barRect.top+barRect.height/2);return !!hit&&(hit===bar||bar.contains(hit))};
       return {url:location.href,path:location.pathname,theme:document.body.getAttribute('arco-theme'),
         viewport:[innerWidth,innerHeight,devicePixelRatio],visual:v?{width:v.width,height:v.height,
           scale:v.scale,offsetLeft:v.offsetLeft,offsetTop:v.offsetTop,pageLeft:v.pageLeft,pageTop:v.pageTop}:null,
@@ -36,7 +38,10 @@ def visual_state(page):
         toggle:{text:toggle?.textContent,pressed:toggle?.getAttribute('aria-pressed')},
         title:info(article.querySelector('.article-title')),meta:info(article.querySelector('.article-meta')),
         ai:info(article.querySelector('.article-header>.ai-verdict,.article-header>.ai-pending')),
-        toolbar:info(bar),body:info(body),anchor20:info(document.querySelector('#focus-p-20')),
+        toolbar:info(bar),body:info(body),toolbarCoverage:{
+          left:barRect.left<=bodyRect.left+1,right:barRect.right>=bodyRect.right-1,
+          leftHit:ownsPoint(bodyRect.left+2),rightHit:ownsPoint(bodyRect.right-2)},
+        anchor20:info(document.querySelector('#focus-p-20')),
         anchor39:info(document.querySelector('#focus-p-39')),paragraphs:body.querySelectorAll('p[id^="focus-p-"]').length,
         scroll:{rect:rect(scroll),top:scroll.scrollTop,left:scroll.scrollLeft,
           height:scroll.scrollHeight,clientHeight:scroll.clientHeight},
@@ -60,6 +65,10 @@ def validate_visual_state(state, width, height, theme, focus):
     assert state['scroll']['clientHeight'] > 0, 'empty actual scroller'
     assert state['toolbar']['visibility'] == 'visible' and state['toolbar']['display'] != 'none' and state['toolbar']['effectiveOpacity'] == 1, 'toolbar not visually available'
     assert state['body']['visibility'] == 'visible' and state['body']['effectiveOpacity'] == 1, 'body not visually available'
+    assert state['toolbarCoverage']['left'] and state['toolbarCoverage']['right'], 'sticky toolbar leaves exposed body edges'
+    assert not state['toolbar']['background'].startswith('rgba(') and state['toolbar']['background'] != 'transparent', 'toolbar backdrop is not opaque'
+    if state['scroll']['top'] > 500:
+        assert state['toolbarCoverage']['leftHit'] and state['toolbarCoverage']['rightHit'], 'body paints through sticky toolbar edges'
 
 
 def capture_visual(h, name, focus, width, height, theme, captures):

@@ -1,6 +1,34 @@
 {
   "schema": 1,
   "repository": "qqzlqqzlqqzl/personal-ai-inbox",
-  "purpose": "Product comparison is disabled until an actual official build artifact and complete manifest are independently bound",
-  "binding_state": "UNBOUND"
+  "purpose": "Measure reviewed 34ad/F44 product bytes against the fixed baseline; failed producer is retained and does not admit a release",
+  "inputs": {
+    "baseline": {
+      "artifact_id": 11299074112,
+      "artifact_bytes": 8750880,
+      "artifact_sha256": "108536813a6d2e3da2f3801917f082acad2e8271b9a27ef2b2dcf66c7a3b8a85",
+      "manifest_sha256": "05dd86f9c5face0b31a242f27b5cc25174249cc10d41f2d5bd535575c3c06e1f",
+      "files": 125,
+      "head": "879ff545aa19330ac884dd320fdd3ccfbd265d9b",
+      "tree": "65355bc7b2849809c83121e90e953429ba81ffde",
+      "src": "0049640f793f5dd505bf2fea6fd8274f0f074f08",
+      "producer_run": 37191705233,
+      "producer_attempt": 1,
+      "producer_conclusion": "success"
+    },
+    "candidate": {
+      "artifact_id": 11319676247,
+      "artifact_bytes": 3111586,
+      "artifact_sha256": "b433c570498422972cd080879477a3c5f6669e5e0dd1e859fc6fd623c1876cdf",
+      "manifest_sha256": "2d6e45223f5fa487b4fbd612550daa12a3d0a55ec67f3f6bd1174079488f5108",
+      "files": 125,
+      "head": "34ad59892bdb99b19c3919eeb18a5fbfd5b8d98e",
+      "tree": "4e68a1f4de366d0e89428450c557c6f569dc58c5",
+      "src": "a37afbb0984593aa75d2c4b3d2dcfd3f07f17d38",
+      "producer_run": 37246559550,
+      "producer_attempt": 1,
+      "producer_conclusion": "failure"
+    }
+  },
+  "binding_state": "BOUND"
 }

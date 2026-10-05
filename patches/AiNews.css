@@ -3,6 +3,7 @@
 .ai-toolbar button[aria-pressed=true],.ai-dialog button[aria-pressed=true]{background:#174a8b;color:white;border-color:#174a8b}
 .ai-modes{display:flex;gap:5px}.ai-settings-button{margin-left:auto}.ai-toolbar label{display:flex;align-items:center;gap:5px}
 .ai-verdict{border-top:1px solid var(--color-border-2,#dce3ed);margin-top:10px;padding-top:9px;font-size:12px;line-height:1.55}
+.ai-verdict .ai-content-quality{color:var(--color-text-2,#475569)}
 .ai-scoreline{display:flex;gap:9px;flex-wrap:wrap}.ai-scoreline strong{color:var(--color-text-1,#174a8b)}.ai-scoreline span{color:var(--color-text-2,#456)}
 .ai-reason{margin:6px 0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--color-text-2,#456)}
 .ai-tags{display:flex;flex-wrap:wrap;gap:5px}.ai-tags span{padding:1px 6px;border-radius:5px;background:var(--color-fill-2,#edf2f8);color:var(--color-text-2,#456)}

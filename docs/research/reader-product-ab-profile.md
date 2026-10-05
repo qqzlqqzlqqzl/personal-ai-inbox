@@ -6,8 +6,12 @@ the original 879/7554 input table unchanged byte for byte.
 
 `product` selects only the tracked fixed path
 `tests/fixtures/reader-loading-product-ab-inputs.json`. Its current state is
-`UNBOUND`, so selecting it fails before prepare, artifact download or browser
-launch. It contains no guessed artifact IDs or placeholder hashes. The CLI
+`BOUND` to the reviewed original 34ad build-only artifact 11319676247, with
+125 files, original ZIP and complete build-manifest hashes. Its producer run
+37246559550 ended in **failure**; that terminal result is retained. All 125
+build file paths, sizes and hashes match the separately reviewed F44 build.
+This admits a bounded measurement of those product bytes, not deployment.
+An isolated UNBOUND fixture still fails before prepare or network. The CLI
 accepts only `regression` and `product`, not arbitrary paths, URLs or repository
 names. Every phase checks the profile/path/manifest SHA saved by prepare; the
 instrument identity includes the selected table.
@@ -24,8 +28,9 @@ with the original F44 build manifest before making that statement.
 Only after that binding is reviewed and the workflow change is actually
 published can the main coordinator choose `comparison_profile=product` in the
 existing `reader-loading-ab.yml` manual workflow, at an exact reviewed ref.
-The old workflow version has no such input. The present UNBOUND version is
-deliberately not a runnable product comparison and has no product speedup result.
+The old workflow version has no such input. Binding the current profile does
+not establish a speedup result; measurement and final-release regression are
+separate gates.
 
 There is no permission or secret expansion. The same-repository action reads,
 32 MiB input limit, archive limits, five serial AB/BA groups in all three modes,
