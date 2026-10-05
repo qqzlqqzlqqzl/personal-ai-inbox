@@ -82,6 +82,14 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_status).hexdigest(), reviewed_status)
         self.assertNotIn(reviewed_status, old[status])
         old[status].append(reviewed_status)
+        # Only the deployed pre-variant image overlay needs upgrade admission.
+        image = "src/components/Article/ImageOverlayButton.jsx"
+        reviewed_image = "f39b91dbd225a108573c030c0361f06bdad5f32e2c6b97b1175803007261e0a2"
+        prior_image = subprocess.check_output(
+            ['git', 'show', '92c7f8c8423ee0e0b386b4413a072b27a4405a72:frontend-review/after/' + image], cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_image).hexdigest(), reviewed_image)
+        self.assertNotIn(reviewed_image, old[image])
+        old[image].append(reviewed_image)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
