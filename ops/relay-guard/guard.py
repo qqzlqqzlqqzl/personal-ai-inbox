@@ -6,6 +6,7 @@ import threading, time, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 MAX_INPUT=524288; MAX_OUTPUT=2097152
+MODEL_TARGETS={'public-fast':'deepseek-v4-flash-ga-260731','public-smart':'deepseek-v4-pro-ga-260813'}
 class Invalid(Exception): pass
 
 def clean_request(obj, enabled):
@@ -93,8 +94,10 @@ class Handler(BaseHTTPRequestHandler):
             if res.status!=200 or len(raw)>262144:self.error(503,'model_catalog_unavailable');return None
             data=json.loads(raw)
             if not isinstance(data,dict) or not isinstance(data.get('data'),list):raise ValueError()
-            models=sorted({m['id'] for m in data['data'] if isinstance(m,dict) and m.get('id') in ('public-fast','public-smart')})
-            found={'name':found['name'] if found else 'newapi-token','backend_key':backend_key,'models':models}
+            available={m['id'] for m in data['data'] if isinstance(m,dict) and isinstance(m.get('id'),str)}
+            routes={alias:alias if alias in available else target for alias,target in MODEL_TARGETS.items()
+                    if alias in available or target in available}
+            found={'name':found['name'] if found else 'newapi-token','backend_key':backend_key,'models':sorted(routes),'routes':routes}
         except (OSError,ValueError,http.client.HTTPException):
             self.error(503,'model_catalog_unavailable');return None
         finally:
@@ -135,7 +138,8 @@ class Handler(BaseHTTPRequestHandler):
         status=502; conn=None
         try:
             conn=http.client.HTTPConnection('127.0.0.1',18767,timeout=60)
-            conn.request('POST','/v1/chat/completions',json.dumps(obj,allow_nan=False).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+client['backend_key']})
+            upstream={**obj,'model':client['routes'][obj['model']]}
+            conn.request('POST','/v1/chat/completions',json.dumps(upstream,allow_nan=False).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+client['backend_key']})
             res=conn.getresponse(); payload=res.read(MAX_OUTPUT+1)
             if len(payload)>MAX_OUTPUT:raise Invalid('upstream_response_too_large')
             if res.status!=200:
