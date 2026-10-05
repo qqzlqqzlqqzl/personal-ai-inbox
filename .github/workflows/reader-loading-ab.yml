@@ -10,6 +10,15 @@ on:
       - 'tests/compare_reader_loading.py'
       - 'docs/research/reader-loading-performance-108.md'
   workflow_dispatch:
+    inputs:
+      comparison_profile:
+        description: Reviewed fixed input manifest
+        type: choice
+        required: true
+        default: regression
+        options:
+          - regression
+          - product
 
 permissions:
   contents: read
@@ -34,6 +43,7 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
+      READER_AB_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.comparison_profile || 'regression' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,7 +52,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Bind exact source and create fresh private evidence outside checkout
         id: prepare
-        run: timeout --signal=TERM --kill-after=10s 60s python3 -B tests/reader_loading_ab_ci.py prepare --expected-head "${{ github.event.pull_request.head.sha || github.sha }}" --mode "${{ matrix.mode }}"
+        run: timeout --signal=TERM --kill-after=10s 60s python3 -B tests/reader_loading_ab_ci.py prepare --expected-head "${{ github.event.pull_request.head.sha || github.sha }}" --mode "${{ matrix.mode }}" --comparison-profile "$READER_AB_PROFILE"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12.14'
@@ -55,7 +65,7 @@ jobs:
       - name: Verify both fixed producers and exact artifact bytes manifests and build identities
         env:
           GH_TOKEN: ${{ github.token }}
-        run: timeout --signal=TERM --kill-after=10s 360s python -B tests/reader_loading_ab_ci.py inputs --root "${{ steps.prepare.outputs.root }}"
+        run: timeout --signal=TERM --kill-after=10s 360s python -B tests/reader_loading_ab_ci.py inputs --root "${{ steps.prepare.outputs.root }}" --comparison-profile "$READER_AB_PROFILE"
       - name: Install Chromium system dependencies from signed APT indices
         run: timeout --signal=TERM --kill-after=10s 600s python -m playwright install-deps chromium
       - name: Install the locked full Chromium and headless shell
@@ -79,7 +89,7 @@ jobs:
         id: measure
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/reader-loading-chromium
-        run: timeout --signal=TERM --kill-after=10s 600s python -B tests/reader_loading_ab_ci.py measure --root "${{ steps.prepare.outputs.root }}" --mode "${{ matrix.mode }}"
+        run: timeout --signal=TERM --kill-after=10s 600s python -B tests/reader_loading_ab_ci.py measure --root "${{ steps.prepare.outputs.root }}" --mode "${{ matrix.mode }}" --comparison-profile "$READER_AB_PROFILE"
       - name: Save only the verified font archive after successful measurement
         if: steps.cjk-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -90,7 +100,7 @@ jobs:
         if: always() && steps.prepare.outcome == 'success'
         env:
           READER_LOADING_JOB_STATUS: ${{ job.status }}
-        run: timeout --signal=TERM --kill-after=10s 60s python3 -B tests/reader_loading_ab_ci.py finish --root "${{ steps.prepare.outputs.root }}"
+        run: timeout --signal=TERM --kill-after=10s 60s python3 -B tests/reader_loading_ab_ci.py finish --root "${{ steps.prepare.outputs.root }}" --comparison-profile "$READER_AB_PROFILE"
       - name: Retain only fresh synthetic measurements and safe failure receipts
         if: always() && steps.prepare.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

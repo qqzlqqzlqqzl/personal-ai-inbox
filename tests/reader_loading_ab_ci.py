@@ -27,15 +27,31 @@ from compare_reader_loading import compare
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / 'tests/fixtures/reader-loading-ab-inputs.json'
+PRODUCT_SPEC = ROOT / 'tests/fixtures/reader-loading-product-ab-inputs.json'
+PROFILES = ('regression', 'product')
 SIDES = ('baseline', 'candidate')
 BROWSER_SHA = '8c599d43aec53f2460a31ae2f4af6bd863f8258b34ff519564bc5d4726bfaa1e'
 
 
-def load_spec():
-    value = json.loads(bound_read(SPEC.parent, SPEC.name, 16000))
+def spec_path(profile):
+    require(profile in PROFILES, 'unknown comparison profile')
+    return SPEC if profile == 'regression' else PRODUCT_SPEC
+
+
+def load_spec(profile='regression'):
+    path = spec_path(profile)
+    value = json.loads(bound_read(path.parent, path.name, 16000))
+    if profile == 'product':
+        require(value.get('binding_state') == 'BOUND', 'product artifact manifest is not bound')
+        require(set(value) == {'schema', 'repository', 'purpose', 'binding_state', 'inputs'},
+                'product manifest fields differ')
     require(value['schema'] == 1 and value['repository'] == base.REPOSITORY, 'wrong A/B repository/schema')
     require(set(value['inputs']) == set(SIDES), 'both fixed inputs required')
     for spec in value['inputs'].values():
+        if profile == 'product':
+            require(set(spec) == {'artifact_id', 'artifact_bytes', 'artifact_sha256', 'manifest_sha256',
+                    'files', 'head', 'tree', 'src', 'producer_run', 'producer_attempt', 'producer_conclusion'},
+                    'incomplete or extra product input fields')
         for key in ('artifact_id', 'artifact_bytes', 'files', 'producer_run', 'producer_attempt'):
             require(type(spec[key]) is int and spec[key] > 0, 'invalid fixed integer: ' + key)
         require(spec['artifact_bytes'] <= 32 * 1024 * 1024 and spec['files'] <= 1024, 'input exceeds existing budget')
@@ -50,17 +66,31 @@ def load_spec():
     return value
 
 
+def profile_record(profile):
+    path = spec_path(profile)
+    load_spec(profile)  # Incomplete or UNBOUND data cannot authorize a phase.
+    return {'profile': profile, 'spec_path': path.relative_to(ROOT).as_posix(),
+            'spec_sha256': hashlib.sha256(bound_read(path.parent, path.name, 16000)).hexdigest()}
+
+
+def verify_profile(root, profile):
+    saved = json.loads(bound_read(root / 'evidence', 'ab-selected-profile.json'))
+    require(saved == profile_record(profile), 'comparison profile or manifest changed between phases')
+
+
 def schedule():
     return [{'ordinal': 2 * (group - 1) + index + 1, 'pair': group, 'side': side}
             for group in range(1, 6)
             for index, side in enumerate(SIDES if group % 2 else tuple(reversed(SIDES)))]
 
 
-def instrument_manifest():
+def instrument_manifest(profile='regression'):
+    selected = spec_path(profile).relative_to(ROOT).as_posix()
     names = subprocess.check_output(['git', 'ls-files', 'tests/reader_loading*.py',
-              'tests/compare_reader_loading.py', 'tests/fixtures/reader-loading-ab-inputs.json'],
+              'tests/compare_reader_loading.py', selected],
               cwd=ROOT, text=True, timeout=15).splitlines()
-    require(len(names) >= 8 and 'tests/reader_loading_ab_ci.py' in names, 'instrument files must be tracked')
+    require(len(names) >= 8 and 'tests/reader_loading_ab_ci.py' in names and selected in names,
+            'instrument files and selected manifest must be tracked')
     rows = [{'path': name, 'sha256': hashlib.sha256(bound_read(ROOT, name)).hexdigest()} for name in sorted(names)]
     return {'files': rows, 'sha256': hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()}
 
@@ -187,23 +217,24 @@ def validate_order(observations):
         previous_end = end
 
 
-def measure(root, mode):
+def measure(root, mode, profile='regression'):
     source = assert_checkout(root)
     require(source['mode'] == mode and mode in base.MODES, 'fixed mode changed')
-    spec = load_spec()
-    instruments = instrument_manifest()
+    spec = load_spec(profile)
+    instruments = instrument_manifest(profile)
     save_new(root / 'evidence/instrument-manifest.json', instruments)
     observations = []
     results = {side: [] for side in SIDES}
     deadline = time.monotonic() + 590  # Same whole measurement budget; never retry/extend on failure.
     report = {'status': 'FAILED', 'schedule': schedule(), 'observations': observations, 'driver': instruments,
-              'source': source, 'inputs': spec, 'mode': mode, 'comparison_kind': 'REGRESSION_CANDIDATE',
+              'source': source, 'inputs': spec, 'mode': mode, 'comparison_profile': profile,
+              'comparison_kind': 'PRODUCT_CANDIDATE' if profile == 'product' else 'REGRESSION_CANDIDATE',
               'cold_definition': 'new context and new browser process per sample; OS cache is not claimed cold',
               'same_vm': True, 'serial': True, 'physical_device': False, 'product_speedup_claimed': False}
     try:
         for item in schedule():
             assert_checkout(root)
-            require(instrument_manifest() == instruments, 'instrument bytes changed between variants')
+            require(instrument_manifest(profile) == instruments, 'instrument bytes changed between variants')
             side = item['side']; identity = spec['inputs'][side]
             folder = root / 'work' / f'sample-{item["ordinal"]:02d}-{side}'
             folder.mkdir(mode=0o700)
@@ -321,21 +352,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('prepare', 'inputs', 'measure', 'finish'))
     parser.add_argument('--root'); parser.add_argument('--expected-head'); parser.add_argument('--mode', choices=base.MODES)
+    parser.add_argument('--comparison-profile', choices=PROFILES, default='regression')
     args = parser.parse_args()
     if args.action == 'prepare':
+        selected = profile_record(args.comparison_profile)
         root = base.prepare(args.expected_head, args.mode)
-        save_new(root / 'evidence/ab-input-spec.json', load_spec())
+        save_new(root / 'evidence/ab-input-spec.json', load_spec(args.comparison_profile))
+        save_new(root / 'evidence/ab-selected-profile.json', selected)
         return 0
     root = base.private_directory(args.root)
     receipt = {'action': args.action, 'status': 'FAILED'}
     try:
         assert_checkout(root)
+        verify_profile(root, args.comparison_profile)
         if args.action == 'inputs':
-            for side, spec in load_spec()['inputs'].items():
+            for side, spec in load_spec(args.comparison_profile)['inputs'].items():
                 download_one(root, side, spec)
                 save_new(root / 'evidence' / (side + '-input.json'), unpack_one(root / 'inputs' / side, spec))
         elif args.action == 'measure':
-            measure(root, args.mode)
+            measure(root, args.mode, args.comparison_profile)
         elif args.action == 'finish':
             path = root / 'evidence/ab-result.json'
             status = json.loads(bound_read(path.parent, path.name))['status'] if path.exists() else 'NOT_RUN'
