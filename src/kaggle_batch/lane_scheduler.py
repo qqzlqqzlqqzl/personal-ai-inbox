@@ -73,7 +73,7 @@ def outstanding(root):
     with sqlite3.connect(db_path.resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
         db.row_factory=sqlite3.Row
         row=db.execute("SELECT id,state,remote_status,error,updated FROM batches "
-                       "WHERE state NOT IN ('imported','retired','resolved') "
+                       "WHERE state NOT IN ('imported','retired','resolved','quarantined') "
                        "ORDER BY updated LIMIT 1").fetchone()
     return dict(row) if row else None
 
@@ -115,12 +115,12 @@ def snapshot_lanes(now,states,configs=None):
                     if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='batch_progress'").fetchone():
                         db.row_factory=sqlite3.Row
                         row=db.execute("""SELECT b.* FROM batches b LEFT JOIN batch_progress p ON p.batch_id=b.id
-                          WHERE b.state NOT IN ('imported','retired','resolved') AND COALESCE(p.next_try,0)<=?
+                          WHERE b.state NOT IN ('imported','retired','resolved','quarantined') AND COALESCE(p.next_try,0)<=?
                           ORDER BY CASE WHEN b.state IN ('submitting','submitted','running','submit_unknown') THEN 0 ELSE 1 END,b.updated LIMIT 1""",(now,)).fetchone()
                         lane['outstanding']=dict(row) if row else None
                         lane['pending_local']=db.execute("""SELECT count(*) FROM batch_progress p JOIN batches b ON b.id=p.batch_id
-                          WHERE b.state NOT IN ('imported','retired','resolved') AND p.next_try>?""",(now,)).fetchone()[0]
-                        local_at=db.execute("SELECT MIN(p.next_try) FROM batch_progress p JOIN batches b ON b.id=p.batch_id WHERE b.state NOT IN ('imported','retired','resolved') AND p.next_try>?",(now,)).fetchone()[0]
+                          WHERE b.state NOT IN ('imported','retired','resolved','quarantined') AND p.next_try>?""",(now,)).fetchone()[0]
+                        local_at=db.execute("SELECT MIN(p.next_try) FROM batch_progress p JOIN batches b ON b.id=p.batch_id WHERE b.state NOT IN ('imported','retired','resolved','quarantined') AND p.next_try>?",(now,)).fetchone()[0]
                         lane['local_retry_at']=local_at or 0
             lane['ready']=lane['retry_at']<=now and lane['service_state']!='unavailable'
             if lane['cycle'].get('recovery_required'):

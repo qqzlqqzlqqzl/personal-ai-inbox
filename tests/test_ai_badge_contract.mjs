@@ -51,5 +51,21 @@ try {
  assert.match(text,/处理状态待确认/);assert.match(text,/后台状态尚未确认/);assert.doesNotMatch(text,/UNTRUSTED|APPROVED|PRIVATE/);checks.push('unknown enums and arbitrary message/time text are suppressed')
  assert.deepEqual(qualityLabels(quality({policy_version:'future',access:'paid_fulltext',recommendation_eligible:false})),['内容资格待核实'])
  checks.push('unknown policy cannot assert paid access or exclusion')
+ for(const state of ['ai_error','budget_paused','analyzing','fetching','pending']){
+  text=render({state,error:'可重试 / 可导入 PRIVATE-DIAGNOSTIC',processing:{claim_held:true,
+   reason_code:'submission_quarantined',reason_codes:['submission_quarantined'],stale:false}})
+  assert.match(text,/提交结果未确认/);assert.match(text,/已隔离/);assert.match(text,/等待核实/)
+  assert.doesNotMatch(text,/可重试|可导入|PRIVATE-DIAGNOSTIC|正在分析|正在抓取|已完成/)
+  checks.push('quarantined exact claim suppresses false state/retry invitation: '+state)
+ }
+ text=render({state:'ai_error',error:'可重试',processing:{claim_held:true,reason_code:'submission_unknown',reason_codes:['submission_unknown']}})
+ assert.match(text,/提交结果未确认/);assert.doesNotMatch(text,/可重试|AI 分析失败/);checks.push('unknown receipt retains claim without retry invitation')
+ text=render({state:'ai_error',processing:{claim_held:false,reason_code:'source_review_required',reason_codes:['source_review_required','submission_unknown']}})
+ assert.match(text,/AI 分析失败，可重试/);checks.push('unrelated global unknown does not pretend this entry holds a claim')
+ text=render({state:'ai_error',error:'可重试',processing:{claim_held:false,reason_code:'unknown',reason_codes:['unknown','ledger_unavailable']}})
+ assert.match(text,/处理状态未确认.*等待核实/);assert.doesNotMatch(text,/可重试|AI 分析失败/);checks.push('unavailable claim ledger cannot offer retry or invent a held claim')
+ text=render({state:'requires_fulltext_adapter',error:'synthetic',processing:{claim_held:false,reason_code:'rss_summary_only',reason_codes:['rss_summary_only','ledger_unavailable']}})
+ assert.match(text,/Kicktraq RSS 摘要 · 项目全文分析未接入 · 未评分/);assert.match(text,/台账暂不可读取/)
+ assert.doesNotMatch(text,/需要论文全文适配|可重试/);checks.push('ledger uncertainty does not erase the independent exact RSS source restriction')
  console.log(JSON.stringify({type:'actual React SSR; no browser rendering',checks},null,2))
 } finally {await retainTestDirectory(directory)}

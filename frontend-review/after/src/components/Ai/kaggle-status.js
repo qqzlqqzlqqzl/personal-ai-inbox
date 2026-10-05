@@ -3,6 +3,7 @@
 const knownIdle = new Set(['empty', 'completed', 'cycle_window_complete', 'nothing_to_reconcile', 'no_progress'])
 const waitingStates = new Set(['preparing', 'prepared_requires_worker', 'waiting_for_retry', 'retry_after_cycle_window', 'quota_reserved', 'quota_unknown'])
 const recoveryStates = new Set(['resuming', 'reconciling', 'local_retry_scheduled', 'batch_deferred', 'retired_missing_remote', 'observation_timeout'])
+const receiptErrors = new Set(['submit_receipt_invalid', 'submit_receipt_write_failed', 'submit_cas_conflict'])
 const serviceActive = lane => ['active', 'activating', 'deactivating', 'reloading'].includes(lane?.service?.ActiveState)
 const number = value => !['number', 'string'].includes(typeof value) || String(value).trim() === ''
   ? null : (Number.isFinite(Number(value)) ? Number(value) : null)
@@ -18,12 +19,27 @@ export function kaggleLaneStatus(lane, now = Date.now() / 1000, schedulerLane = 
   const batch = lane?.outstanding
   const state = batch?.state
   const remote = typeof batch?.remote_status === 'string' ? batch.remote_status.toUpperCase() : null
-  const result = (kind, text, detail, tone = 'warn') => ({kind, text, detail, tone, cooling, retryAt})
+  const isolated = lane?.quarantine?.batches
+  const quarantineCountKnown = Number.isSafeInteger(isolated) && isolated >= 0
+  const quarantined = quarantineCountKnown ? isolated : state === 'quarantined' ? 1 : 0
+  const quarantineDetail = quarantineCountKnown ? `${quarantined} 批旧任务已隔离，等待核实` : '旧任务已隔离，等待核实'
+  const result = (kind, text, detail, tone = 'warn') => ({kind, text,
+    detail: quarantined && kind !== 'quarantined' ? `${detail} · ${quarantineDetail}` : detail,
+    tone, cooling, retryAt, quarantined, quarantineCountKnown})
+  if (state === 'quarantined') {
+    return result('quarantined', '已隔离 · 等待核实', '提交结果未确认；原任务身份与占用记录继续保留')
+  }
+  if (lane?.ledger_state === 'unknown') return result('unknown', '状态未确认', '任务台账暂不可读取，等待核实')
+  if (lane?.recovery_required === true || (typeof lane?.recovery_error === 'string' && lane.recovery_error.length > 0)
+      || receiptErrors.has(batch?.error)) {
+    return result('unknown', '提交结果未确认', '任务或提交回执需要核实，保留原身份与占用记录')
+  }
   if (['submit_unknown', 'submitting'].includes(state)) {
     return result('submission_unknown', state === 'submitting' ? '提交中 · 尚未确认' : '提交结果未确认',
       cooling ? `冷却 · ${reason} · ${retryDetail}` : '先核对已有提交结果，尚未确认运行')
   }
   if (cooling) return result('cooldown', '冷却', `${state === 'running' && remote === 'RUNNING' ? '上次确认运行，当前状态待核对 · ' : ''}${reason} · ${retryDetail}`)
+  if (remote === 'UNKNOWN') return result('unknown', '提交结果未确认', '远端状态未确认，等待核实')
   if (state === 'running' && remote === 'RUNNING') {
     return result('running', '运行中', '已有批次正在运行，完成后再导入结果', 'ok')
   }
@@ -35,6 +51,7 @@ export function kaggleLaneStatus(lane, now = Date.now() / 1000, schedulerLane = 
   }
   if (state === 'terminal') return result('recovery', '批次已结束 · 待核对', '检查结果或失败原因，尚未完成恢复')
   if (state) return result('recovery', '待恢复', '已有批次需要核对或恢复，尚未确认运行')
+  if (quarantined) return result('quarantined', '已隔离 · 等待核实', `${quarantineDetail}；新文章须单独通过当前调度条件`)
   if (recoveryStates.has(lane?.state)) return result('recovery', '待恢复', '等待核对或导入已有批次')
   if (waitingStates.has(lane?.state)) return result('waiting', '等待调度', '尚未确认有批次运行')
   if (lane?.state === 'not_started') return result('waiting', '尚未启动', '尚未确认有批次运行')
@@ -49,6 +66,8 @@ export function kaggleStatus(kaggle, now = Date.now() / 1000) {
   const submissionUnknown = lanes.filter(lane => lane.kind === 'submission_unknown').length
   const unknown = lanes.filter(lane => lane.kind === 'unknown').length
   const waiting = lanes.filter(lane => ['waiting', 'recovery'].includes(lane.kind)).length
+  const quarantined = lanes.reduce((sum, lane) => sum + lane.quarantined, 0)
+  const quarantineCountKnown = lanes.filter(lane => lane.quarantined).every(lane => lane.quarantineCountKnown)
   const enabled = kaggle?.enabled
   const parts = [enabled === true ? '已启用' : enabled === false ? '调度已暂停' : '启用状态未确认']
   if (!lanes.length) parts.push('批次状态未确认')
@@ -58,24 +77,31 @@ export function kaggleStatus(kaggle, now = Date.now() / 1000) {
     if (submissionUnknown) parts.push(`${submissionUnknown} 批提交未确认`)
     if (unknown) parts.push(`${unknown} 条状态未确认`)
     if (waiting) parts.push(`${waiting} 条等待`)
-    if (!running && !cooldown && !submissionUnknown && !unknown && !waiting && enabled === true) parts.push('等待调度')
+    if (quarantined) parts.push(quarantineCountKnown ? `${quarantined} 批已隔离待核实` : '旧任务已隔离待核实')
+    if (!running && !cooldown && !submissionUnknown && !unknown && !waiting && !quarantined && enabled === true) parts.push('等待调度')
   }
-  return {text: `Kaggle ${parts.join(' · ')}`, running, cooldown, submissionUnknown, unknown, waiting,
-    tone: cooldown || submissionUnknown || unknown || enabled !== true ? 'warn' : running ? 'ok' : ''}
+  return {text: `Kaggle ${parts.join(' · ')}`, running, cooldown, submissionUnknown, unknown, waiting, quarantined,
+    tone: cooldown || submissionUnknown || unknown || quarantined || enabled !== true ? 'warn' : running ? 'ok' : ''}
 }
 
 export function kaggleQuotaText(lane, enabled, current = kaggleLaneStatus(lane)) {
   const remaining = number(lane?.quota?.gpu?.remaining_hours)
-  if (lane?.quota_gate?.state === 'quota_reserved' || (remaining !== null && remaining <= 1)) {
-    return '额度保护 / ≤1h 停用新批次 · 已提交任务继续恢复'
+  const gate = lane?.quota_gate
+  // A historical numeric remainder never outranks an unknown identity/quota
+  // gate or a stale observation. Display is not new-work admission.
+  if (remaining === null || lane?.quota?.state !== 'ok' || lane?.quota?.stale
+      || !['available', 'quota_reserved'].includes(gate?.state)
+      || (gate?.allowed !== true && gate?.state !== 'quota_reserved')) {
+    return '额度未知或过期 · 停用新批次，保留已有任务等待核实'
   }
-  if (remaining === null || lane?.quota?.state !== 'ok' || lane?.quota?.stale || lane?.quota_gate?.allowed !== true) {
-    return '额度未知或过期 · 停用新批次，保留已有任务恢复'
+  if (lane?.quota_gate?.state === 'quota_reserved' || (remaining !== null && remaining <= 1)) {
+    return '额度保护 / ≤1h 停用新批次 · 保留已有任务，等待核实'
   }
   if (enabled === false) return '额度条件满足 · 调度已暂停'
   if (current.kind === 'submission_unknown') return '额度条件满足 · 先核对已有提交结果'
   if (current.cooling) return '额度条件满足 · 冷却后仍需恢复调度'
+  if (current.kind === 'quarantined') return '额度条件满足 · 旧任务隔离保留；新文章仍需身份与调度确认'
   if (current.kind === 'unknown' || enabled !== true) return '额度条件满足 · 调度状态未确认'
   if (['running', 'recovery'].includes(current.kind) || lane?.outstanding?.state) return '额度条件满足 · 先处理已有批次'
-  return '额度条件满足 · 新批次仍需调度确认'
+  return '额度条件满足 · 新批次仍需身份与调度确认'
 }

@@ -82,7 +82,9 @@ def controller(tmp_path,remaining='1h'):
         if args[0]=='quota':
             return json.dumps([{'resource':'GPU','remaining':quota[0]}])
         if args[:2]==['kernels','push']:
-            return 'Kernel version 1 successfully pushed.'
+            from pathlib import Path
+            metadata=json.loads((Path(args[args.index('-p')+1])/'kernel-metadata.json').read_text())
+            return f"Kernel version 1 successfully pushed.  Please check progress at https://www.kaggle.com/code/{metadata['id']}"
         if args[:2]==['kernels','status']:
             return 'has status "KernelWorkerStatus.COMPLETE"'
         if args[:2]==['kernels','output']:

@@ -2,10 +2,14 @@
 import json
 from pathlib import Path
 import subprocess
+import sqlite3
+from contextlib import contextmanager
 import unittest
 from unittest.mock import patch
 import uuid
-from batch_control import Controller
+from batch_control import Controller, parse_submit_success
+from recovery_policy import ProviderError
+import batch_control
 
 TEMPLATE = 'MANIFEST = None\n'
 
@@ -30,7 +34,8 @@ class LifecycleTests(unittest.TestCase):
         if args[1]=='push':
             if self.fail_push:
                 raise subprocess.TimeoutExpired('simulated-client',90)
-            return 'Kernel version 1 successfully pushed.'
+            ref = json.loads((Path(args[args.index('-p')+1])/'kernel-metadata.json').read_text())['id']
+            return f'Kernel version 1 successfully pushed.  Please check progress at https://www.kaggle.com/code/{ref}'
         if args[1]=='status':
             return 'has status "KernelWorkerStatus.'+self.remote+'"'
         if args[1]=='output':
@@ -251,6 +256,399 @@ class LifecycleTests(unittest.TestCase):
             file.write(b'invalid-json\n')
         with self.assertRaises(ValueError):
             self.control.verify_output(batch)
+
+
+class ReceiptAndQuarantineTests(unittest.TestCase):
+    setUp = LifecycleTests.setUp
+    client = LifecycleTests.client
+    prepare = LifecycleTests.prepare
+
+    def claims(self, batch):
+        with self.control.db() as db:
+            return [tuple(row) for row in db.execute('SELECT batch_id,entry_id FROM batch_claims WHERE batch_id=? ORDER BY entry_id', (batch,))]
+
+    def unknown(self, claims=1):
+        self.manifest['items'][0]['source_refs'] = [{'entry_id': i} for i in range(1, claims+1)]
+        batch = self.prepare()
+        self.control._set(batch, 'submit_unknown', error='network')
+        return batch, self.control.row(batch)
+
+    def quarantine(self, batch, expected):
+        return self.control.quarantine_unknown(batch, expected, 'Reviewed old unknown attempt', 'synthetic-operator-review')
+
+    def test_full_official_success_binds_ref_version_url(self):
+        ref = 'owner/job'
+        for url in ('https://www.kaggle.com/code/'+ref, 'https://www.kaggle.com/'+ref):
+            with self.subTest(url=url):
+                line = f'Kernel version 3 successfully pushed.  Please check progress at {url}'
+                self.assertEqual({'ref': ref, 'version': 3, 'url': url}, parse_submit_success(line, ref))
+        warning = "Warning: Looks like you're using an outdated `kaggle` version (installed: 1.0), please consider upgrading to the latest version (2.0)"
+        self.assertEqual(3, parse_submit_success(warning+'\n'+line, ref)['version'])
+
+    def test_short_multiple_conflicting_or_unbound_success_is_unknown(self):
+        good = 'Kernel version 1 successfully pushed.  Please check progress at https://www.kaggle.com/code/owner/job'
+        invalid = [good+'\n'+good, 'prefix '+good, good+'\nKernel push error: quota exceeded',
+                   'Kernel version 1 successfully pushed.', good.replace('version 1', 'version 0'),
+                   good.replace('owner/job', 'other/job'), good.replace('owner/job', 'owner/other'),
+                   good.replace('https:', 'http:'), good.replace('www.kaggle.com', 'www.kaggle.com.evil.test'),
+                   good+'?token=synthetic', good+'#fragment', '\x1b[32m'+good,
+                   good.replace('successfully pushed.', 'successfully saved without running.'), 'x'*65537]
+        for output in invalid:
+            with self.subTest(output=output[:120]), self.assertRaises(ValueError):
+                parse_submit_success(output, 'owner/job')
+
+    def test_receipt_is_complete_before_submitted_cas(self):
+        batch = self.prepare()
+        original = batch_control._cas_row
+        observed = []
+        def cas(db, before, state, updated, error, remote=None):
+            if state == 'submitted':
+                receipt = json.loads((self.path/batch/'submit-receipt.json').read_text())
+                observed.append(receipt)
+                self.assertEqual(before['updated'], receipt['reserved_at'])
+                self.assertEqual(before['manifest_hash'], receipt['manifest_hash'])
+            return original(db, before, state, updated, error, remote)
+        with patch('batch_control._cas_row', side_effect=cas):
+            self.assertEqual('submitted', self.control.submit(batch)['state'])
+        self.assertEqual(1, len(observed))
+        self.assertEqual('owner/'+batch, observed[0]['ref'])
+        self.assertEqual(1, observed[0]['version'])
+        self.assertEqual('https://www.kaggle.com/code/owner/'+batch, observed[0]['url'])
+        self.control.submit(batch)
+        self.assertEqual(1, len([x for x in self.calls if x[:2] == ['kernels','push']]))
+
+    def test_receipt_write_failure_keeps_unknown_and_never_repushes(self):
+        batch = self.prepare()
+        original = batch_control._publish_json_once
+        def write(path, value):
+            if path.name == 'submit-receipt.json':raise OSError('synthetic fsync failure')
+            return original(path, value)
+        with patch('batch_control._publish_json_once', side_effect=write), self.assertRaises(ProviderError) as error:
+            self.control.submit(batch)
+        self.assertEqual('unknown', error.exception.code)
+        self.assertEqual('submit_unknown', self.control.row(batch)['state'])
+        self.assertEqual('submit_receipt_write_failed', self.control.row(batch)['error'])
+        restarted = Controller(self.path, 'owner', self.client)
+        restarted.submit(batch)
+        self.assertEqual(1, len([x for x in self.calls if x[:2] == ['kernels','push']]))
+        self.assertEqual(1, len(self.claims(batch)))
+
+    def test_receipt_cas_conflict_survives_restart_and_blocks_absence_retirement(self):
+        batch = self.prepare()
+        original = batch_control._cas_row
+        def cas(db, before, state, updated, error, remote=None):
+            return False if state == 'submitted' else original(db, before, state, updated, error, remote)
+        with patch('batch_control._cas_row', side_effect=cas), self.assertRaises(ProviderError) as error:
+            self.control.submit(batch)
+        self.assertEqual('unknown', error.exception.code)
+        self.assertTrue((self.path/batch/'submit-receipt.json').is_file())
+        self.assertEqual('submit_unknown', self.control.row(batch)['state'])
+        with self.control.db() as db:db.execute('UPDATE batches SET updated=0 WHERE id=?', (batch,))
+        calls = []
+        def inaccessible(args, timeout):
+            calls.append(args)
+            raise ProviderError('inaccessible')
+        restarted = Controller(self.path, 'owner', inaccessible)
+        self.assertEqual('submit_unknown', restarted.submit(batch)['state'])
+        with self.assertRaises(ProviderError) as error:restarted.status(batch)
+        self.assertEqual('unknown', error.exception.code)
+        self.assertEqual([['kernels','status','owner/'+batch]], calls)
+        self.assertEqual('submit_unknown', restarted.row(batch)['state'])
+        self.assertEqual(1, len(self.claims(batch)))
+        self.assertFalse((self.path/batch/'absence-observations.json').exists())
+
+    def test_database_commit_failure_after_receipt_cannot_repush(self):
+        batch = self.prepare()
+        real_db = self.control.db
+        fail = [True]
+        @contextmanager
+        def database():
+            with real_db() as db:
+                yield db
+                state = db.execute('SELECT state FROM batches WHERE id=?', (batch,)).fetchone()[0]
+                if fail[0] and state == 'submitted':
+                    fail[0] = False
+                    raise sqlite3.OperationalError('synthetic commit failure')
+        with patch.object(self.control, 'db', database), self.assertRaises(ProviderError) as error:
+            self.control.submit(batch)
+        self.assertEqual('unknown', error.exception.code)
+        self.assertTrue((self.path/batch/'submit-receipt.json').exists())
+        self.assertEqual('submit_unknown', self.control.row(batch)['state'])
+        self.control.submit(batch)
+        self.assertEqual(1, len([x for x in self.calls if x[:2] == ['kernels','push']]))
+
+    def test_conflicting_receipt_and_partial_file_close_all_recovery_paths(self):
+        batch = self.prepare(); self.control.submit(batch)
+        path = self.path/batch/'submit-receipt.json'
+        original = path.read_bytes(); receipt = json.loads(original)
+        broken = [b'{bad', json.dumps({**receipt, 'ref': 'other/job'}).encode(),
+                  json.dumps({**receipt, 'manifest_hash': '0'*64}).encode(),
+                  json.dumps({**receipt, 'version': True}).encode(),
+                  json.dumps({**receipt, 'schema': True}).encode(),
+                  json.dumps({**receipt, 'url': receipt['url']+'?token=synthetic'}).encode(),
+                  original[:-1]+b',"version":2}']
+        before = len(self.calls)
+        for raw in broken:
+            path.write_bytes(raw)
+            for action in (self.control.submit, self.control.status, self.control.download,
+                           self.control.verify_output, self.control.salvage_output):
+                with self.subTest(action=action.__name__, raw=raw[:50]), self.assertRaises(ProviderError) as error:
+                    action(batch)
+                self.assertEqual('unknown', error.exception.code)
+        path.write_bytes(original)
+        partial = path.with_suffix('.json.pending'); partial.write_bytes(b'{partial')
+        with self.assertRaises(ProviderError):self.control.status(batch)
+        self.assertEqual(before, len(self.calls))
+        self.assertEqual(1, len(self.claims(batch)))
+
+    def test_quarantine_preserves_71_claims_manifest_error_and_never_calls_provider(self):
+        batch, expected = self.unknown(71)
+        folder = self.path/batch
+        originals = {name: (folder/name).read_bytes() for name in ('manifest.json','prepared-code.json','runner.py','kernel-metadata.json')}
+        claims = self.claims(batch)
+        row = self.quarantine(batch, expected)
+        self.assertEqual('quarantined', row['state']); self.assertEqual('network', row['error'])
+        self.assertEqual(claims, self.claims(batch)); self.assertEqual(71, len(claims))
+        self.assertEqual(originals, {name: (folder/name).read_bytes() for name in originals})
+        self.assertIsNone(self.control.next_pending()); self.assertIsNone(self.control.next_retry()); self.assertIsNone(self.control.outstanding())
+        for action in (self.control.submit, self.control.status, self.control.wait):
+            with patch('batch_control.time.sleep', side_effect=AssertionError('quarantine must return immediately')):
+                self.assertEqual('quarantined', action(batch)['state'])
+        for action in (self.control.download, self.control.verify_output, self.control.salvage_output):
+            with self.assertRaises(ProviderError):action(batch)
+        with self.assertRaises(ValueError):self.control.retry(batch,TEMPLATE)
+        with self.assertRaises(ValueError):self.control.retire(batch,'cannot release claims')
+        for target in ('prepared','running','terminal','downloaded','imported','resolved','retired'):
+            with self.subTest(target=target), self.assertRaises(ProviderError):
+                self.control._set(batch,target,'COMPLETE')
+        self.assertEqual(row, self.control.row(batch)); self.assertEqual(claims, self.claims(batch))
+        self.assertEqual([], self.calls)
+
+    def test_quarantine_requires_explicit_snapshot_and_rejects_stale_cas(self):
+        batch, expected = self.unknown()
+        for field, value in [('updated', 0), ('error','different'), ('manifest_hash','0'*64)]:
+            with self.subTest(field=field), self.assertRaises(ProviderError):
+                self.quarantine(batch, {**expected, field:value})
+            self.assertEqual(expected, self.control.row(batch))
+        with self.assertRaises(ValueError):self.quarantine(batch, {**expected,'state':'running'})
+        with self.assertRaises(ValueError):self.quarantine(batch, {**expected,'remote_status':'COMPLETE'})
+        with self.assertRaises(ValueError):self.control.quarantine_unknown(batch,expected,'','review')
+        with self.assertRaises(ValueError):self.control._set(batch,'quarantined')
+        self.assertFalse((self.path/batch/'quarantine-reviewed.json').exists())
+
+    def test_quarantine_receipt_or_cas_failure_never_changes_unknown(self):
+        batch, expected = self.unknown()
+        with (patch('batch_control._publish_json_once', side_effect=OSError('synthetic audit write failure')),
+              self.assertRaises(ProviderError)):
+            self.quarantine(batch, expected)
+        self.assertEqual(expected, self.control.row(batch))
+        original = batch_control._cas_row
+        def cas(db, before, state, updated, error, remote=None):
+            return False if state == 'quarantined' else original(db,before,state,updated,error,remote)
+        with patch('batch_control._cas_row', side_effect=cas), self.assertRaises(ProviderError):
+            self.quarantine(batch, expected)
+        self.assertEqual(expected, self.control.row(batch))
+        path = self.path/batch/'quarantine-reviewed.json'; audit = path.read_bytes()
+        self.assertEqual('quarantined', self.quarantine(batch,expected)['state'])
+        self.assertEqual(audit, path.read_bytes())  # Retry of the same reviewed CAS retains its evidence.
+        self.assertEqual('quarantined', self.quarantine(batch,expected)['state'])
+        self.assertEqual([], self.calls)
+
+    def test_inflight_status_cannot_undo_quarantine_winner(self):
+        batch, expected = self.unknown()
+        def status(args, timeout):
+            self.assertEqual(['kernels','status','owner/'+batch], args)
+            self.quarantine(batch,expected)
+            return 'has status "KernelWorkerStatus.COMPLETE"'
+        self.control.client = status
+        row = self.control.status(batch)
+        self.assertEqual('quarantined', row['state']); self.assertEqual('network', row['error'])
+        with self.assertRaises(ProviderError):self.control._set(batch,'resolved','COMPLETE')
+        self.assertEqual(1, len(self.claims(batch)))
+
+
+
+    def test_receipt_appearing_during_push_is_preserved_not_replaced(self):
+        for pending in (False, True):
+            with self.subTest(pending=pending):
+                self.setUp()
+                batch = self.prepare(); folder = self.path/batch
+                target = folder/('submit-receipt.json.pending' if pending else 'submit-receipt.json')
+                original = b'pre-existing pending evidence' if pending else b'{"version":99,"evidence":"another receipt"}'
+                def provider(args, timeout):
+                    result = self.client(args, timeout)
+                    if args[:2] == ['kernels','push']:target.write_bytes(original)
+                    return result
+                self.control.client = provider
+                with self.assertRaises(ProviderError) as error:self.control.submit(batch)
+                self.assertEqual('unknown', error.exception.code)
+                self.assertEqual(original, target.read_bytes())
+                self.assertEqual('submit_unknown', self.control.row(batch)['state'])
+                before = len(self.calls)
+                restarted = Controller(self.path, 'owner', self.client)
+                with self.assertRaises(ProviderError):restarted.submit(batch)
+                self.assertEqual(before, len(self.calls)); self.assertEqual(1, len(self.claims(batch)))
+
+    def test_final_created_at_atomic_link_boundary_is_never_clobbered(self):
+        batch = self.prepare(); final = self.path/batch/'submit-receipt.json'
+        original = b'{"version":99,"evidence":"concurrent final"}'
+        link = batch_control.os.link
+        def concurrent(source, target, **kwargs):
+            Path(target).write_bytes(original)
+            return link(source, target, **kwargs)
+        with patch('batch_control.os.link', side_effect=concurrent), self.assertRaises(ProviderError) as error:
+            self.control.submit(batch)
+        self.assertEqual('unknown', error.exception.code)
+        self.assertEqual(original, final.read_bytes())
+        self.assertTrue(final.with_suffix('.json.pending').is_file())
+        self.assertEqual('submit_unknown', self.control.row(batch)['state'])
+        self.assertEqual(1, len([x for x in self.calls if x[:2] == ['kernels','push']]))
+
+    def test_quarantine_replay_with_new_pending_is_unknown_and_preserves_71_claims(self):
+        batch, expected = self.unknown(71)
+        row = self.quarantine(batch, expected)
+        final = self.path/batch/'quarantine-reviewed.json'; before = final.read_bytes()
+        pending = final.with_suffix('.json.pending'); raw = b'conflicting quarantine intent'
+        pending.write_bytes(raw)
+        with self.assertRaises(ProviderError) as error:self.quarantine(batch, expected)
+        self.assertEqual('unknown', error.exception.code)
+        self.assertEqual(row, self.control.row(batch)); self.assertEqual(71, len(self.claims(batch)))
+        self.assertEqual(before, final.read_bytes()); self.assertEqual(raw, pending.read_bytes())
+        self.assertEqual([], self.calls)
+
+
+    def test_receipt_arriving_during_absence_observation_keeps_71_claims(self):
+        for name in ('submit-receipt.json', 'submit-receipt.json.pending'):
+            with self.subTest(name=name):
+                self.setUp(); batch, _ = self.unknown(71)
+                with self.control.db() as db:db.execute('UPDATE batches SET updated=0 WHERE id=?', (batch,))
+                before = self.control.row(batch); claims = self.claims(batch)
+                clock = [5000.0]; observations = []
+                target = self.path/batch/name; original = b'positive or unresolved submit evidence'
+                def provider(args, timeout):
+                    if args[:2] == ['kernels','status']:raise ProviderError('inaccessible')
+                    if args[:2] == ['kernels','list']:
+                        return json.dumps([{'ref':'owner/existing-other'}]) if args[args.index('--page')+1] == '1' else 'Not found\n'
+                    if args[0] == 'quota':
+                        observations.append(clock[0])
+                        if len(observations) == 2:target.write_bytes(original)
+                        return '[{"resource":"GPU","remaining":"20h"}]'
+                    raise AssertionError('No submit is allowed')
+                self.control.client = provider
+                with patch('batch_control.time.time', side_effect=lambda: clock[0]):
+                    with self.assertRaises(ProviderError):self.control.status(batch)
+                    clock[0] = 5700.0
+                    with self.assertRaises(ProviderError) as error:self.control.status(batch)
+                self.assertEqual('unknown', error.exception.code)
+                self.assertEqual([5000.0, 5700.0], observations)
+                self.assertEqual(before, self.control.row(batch)); self.assertEqual(claims, self.claims(batch))
+                self.assertEqual(original, target.read_bytes())
+
+
+    def test_submit_and_quarantine_share_lock_and_recheck_snapshot(self):
+        import fcntl
+        import threading
+        batch, expected = self.unknown(71)
+        claims = self.claims(batch); manifest = (self.path/batch/'manifest.json').read_bytes()
+        submit_entered = threading.Event(); finish_submit = threading.Event()
+        quarantine_lock_attempted = threading.Event(); quarantine_finished = threading.Event()
+        results = {}; flock = fcntl.flock; original_manifest = self.control.manifest
+        def checked_manifest(batch_id):
+            if threading.current_thread().name == 'synthetic-submit':
+                submit_entered.set()
+                if not finish_submit.wait(5):raise AssertionError('Synthetic submit was not released')
+            return original_manifest(batch_id)
+        def tracked_flock(file, operation):
+            if threading.current_thread().name == 'synthetic-quarantine':quarantine_lock_attempted.set()
+            return flock(file, operation)
+        def submit():
+            try:results['submit'] = self.control.submit(batch)
+            except Exception as exc:results['submit'] = exc
+        def quarantine():
+            try:results['quarantine'] = self.quarantine(batch, expected)
+            except Exception as exc:results['quarantine'] = exc
+            finally:quarantine_finished.set()
+        with patch.object(self.control, 'manifest', side_effect=checked_manifest), patch('fcntl.flock', side_effect=tracked_flock):
+            producer = threading.Thread(target=submit, name='synthetic-submit')
+            operator = threading.Thread(target=quarantine, name='synthetic-quarantine')
+            producer.start()
+            try:
+                self.assertTrue(submit_entered.wait(5))
+                operator.start()
+                self.assertTrue(quarantine_lock_attempted.wait(5))
+                self.assertFalse(quarantine_finished.is_set())
+                self.assertEqual(expected, self.control.row(batch))
+                self.assertFalse((self.path/batch/'quarantine-reviewed.json').exists())
+                self.control._set(batch, 'submit_unknown', error='late observation')
+                newer = self.control.row(batch)
+            finally:
+                finish_submit.set()
+                producer.join(5)
+                if operator.ident is not None:operator.join(5)
+        self.assertFalse(producer.is_alive()); self.assertFalse(operator.is_alive())
+        self.assertEqual(newer, results['submit'])
+        self.assertIsInstance(results['quarantine'], ProviderError)
+        self.assertEqual('unknown', results['quarantine'].code)
+        self.assertEqual(newer, self.control.row(batch)); self.assertEqual(claims, self.claims(batch))
+        self.assertEqual(manifest, (self.path/batch/'manifest.json').read_bytes())
+        self.assertFalse((self.path/batch/'quarantine-reviewed.json').exists())
+        self.assertFalse((self.path/batch/'submit-receipt.json').exists())
+        self.assertFalse(self.calls)
+
+
+    def test_inflight_submit_and_absence_retirement_share_the_batch_lock(self):
+        import fcntl
+        import threading
+        self.manifest['items'][0]['source_refs'] = [{'entry_id': i} for i in range(1, 72)]
+        batch = self.prepare(); clock = [1000.0]
+        push_entered = threading.Event(); finish_push = threading.Event()
+        absence_lock_attempted = threading.Event(); absence_finished = threading.Event()
+        results = {}; calls = []
+        flock = fcntl.flock
+        def tracked_flock(file, operation):
+            if threading.current_thread().name == 'synthetic-absence':absence_lock_attempted.set()
+            return flock(file, operation)
+        def provider(args, timeout):
+            calls.append(args)
+            if args[0] == 'quota':return '[{"resource":"GPU","remaining":"20h"}]'
+            if args[:2] == ['kernels','push']:
+                push_entered.set()
+                if not finish_push.wait(5):raise AssertionError('Synthetic push was not released')
+                return f'Kernel version 1 successfully pushed.  Please check progress at https://www.kaggle.com/code/owner/{batch}'
+            if args[:2] == ['kernels','status']:raise ProviderError('inaccessible')
+            raise AssertionError('Absence listing must not run after the successful receipt')
+        self.control.client = provider
+        def submit():
+            try:results['submit'] = self.control.submit(batch)
+            except Exception as exc:results['submit'] = exc
+        def absence():
+            try:results['absence'] = self.control.status(batch)
+            except Exception as exc:results['absence'] = exc
+            finally:absence_finished.set()
+        with patch('batch_control.time.time', side_effect=lambda: clock[0]), patch('fcntl.flock', side_effect=tracked_flock):
+            producer = threading.Thread(target=submit, name='synthetic-submit')
+            observer = threading.Thread(target=absence, name='synthetic-absence')
+            producer.start()
+            try:
+                self.assertTrue(push_entered.wait(5))
+                clock[0] = 5000.0
+                observer.start()
+                self.assertTrue(absence_lock_attempted.wait(5))
+                self.assertFalse(absence_finished.is_set())
+            finally:
+                finish_push.set()
+                producer.join(5)
+                if observer.ident is not None:observer.join(5)
+        self.assertFalse(producer.is_alive()); self.assertFalse(observer.is_alive())
+        self.assertEqual('submitted', results['submit']['state'])
+        self.assertIsInstance(results['absence'], ProviderError)
+        self.assertEqual('unknown', results['absence'].code)
+        self.assertEqual('submitted', self.control.row(batch)['state'])
+        self.assertEqual(71, len(self.claims(batch)))
+        self.assertTrue((self.path/batch/'submit-receipt.json').is_file())
+        self.assertFalse((self.path/batch/'absence-observations.json').exists())
+        self.assertEqual(1, len([args for args in calls if args[:2] == ['kernels','push']]))
+
 
 if __name__=='__main__':
     unittest.main()

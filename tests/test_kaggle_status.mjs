@@ -91,4 +91,50 @@ check('Both rendered surfaces use the shared facts and retain snapshot failure d
  assert.doesNotMatch(toolbar,/Kaggle 持续增量处理/);assert.doesNotMatch(panel,/可提交新批次/)
  assert.match(panel,/本轮完成/);assert.doesNotMatch(panel,/activeLanes|const laneState/)
 })
+check('Quarantine never becomes completion import running or retry from old remote text',()=>{
+ for(const remote_status of [null,'UNKNOWN','RUNNING','COMPLETE','COMPLETED','ERROR']){
+  const value=lane({outstanding:{state:'quarantined',remote_status},quarantine:{batches:1,claims:2},ledger_state:'ok'})
+  const current=kaggleLaneStatus(value,now)
+  assert.equal(current.kind,'quarantined');assert.equal(kaggleStatus(snapshot({primary:value}),now).running,0)
+  assert.match(current.text,/已隔离.*等待核实/)
+  assert.doesNotMatch(current.text+current.detail+kaggleQuotaText(value,true,current),/运行中|已完成|等待导入|可导入|可重试|可运行|已释放/)
+ }
+})
+check('Retained quarantine counts stay separate from genuine new running work',()=>{
+ const value=lane({ledger_state:'ok',quarantine:{batches:2,claims:7},outstanding:{state:'running',remote_status:'RUNNING'}})
+ const current=kaggleLaneStatus(value,now),summary=kaggleStatus(snapshot({primary:value}),now)
+ assert.equal(current.kind,'running');assert.equal(summary.running,1);assert.equal(summary.quarantined,2)
+ assert.match(summary.text,/已确认运行 1 批.*2 批已隔离待核实/);assert.equal(summary.tone,'warn')
+ assert.match(current.detail,/2 批旧任务已隔离，等待核实/)
+ const isolated=lane({ledger_state:'ok',quarantine:{batches:2,claims:7}})
+ assert.equal(kaggleLaneStatus(isolated,now).kind,'quarantined')
+ assert.match(kaggleQuotaText(isolated,true),/新文章仍需身份与调度确认/)
+})
+check('Receipt conflicts recovery flags missing ledgers and UNKNOWN override old RUNNING or COMPLETE',()=>{
+ for(const extra of [{recovery_required:true},{recovery_error:'unknown'},{ledger_state:'unknown'},
+   ...['submit_receipt_invalid','submit_receipt_write_failed','submit_cas_conflict'].map(error=>({outstanding:{state:'running',remote_status:'RUNNING',error}}))]){
+  for(const remote_status of ['RUNNING','COMPLETE']){
+   const value=lane({outstanding:{state:'running',remote_status},...extra})
+   const current=kaggleLaneStatus(value,now)
+   assert.equal(current.kind,'unknown');assert.equal(kaggleStatus(snapshot({primary:value}),now).running,0)
+   assert.doesNotMatch(current.text+current.detail,/运行中|等待导入|已完成|可重试|可导入/)
+  }
+ }
+ for(const state of ['running','submitted','downloaded']){
+  const value=lane({outstanding:{state,remote_status:'UNKNOWN'}})
+  assert.equal(kaggleLaneStatus(value,now).kind,'unknown')
+ }
+})
+check('Unconfirmed identity or stale quota cannot borrow fresh-looking remaining hours',()=>{
+ for(const state of ['quota_unknown','identity_unknown','identity_mismatch']){
+  for(const remaining of [0.26,20]){
+   const value=lane({quota:quota(remaining),quota_gate:{allowed:false,state},quarantine:{batches:2,claims:7}})
+   assert.match(kaggleQuotaText(value,true),/额度未知或过期.*停用新批次/)
+  }
+ }
+ for(const remaining of [0.26,20]){
+  const value=lane({quota:{...quota(remaining),stale:true},quarantine:{batches:2,claims:7}})
+  assert.match(kaggleQuotaText(value,true),/额度未知或过期.*停用新批次/)
+ }
+})
 console.log(`Kaggle status clarity: ${checks} grouped presentation checks passed`)
