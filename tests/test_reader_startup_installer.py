@@ -81,6 +81,8 @@ class StartupInstallerTests(unittest.TestCase):
         self.assertEqual(routes.count('path: "agent-status"'), 1)
         self.assertIn('import("./pages/ErrorPage")', routes)
         self.assertIn('return { Component, ErrorBoundary }', routes)
+        self.assertIn(installer.STARTUP_AUTH_ROUTE_LOADER, routes)
+        self.assertIn('Component: function FailedAuthenticatedApp() {\n        throw originalError', routes)
         self.assertIn('lazy: lazyRoute(() => import("./pages/RouterProtect"))', routes)
         self.assertIn(installer.STARTUP_CONTENT_LOADER, routes)
         self.assertIn('{ path: `/${path}/entry/:entryId`, lazy: loadContentPage(pageKey) }', routes)
@@ -95,6 +97,18 @@ class StartupInstallerTests(unittest.TestCase):
         installer.install(root)
         self.assertEqual(routes.read_text(encoding='utf-8'), installer._routes_apply(FIXTURE['files']['src/routes.jsx']['text']))
         self.assertEqual(panel.read_text(encoding='utf-8').count('to="/agent-status"'), 1)
+
+    def test_prior_bootstrap_routes_upgrade_and_failure_loader_drift_is_refused(self):
+        root, web = self.make_root()
+        routes = web / 'src/routes.jsx'
+        routes.write_text(installer._routes_apply_prior_bootstrap(FIXTURE['files']['src/routes.jsx']['text']), encoding='utf-8')
+        installer.install(root)
+        self.assertEqual(routes.read_text(encoding='utf-8'), installer._routes_apply(FIXTURE['files']['src/routes.jsx']['text']))
+        routes.write_text(routes.read_text(encoding='utf-8').replace('throw originalError', 'throw new Error("changed")'), encoding='utf-8')
+        before = self.snapshot(root)
+        with self.assertRaisesRegex(RuntimeError, 'Unreviewed authenticated routes'):
+            installer.install(root)
+        self.assertEqual(before, self.snapshot(root))
 
     def test_drift_in_each_startup_input_refuses_before_any_write(self):
         paths = ['src/routes.jsx', 'src/pages/AuthenticatedApp.jsx', 'src/pages/ContentPages.jsx',

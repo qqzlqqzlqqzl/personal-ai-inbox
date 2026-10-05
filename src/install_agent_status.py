@@ -41,6 +41,35 @@ STARTUP_CONTENT_LOADER='''const loadContentPage = (pageKey) => async () => {
 }
 
 '''
+AUTH_ROUTE_LOADER='''const loadAuthenticatedRoute = async () => {
+  const [{ default: Component }, { default: ErrorBoundary }] = await Promise.all([
+    import("./pages/AuthenticatedApp"),
+    import("./pages/ErrorPage"),
+  ])
+  return { Component, ErrorBoundary }
+}
+
+'''
+STARTUP_AUTH_ROUTE_LOADER='''const loadAuthenticatedRoute = async () => {
+  const errorPagePromise = import("./pages/ErrorPage")
+  try {
+    const [{ default: Component }, { default: ErrorBoundary }] = await Promise.all([
+      import("./pages/AuthenticatedApp"),
+      errorPagePromise,
+    ])
+    return { Component, ErrorBoundary }
+  } catch (originalError) {
+    const { default: ErrorBoundary } = await errorPagePromise
+    return {
+      ErrorBoundary,
+      Component: function FailedAuthenticatedApp() {
+        throw originalError
+      },
+    }
+  }
+}
+
+'''
 STARTUP_ADDITION=ANCHOR+'            { path: "agent-status", Component: AgentStatusRoute },\n'
 HOME_ROUTE='{ index: true, lazy: lazyRoute(() => import("./components/HomeRedirect")) }'
 STARTUP_HOME_ROUTE='{ index: true, Component: HomeRedirectRoute }'
@@ -192,8 +221,13 @@ def _reviewed_base(text, expected_sha, apply, undo, label, legacy=()):
 def _routes_apply(base):
     return (base.replace(ROUTE_IMPORT,STARTUP_ROUTE_IMPORT,1)
             .replace(CONTENT_LOADER,STARTUP_CONTENT_LOADER,1)
+            .replace(AUTH_ROUTE_LOADER,STARTUP_AUTH_ROUTE_LOADER,1)
             .replace(HOME_ROUTE,STARTUP_HOME_ROUTE,1)
             .replace(ANCHOR,STARTUP_ADDITION,1))
+
+
+def _routes_apply_prior_bootstrap(base):
+    return _routes_apply(base).replace(STARTUP_AUTH_ROUTE_LOADER,AUTH_ROUTE_LOADER,1)
 
 
 def _routes_apply_previous(base):
@@ -205,7 +239,8 @@ def _routes_apply_previous(base):
 
 
 def _routes_undo(text):
-    text=text.replace(STARTUP_ADDITION,ANCHOR,1).replace(ADDITION,ANCHOR,1)
+    text=(text.replace(STARTUP_ADDITION,ANCHOR,1).replace(ADDITION,ANCHOR,1)
+          .replace(STARTUP_AUTH_ROUTE_LOADER,AUTH_ROUTE_LOADER,1))
     if STARTUP_ROUTE_IMPORT in text:
         return (text.replace(STARTUP_ROUTE_IMPORT,ROUTE_IMPORT,1)
                 .replace(STARTUP_CONTENT_LOADER,CONTENT_LOADER,1)
@@ -248,7 +283,8 @@ def install(root):
     if (web/'UPSTREAM_REVISION').read_text().strip()!=PIN:raise RuntimeError('Unexpected Reader revision')
     routes=web/'src/routes.jsx';before=routes.read_text()
     base=_reviewed_base(before,ROUTES_BEFORE,_routes_apply,_routes_undo,'authenticated routes',
-                        legacy=(lambda text:text.replace(ANCHOR,ADDITION,1), _routes_apply_previous))
+                        legacy=(lambda text:text.replace(ANCHOR,ADDITION,1), _routes_apply_previous,
+                                _routes_apply_prior_bootstrap))
     if base.count(ANCHOR)!=1:raise RuntimeError('Unreviewed authenticated routes; refusing status overlay')
     toolbar=web/'src/components/Ai/AiToolbar.jsx';toolbar_base=toolbar.read_text()
     if hashlib.sha256(toolbar_base.encode()).hexdigest()!=TOOLBAR_BEFORE:raise RuntimeError('Unreviewed toolbar; refusing status entry')
