@@ -1,4 +1,6 @@
 import json
+import hashlib
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -100,3 +102,65 @@ def test_quota_status_preserves_last_good_value_on_refresh_failure(tmp_path, mon
     value = month_control.quota_status(now=1020, ttl=10)
     assert value["lanes"]["primary"]["state"] == "stale"
     assert value["lanes"]["primary"]["gpu"]["remaining_hours"] == 25.0
+
+
+def status_fixture(tmp_path, monkeypatch, *, active=True, ledger=True):
+    stage=tmp_path/'runtime/qwen-month-20260925';stage.mkdir(parents=True)
+    (stage/'scope.json').write_text(json.dumps({'from':None,'to':None,'articles':3,'unknown_date_excluded':0}))
+    (stage/'allowlist.json').write_text(json.dumps({'entry_ids':[1,2,3]}))
+    configs=tmp_path/'src/kaggle_batch';configs.mkdir(parents=True)
+    (configs/'cloud-config-month-primary.json').write_text(json.dumps({'queue_scope':'allowlist'}))
+    state=tmp_path/'state';state.mkdir()
+    with sqlite3.connect(state/'analysis.sqlite3') as db:
+        db.execute('CREATE TABLE analyses(entry_id INTEGER,state TEXT)')
+        db.execute('CREATE TABLE card_translations(entry_id INTEGER,status TEXT)')
+    lane=state/'kaggle-month-primary';lane.mkdir()
+    (lane/'cycle-status.json').write_text(json.dumps({'state':'empty','outstanding':{'id':'stale','state':'running','remote_status':'RUNNING'}}))
+    if ledger:
+        with sqlite3.connect(lane/'batches.sqlite3') as db:
+            db.execute('CREATE TABLE batches(id TEXT,state TEXT,remote_status TEXT,error TEXT,updated REAL)')
+            db.execute('CREATE TABLE batch_claims(batch_id TEXT,entry_id INTEGER)')
+            db.execute("INSERT INTO batches VALUES('old','quarantined',NULL,'unknown',1)")
+            db.executemany('INSERT INTO batch_claims VALUES(?,?)',[('old',1),('old',2)])
+            if active:db.execute("INSERT INTO batches VALUES('new','running','RUNNING',NULL,2)")
+    monkeypatch.setattr(month_control,'ROOT',tmp_path)
+    monkeypatch.setattr(month_control,'STAGE',stage)
+    monkeypatch.setattr(month_control,'KEYS',('primary',))
+    monkeypatch.setattr(month_control,'effective_enabled_lanes',lambda:[])
+    monkeypatch.setattr(month_control,'quota_status',lambda:{'checked_at':100,'lanes':{}})
+    def local_service(args,**kwargs):
+        assert args[:3]==['systemctl','--user','show']
+        return SimpleNamespace(stdout='')
+    monkeypatch.setattr(month_control.subprocess,'run',local_service)
+    return lane
+
+
+def test_status_separates_quarantined_claims_from_new_outstanding_without_mutation(tmp_path, monkeypatch):
+    lane=status_fixture(tmp_path,monkeypatch)
+    files=list(tmp_path.rglob('*.json'))+list(tmp_path.rglob('*.sqlite3'))
+    before={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+    value=month_control.status()['lanes']['primary']
+    assert value['outstanding']['id']=='new'
+    assert value['quarantine']=={'batches':1,'claims':2}
+    assert value['ledger_state']=='ok'
+    assert before=={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+    with sqlite3.connect((lane/'batches.sqlite3').as_uri()+'?mode=ro',uri=True) as db:
+        assert db.execute("SELECT COUNT(*) FROM batch_claims WHERE batch_id='old'").fetchone()[0]==2
+        assert db.execute("SELECT state FROM batches WHERE id='old'").fetchone()[0]=='quarantined'
+
+
+def test_status_null_outstanding_does_not_erase_quarantine_or_reuse_cached_row(tmp_path, monkeypatch):
+    status_fixture(tmp_path,monkeypatch,active=False)
+    value=month_control.status()['lanes']['primary']
+    assert 'outstanding' not in value
+    assert value['quarantine']=={'batches':1,'claims':2}
+    assert value['ledger_state']=='ok'
+
+
+def test_missing_ledger_stays_unknown_and_is_never_created(tmp_path, monkeypatch):
+    lane=status_fixture(tmp_path,monkeypatch,ledger=False)
+    value=month_control.status()['lanes']['primary']
+    assert value['ledger_state']=='unknown'
+    assert value['quarantine']=={'batches':None,'claims':None}
+    assert 'outstanding' not in value
+    assert not (lane/'batches.sqlite3').exists()

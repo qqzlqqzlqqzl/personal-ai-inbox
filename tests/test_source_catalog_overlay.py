@@ -74,6 +74,14 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_reading).hexdigest(), reviewed_reading)
         self.assertNotIn(reviewed_reading, old[reading])
         old[reading].append(reviewed_reading)
+        # The reviewed quarantine slice adds this exact prior status helper hash.
+        status = "src/components/Ai/kaggle-status.js"
+        reviewed_status = "59fdd056a69c00c46be24ba524dcaa467736f7b5c70a48cc7274e1398b5ea515"
+        prior_status = subprocess.check_output(
+            ['git', 'show', '3608d0903177a67e23baa658bd9eb218e09303f1:frontend-review/after/' + status], cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_status).hexdigest(), reviewed_status)
+        self.assertNotIn(reviewed_status, old[status])
+        old[status].append(reviewed_status)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):

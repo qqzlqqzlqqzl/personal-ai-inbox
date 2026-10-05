@@ -8,6 +8,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -15,6 +16,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 try:
     from .dispatch_policy import DispatchStopped
 except ImportError:
@@ -53,6 +55,87 @@ def atomic_json(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
+
+def _publish_json_once(path, value):
+    """Publish this new receipt without replacing any prior final or pending file."""
+    temporary = path.with_suffix(path.suffix + '.pending')
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    identity = os.fstat(descriptor)
+    with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+        json.dump(value, stream, ensure_ascii=False, indent=2)
+        stream.flush()
+        os.fsync(stream.fileno())
+    # Unlike replace(), link() atomically refuses a final that appeared while
+    # the CLI or this writer was running. On any failure both files are retained.
+    os.link(temporary, path, follow_symlinks=False)
+    for target in (temporary, path):
+        found = target.stat(follow_symlinks=False)
+        if (found.st_dev, found.st_ino) != (identity.st_dev, identity.st_ino):
+            raise OSError('receipt_publication_identity_changed')
+    directory = os.open(path.parent, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+    try:
+        os.fsync(directory)
+        temporary.unlink()  # Only the staging file created exclusively by this call.
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+RECEIPT_ERRORS = {'submit_receipt_invalid', 'submit_receipt_write_failed', 'submit_cas_conflict'}
+ROW_FIELDS = ('id', 'manifest_hash', 'state', 'remote_status', 'error', 'updated')
+
+
+def _same_row(left, right):
+    return all(left.get(key) == right.get(key) for key in ROW_FIELDS)
+
+
+def _cas_row(db, before, state, updated, error, remote=None):
+    return db.execute(
+        "UPDATE batches SET state=?,remote_status=?,error=?,updated=? "
+        "WHERE id=? AND manifest_hash=? AND state=? AND remote_status IS ? AND error IS ? AND updated=?",
+        (state, remote, error, updated, *(before[key] for key in ROW_FIELDS)),
+    ).rowcount == 1
+
+
+def _receipt_ref(url, expected_ref):
+    if not isinstance(url, str) or any(char.isspace() for char in url):
+        raise ValueError('invalid_submit_receipt')
+    parsed = urlsplit(url)
+    if (parsed.scheme != 'https' or parsed.netloc not in {'www.kaggle.com', 'kaggle.com'}
+            or parsed.query or parsed.fragment or parsed.path not in {'/code/' + expected_ref, '/' + expected_ref}):
+        raise ValueError('invalid_submit_receipt')
+    return expected_ref
+
+
+def parse_submit_success(output, expected_ref):
+    """Accept one complete official CLI success line, never a substring or error."""
+    if not isinstance(output, str) or len(output.encode('utf-8')) > 65536:
+        raise ValueError('invalid_submit_receipt')
+    if any(ord(char) < 32 and char not in '\r\n\t' for char in output):
+        raise ValueError('invalid_submit_receipt')
+    lines = [line for line in output.splitlines() if line.strip()]
+    # The existing official version warning may precede the single outcome.
+    try:
+        from .absence_proof import VERSION_WARNING
+    except ImportError:
+        from absence_proof import VERSION_WARNING
+    if lines and VERSION_WARNING.fullmatch(lines[0]):
+        lines = lines[1:]
+    match = re.fullmatch(r'Kernel version ([1-9][0-9]*) successfully pushed\.  Please check progress at (https://\S+)',
+                         lines[0]) if len(lines) == 1 else None
+    if match is None:
+        raise ValueError('invalid_submit_receipt')
+    return {'ref': _receipt_ref(match[2], expected_ref), 'version': int(match[1]), 'url': match[2]}
+
+
+def _unique_json(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('duplicate_receipt_field')
+        result[key] = value
+    return result
+
 
 class Controller:
     def __init__(self, root, owner, client=None, kaggle_python=None, *, initialize=False, required_roots=None, admission=None, recovery_batch=None, diagnostic_observer=None):
@@ -135,7 +218,7 @@ class Controller:
         now=time.time() if now is None else now
         with self.db() as db:
             row=db.execute("""SELECT b.id FROM batches b LEFT JOIN batch_progress p ON p.batch_id=b.id
-                WHERE b.state NOT IN ('imported','retired','resolved') AND COALESCE(p.next_try,0)<=?
+                WHERE b.state NOT IN ('imported','retired','resolved','quarantined') AND COALESCE(p.next_try,0)<=?
                 ORDER BY CASE WHEN b.state IN ('submitting','submitted','running','submit_unknown') THEN 0
                               WHEN b.state IN ('terminal','downloaded') THEN 1 ELSE 2 END,b.updated LIMIT 1""",(now,)).fetchone()
         return row['id'] if row else None
@@ -143,7 +226,7 @@ class Controller:
     def next_retry(self):
         with self.db() as db:
             row=db.execute("""SELECT MIN(p.next_try) FROM batch_progress p JOIN batches b ON b.id=p.batch_id
-                WHERE b.state NOT IN ('imported','retired','resolved') AND p.next_try>?""",(time.time(),)).fetchone()
+                WHERE b.state NOT IN ('imported','retired','resolved','quarantined') AND p.next_try>?""",(time.time(),)).fetchone()
         return row[0]
 
     def defer_local(self,batch_id,code):
@@ -195,7 +278,7 @@ class Controller:
 
     def outstanding(self):
         with self.db() as db:
-            row=db.execute("SELECT * FROM batches WHERE state NOT IN ('imported','retired','resolved') "
+            row=db.execute("SELECT * FROM batches WHERE state NOT IN ('imported','retired','resolved','quarantined') "
                            "ORDER BY updated LIMIT 1").fetchone()
         return dict(row) if row else None
 
@@ -257,7 +340,67 @@ class Controller:
             db.executemany('INSERT OR IGNORE INTO batch_claims VALUES (?,?)',refs)
         return batch_id
 
+    def _submit_receipt(self, batch_id, row):
+        path = self.root/batch_id/'submit-receipt.json'
+        if path.is_symlink() or path.with_suffix('.json.pending').is_symlink() or path.with_suffix('.json.pending').exists():
+            raise ProviderError('unknown')
+        if not path.exists():
+            return None
+        try:
+            if path.stat().st_size > 65536:raise ValueError('oversized_submit_receipt')
+            receipt = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=_unique_json)
+            ref = self.owner + '/' + batch_id
+            if (not isinstance(receipt, dict) or type(receipt.get('schema')) is not int or receipt.get('schema') != 1
+                    or receipt.get('batch_id') != batch_id or receipt.get('manifest_hash') != row['manifest_hash']
+                    or receipt.get('ref') != ref or type(receipt.get('version')) is not int or receipt['version'] < 1):
+                raise ValueError()
+            _receipt_ref(receipt.get('url'), ref)
+            if any(type(receipt.get(key)) not in (int, float) or not math.isfinite(receipt[key])
+                   for key in ('reserved_at', 'recorded_at')):
+                raise ValueError()
+            if not 0 <= receipt['reserved_at'] <= receipt['recorded_at']:
+                raise ValueError()
+            return receipt
+        except (OSError, ValueError, TypeError, KeyError, RecursionError):
+            raise ProviderError('unknown') from None
+
+    def _submit_unknown(self, batch_id, reservation, code, reason=None):
+        # Reservation was committed before push. Failure here cannot make it
+        # prepared again; a newer observation/quarantine must never be overwritten.
+        try:
+            with self.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                _cas_row(db, reservation, 'submit_unknown', time.time(), reason or code)
+        except DispatchStopped:
+            raise
+        except (DispatchBlocked, sqlite3.Error):
+            pass  # Durable submitting (or an unreadable required ledger) still blocks push.
+        try:
+            self._admit()
+            atomic_json(self.root/batch_id/'submit-diagnostic.json',
+                        {'at': time.time(), 'code': code, 'reason': reason, 'outcome': 'UNKNOWN'})
+        except DispatchStopped:
+            raise
+        except (OSError, ValueError):
+            pass  # No raw provider output or another remote attempt as a fallback.
+
     def submit(self, batch_id):
+        import fcntl
+        initial = self.row(batch_id)
+        if initial['state'] == 'quarantined':
+            return initial
+        # This same per-batch lock serializes absence retirement. Hold it from
+        # before reservation through the remote attempt and receipt/ledger CAS,
+        # so retirement cannot release claims while this producer is in flight.
+        with (self.root/batch_id/'absence.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return self._submit_locked(batch_id)
+
+    def _submit_locked(self, batch_id):
+        initial = self.row(batch_id)
+        if initial['state'] == 'quarantined':
+            return initial
+        self._submit_receipt(batch_id, initial)
         manifest=self.manifest(batch_id)
         folder=self.root/batch_id
         expected=json.loads((folder/'prepared-code.json').read_text())['sha256']
@@ -265,43 +408,83 @@ class Controller:
             raise ValueError('Prepared runner was changed')
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute('SELECT state FROM batches WHERE id=?',(batch_id,)).fetchone()
+            row = db.execute('SELECT * FROM batches WHERE id=?',(batch_id,)).fetchone()
             if not row:
                 raise KeyError(batch_id)
             if row['state'] != 'prepared':
-                return self.row(batch_id)
+                return dict(row)
+            if row['remote_status'] is not None:
+                raise ProviderError('unknown')
+            # A receipt/partial receipt/diagnostic is evidence of an attempted
+            # submission, never permission to push after a local ledger rewind.
+            if any((folder/name).exists() for name in ('submit-receipt.json', 'submit-receipt.json.pending', 'submit-diagnostic.json')):
+                raise ProviderError('unknown')
             active = db.execute("SELECT id FROM batches WHERE state IN ('submitting','submitted','running','submit_unknown') AND id<>?",(batch_id,)).fetchone()
             if active:
                 raise RuntimeError('Another batch is active: '+active['id'])
             claimed_entries(self.required_roots)
             quota_gate = query_client(self.client)
             if not quota_gate['allowed']:
-                return {**self.row(batch_id), 'submission_blocked':True, 'quota_gate':quota_gate}
+                return {**dict(row), 'submission_blocked':True, 'quota_gate':quota_gate}
             self._admit()
-            db.execute("UPDATE batches SET state='submitting',updated=? WHERE id=?",(time.time(),batch_id))
+            reserved_at = time.time()
+            reservation = {**dict(row), 'state': 'submitting', 'updated': reserved_at}
+            if not _cas_row(db, dict(row), 'submitting', reserved_at, row['error'], row['remote_status']):
+                raise ProviderError('unknown')
         try:
             output = self.client(['kernels','push','-p',str(self.root/batch_id),
                 '--accelerator','NvidiaTeslaT4','--timeout',str(manifest['session_timeout'])],90)
-            if not re.search(r'Kernel version \d+ successfully pushed', output):
-                raise ProviderError(classify(output))
         except DispatchStopped:
             raise
         except Exception as exc:
             code=exception_code(exc)
-            # A typed quota/auth rejection still requires remote reconciliation.
-            self._set(batch_id,'submit_unknown',error=code)
-            atomic_json(folder/'submit-diagnostic.json',{'at':time.time(),'code':code})
+            self._submit_unknown(batch_id, reservation, code)
             raise ProviderError(code) from None
-        self._set(batch_id,'submitted')
+        try:
+            parsed = parse_submit_success(output, self.owner + '/' + batch_id)
+        except (ValueError, TypeError):
+            code = classify(output) if isinstance(output, str) and 'Kernel version' not in output else 'unknown'
+            self._submit_unknown(batch_id, reservation, code,
+                                 'submit_receipt_invalid' if code == 'unknown' else None)
+            raise ProviderError(code) from None
+        receipt = {'schema': 1, 'batch_id': batch_id, 'manifest_hash': reservation['manifest_hash'],
+                   **parsed, 'reserved_at': reserved_at, 'recorded_at': time.time()}
+        try:
+            self._admit()
+            _publish_json_once(folder/'submit-receipt.json', receipt)
+            if self._submit_receipt(batch_id, reservation) != receipt:
+                raise ValueError('receipt_readback_mismatch')
+        except DispatchStopped:
+            raise
+        except (OSError, ValueError, ProviderError):
+            self._submit_unknown(batch_id, reservation, 'unknown', 'submit_receipt_write_failed')
+            raise ProviderError('unknown') from None
+        try:
+            with self.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                if not _cas_row(db, reservation, 'submitted', time.time(), None):
+                    raise ProviderError('unknown')
+        except DispatchStopped:
+            raise
+        except (ProviderError, DispatchBlocked, sqlite3.Error):
+            self._submit_unknown(batch_id, reservation, 'unknown', 'submit_cas_conflict')
+            raise ProviderError('unknown') from None
         return self.row(batch_id)
 
     def _set(self, batch_id, state, remote=None, error=None):
+        if state == 'quarantined':
+            raise ValueError('Quarantine requires the reviewed expected-row CAS')
         with self.db() as db:
-            db.execute('UPDATE batches SET state=?,remote_status=COALESCE(?,remote_status),error=?,updated=? WHERE id=?',
-                       (state,remote,error,time.time(),batch_id))
+            changed = db.execute("UPDATE batches SET state=?,remote_status=COALESCE(?,remote_status),error=?,updated=? WHERE id=? AND state!='quarantined'",
+                       (state,remote,error,time.time(),batch_id)).rowcount
+            if changed != 1:
+                raise ProviderError('unknown')
 
     def status(self, batch_id, *, allow_retirement=True):
         before = self.row(batch_id)
+        if before['state'] == 'quarantined':
+            return before
+        self._submit_receipt(batch_id, before)
         if before['state']=='retired' or (before['state'] in {'terminal','downloaded','imported','resolved'} and before['remote_status'] in TERMINAL):
             return before
         try:
@@ -320,7 +503,8 @@ class Controller:
                 raise RuntimeError('Immutable notebook unexpectedly started another run')
             return before
         state = 'terminal' if remote in TERMINAL else ('running' if remote=='RUNNING' else 'submitted')
-        self._set(batch_id,state,remote)
+        with self.db() as db:
+            _cas_row(db, before, state, time.time(), None, remote)
         return self.row(batch_id)
 
     def _reconcile_absence(self,batch_id,before,error):
@@ -332,6 +516,15 @@ class Controller:
         import math
         import fcntl
         now=time.time()
+        folder=self.root/batch_id
+        def require_no_submit_receipt():
+            if (before['error'] in RECEIPT_ERRORS or any(
+                    (folder/name).exists() or (folder/name).is_symlink()
+                    for name in ('submit-receipt.json', 'submit-receipt.json.pending'))):
+                # Positive or partial evidence can arrive during slow observations.
+                # It is never evidence that this attempt was 'never submitted'.
+                raise ProviderError('unknown')
+        require_no_submit_receipt()
         eligible=(error.code in {'not_found','inaccessible'}
                   and before['state'] in {'submitting','submit_unknown'}
                   and before['remote_status'] is None and now-before['updated']>=1800)
@@ -340,11 +533,16 @@ class Controller:
         folder=self.root/batch_id
         with (folder/'absence.lock').open('a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
+            require_no_submit_receipt()
+            current = self.row(batch_id)
+            if not _same_row(current, before):
+                return current
             path=folder/'absence-observations.json'
             try:
                 proof=prove_absent(self.client,self.owner,batch_id)
             except (ProviderError,ValueError,OSError,subprocess.SubprocessError):
                 proof=None
+            require_no_submit_receipt()
             if not proof:
                 # Failed/ambiguous evidence breaks the sequence; retain the job.
                 if path.exists():
@@ -381,6 +579,7 @@ class Controller:
                 current=db.execute('SELECT * FROM batches WHERE id=?',(batch_id,)).fetchone()
                 if not unchanged(current):
                     return dict(current)
+                require_no_submit_receipt()
                 reason='network' if before['error']=='network' else 'unknown'
                 db.execute("UPDATE batches SET state='retired',error=?,updated=? WHERE id=?",
                            ('confirmed_not_found_after_'+reason,now,batch_id))
@@ -392,6 +591,8 @@ class Controller:
     def download(self, batch_id, salvage=False):
         self._admit()
         row = self.status(batch_id)
+        if row['state'] == 'quarantined':
+            raise ProviderError('unknown')
         if row['remote_status'] not in TERMINAL:
             raise RuntimeError('Remote job is still active')
         if row['state'] in {'downloaded','imported'}:
@@ -405,6 +606,9 @@ class Controller:
         return evidence
 
     def verify_output(self, batch_id, salvage=False):
+        row = self.row(batch_id)
+        if row['state'] == 'quarantined':raise ProviderError('unknown')
+        self._submit_receipt(batch_id, row)
         if salvage:return self.salvage_output(batch_id)
         folder = self.root/batch_id
         manifest = self.manifest(batch_id)
@@ -451,8 +655,11 @@ class Controller:
         A poisoned/duplicate/mismatched item is excluded, not silently repaired.
         Strict legacy verify_output remains available for diagnostics/tests.
         """
+        row = self.row(batch_id)
+        if row['state'] == 'quarantined':raise ProviderError('unknown')
+        self._submit_receipt(batch_id, row)
         folder=self.root/batch_id;manifest=self.manifest(batch_id)
-        if self.row(batch_id)['remote_status'] not in TERMINAL:raise ValueError('Output is not terminal')
+        if row['remote_status'] not in TERMINAL:raise ValueError('Output is not terminal')
         expected={item['id']:item['input_hash'] for item in manifest['items']}
         path=folder/'output/results.jsonl';valid={};poisoned=set();rejected=[];tail=False
         if path.exists():
@@ -501,6 +708,71 @@ class Controller:
                         resume_of=batch_id,attempt=int(original.get('attempt',1))+1)
         return self.prepare(manifest,template)
 
+    def quarantine_unknown(self, batch_id, expected, reason, review_reference):
+        if (not isinstance(expected, dict) or set(ROW_FIELDS) - expected.keys()
+                or expected.get('id') != batch_id or expected.get('state') != 'submit_unknown'
+                or expected.get('remote_status') is not None
+                or type(expected.get('updated')) not in (int, float) or not math.isfinite(expected['updated']) or expected['updated'] < 0
+                or not isinstance(reason, str) or not reason.strip() or len(reason) > 1000
+                or not isinstance(review_reference, str) or not review_reference.strip() or len(review_reference) > 1000):
+            raise ValueError('Explicit reviewed submit_unknown snapshot, reason and reference are required')
+        expected = {key: expected[key] for key in ROW_FIELDS}
+        import fcntl
+        # Keep explicit quarantine in the same batch critical section as submit
+        # and absence retirement; re-read the snapshot only after taking it.
+        with (self.root/batch_id/'absence.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return self._quarantine_unknown_locked(batch_id, expected, reason, review_reference)
+
+    def _quarantine_unknown_locked(self, batch_id, expected, reason, review_reference):
+        try:
+            self.manifest(batch_id)  # Existing immutable manifest hash must still verify.
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+            raise ProviderError('unknown') from None
+        path = self.root/batch_id/'quarantine-reviewed.json'
+        if path.is_symlink() or path.with_suffix('.json.pending').is_symlink() or path.with_suffix('.json.pending').exists():raise ProviderError('unknown')
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            found = db.execute('SELECT * FROM batches WHERE id=?', (batch_id,)).fetchone()
+            if found is None:raise ProviderError('unknown')
+            current = dict(found)
+            claims = [row[0] for row in db.execute('SELECT entry_id FROM batch_claims WHERE batch_id=? ORDER BY entry_id', (batch_id,))]
+            receipt = {'schema': 1, 'batch_id': batch_id, 'owner': self.owner, 'expected': expected,
+                       'reason': reason.strip(), 'review_reference': review_reference.strip(),
+                       'claims_count': len(claims), 'claims_sha256': digest(claims)}
+            if path.exists():
+                try:
+                    previous = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=_unique_json)
+                    at = previous['quarantined_at']
+                    if (type(previous.get('schema')) is not int or type(at) not in (int, float) or not math.isfinite(at) or at < expected['updated']
+                            or previous != {**receipt, 'quarantined_at': at}):
+                        raise ValueError()
+                except (OSError, ValueError, TypeError, KeyError):
+                    raise ProviderError('unknown') from None
+                if _same_row(current, {**expected, 'state': 'quarantined', 'updated': at}):
+                    return current
+            else:
+                at = time.time()
+                if not math.isfinite(at) or at < expected['updated']:raise ProviderError('unknown')
+            if not _same_row(current, expected):
+                raise ProviderError('unknown')
+            receipt['quarantined_at'] = at
+            # File and SQLite are not one transaction. Persist/re-read the audit
+            # first: a failed CAS may leave this intent file but never quarantines.
+            try:
+                if not path.exists():
+                    if path.with_suffix('.json.pending').exists():raise ValueError()
+                    self._admit()
+                    _publish_json_once(path, receipt)
+                if json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=_unique_json) != receipt:
+                    raise ValueError()
+            except (OSError, ValueError, TypeError):
+                raise ProviderError('unknown') from None
+            self._admit()
+            if not _cas_row(db, expected, 'quarantined', at, expected['error']):
+                raise ProviderError('unknown')
+        return self.row(batch_id)
+
     def retire(self,batch_id,reason):
         if not reason or not reason.strip():
             raise ValueError('A retirement reason is required')
@@ -521,7 +793,7 @@ class Controller:
         deadline = time.monotonic()+timeout
         while True:
             state = self.status(batch_id)
-            if state['remote_status'] in TERMINAL:
+            if state['state'] == 'quarantined' or state['remote_status'] in TERMINAL:
                 return state
             remaining = deadline-time.monotonic()
             if remaining <= 0:
@@ -535,10 +807,12 @@ def main():
     parser.add_argument('--root',required=True)
     parser.add_argument('--owner',required=True)
     parser.add_argument('--kaggle-python',help='Isolated Kaggle CLI Python, separate from Inbox dependencies')
-    parser.add_argument('action',choices=['init','prepare','submit','status','download','wait','retry','retire'])
+    parser.add_argument('action',choices=['init','prepare','submit','status','download','wait','retry','retire','quarantine'])
     parser.add_argument('value',nargs='?')
     parser.add_argument('--template',default=str(Path(__file__).with_name('batch_runner.py')))
     parser.add_argument('--reason',help='Required when retiring a never-submitted batch')
+    parser.add_argument('--expected-row', help='Reviewed JSON row snapshot required for quarantine CAS')
+    parser.add_argument('--review-reference', help='Explicit review reference for quarantine')
     args = parser.parse_args()
     global CONTROL_CONTEXT
     CONTROL_CONTEXT={'root':args.root}
@@ -554,6 +828,10 @@ def main():
                                  Path(args.template).read_text(encoding='utf-8'))
     elif args.action=='retry':
         result=control.retry(args.value,Path(args.template).read_text(encoding='utf-8'))
+    elif args.action=='quarantine':
+        if not args.expected_row:parser.error('--expected-row is required for quarantine')
+        result=control.quarantine_unknown(args.value, json.loads(Path(args.expected_row).read_text(encoding='utf-8'), object_pairs_hook=_unique_json),
+                                          args.reason, args.review_reference)
     elif args.action=='retire':
         result=control.retire(args.value,args.reason)
     else:

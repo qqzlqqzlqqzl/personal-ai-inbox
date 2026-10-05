@@ -153,14 +153,25 @@ def status():
         recovery=folder/'recovery.json'
         if recovery.exists():lanes[key]['recovery']=json.loads(recovery.read_text())
         batch_db=folder/'batches.sqlite3'
+        # Current selectable work and old retained claims are separate facts.
+        # Never inherit an outstanding row from the cached cycle report.
+        lanes[key].pop('outstanding',None)
+        lanes[key]['ledger_state']='unknown'
+        lanes[key]['quarantine']={'batches':None,'claims':None}
         if batch_db.exists():
             try:
-                with sqlite3.connect('file:'+str(batch_db)+'?mode=ro',uri=True,timeout=5) as db:
+                with sqlite3.connect(batch_db.resolve().as_uri()+'?mode=ro',uri=True,timeout=5) as db:
+                    db.execute('PRAGMA query_only=ON')
+                    db.execute('BEGIN')
                     db.row_factory=sqlite3.Row
                     row=db.execute("""SELECT id,state,remote_status,error,updated FROM batches
-                        WHERE state NOT IN ('imported','retired','resolved') ORDER BY updated LIMIT 1""").fetchone()
+                        WHERE state NOT IN ('imported','retired','resolved','quarantined') ORDER BY updated LIMIT 1""").fetchone()
+                    isolated=db.execute("SELECT COUNT(*) FROM batches WHERE state='quarantined'").fetchone()[0]
+                    held=db.execute("SELECT COUNT(*) FROM batch_claims c JOIN batches b ON b.id=c.batch_id WHERE b.state='quarantined'").fetchone()[0]
                     if row:lanes[key]['outstanding']=dict(row)
-            except sqlite3.Error:pass
+                    lanes[key]['quarantine']={'batches':isolated,'claims':held}
+                    lanes[key]['ledger_state']='ok'
+            except (OSError,sqlite3.Error):pass
         lanes[key]['quota']=quotas.get('lanes',{}).get(key,{'state':'error','error':'quota_unavailable'})
         from kaggle_batch.quota_guard import admission
         lanes[key]['quota_gate']=(admission(lanes[key]['quota'],checked_at=quotas.get('checked_at'))

@@ -331,6 +331,10 @@ def test_maximum_request_size_and_id_validation():
 @pytest.mark.asyncio
 async def test_cold_legacy_notes_real_decoration_and_warm_zero_dml(notes,monkeypatch):
     from contextlib import contextmanager
+    from types import SimpleNamespace
+    import processing_status
+    # Compare both real decorations at the same observation time.
+    monkeypatch.setattr(processing_status,'time',SimpleNamespace(time=lambda:1791209000.0))
     # Resolve the real function from its unchanged definition rather than the
     # fixture's selection-only identity decorator.
     import ast

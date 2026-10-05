@@ -17,6 +17,7 @@ const processingLabels = {
   schedule_disabled: "后台自动处理已关闭",
   reconcile_only: "当前仅核对已有任务，未开启新文章处理",
   submission_unknown: "后台仍有提交结果未确认，等待安全核实（不代表本篇已提交）",
+  submission_quarantined: "旧任务已隔离，提交结果未确认，等待核实",
   quota_reserved: "缓存额度未超过安全保留线，暂不启动新任务",
   quota_unknown: "额度状态尚未确认",
   cooldown: "后台处理等待重试时间",
@@ -75,11 +76,16 @@ function sourcePolicy(ai) {
 
 export default function AiBadge({ entry, detailed = false }) {
   const ai = entry?.ai
+  // An exact entry claim is distinct from an unrelated global wait.
+  const claimHeld = ai?.processing?.claim_held === true
+  const ledgerUnknown = Array.isArray(ai?.processing?.reason_codes) && ai.processing.reason_codes.includes("ledger_unavailable")
+  const stableEligibility = ["content_excluded", "requires_fulltext_adapter", "requires_source_review", "requires_model_review", "insufficient_content", "removed"].includes(ai?.state)
+  const waitRequired = claimHeld || (ledgerUnknown && !stableEligibility)
   const sourcePolicyLabel = sourcePolicy(ai)
   const note = ai?.has_note ? <span className="ai-note-chip">📝 有笔记</span> : null
   const quality = qualityLabels(ai?.content_quality)
   const qualityNote = quality.length ? <p className="ai-content-quality">{quality.join("；")}</p> : null
-  if (!ai || ai.state !== "done") {return <div className="ai-pending" title={sourcePolicyLabel || ai?.error || ""}>{note}{sourcePolicyLabel || (Object.hasOwn(labels, ai?.state || "pending") ? labels[ai?.state || "pending"] : "处理状态待确认")}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && <p>处理详情：{sourcePolicyLabel || ai.error}</p>}</div>}
+  if (!ai || ai.state !== "done") {return <div className="ai-pending" title={waitRequired ? "" : sourcePolicyLabel || ai?.error || ""}>{note}{waitRequired ? (claimHeld ? "提交结果未确认 · 等待核实" : "处理状态未确认 · 等待核实") : sourcePolicyLabel || (Object.hasOwn(labels, ai?.state || "pending") ? labels[ai?.state || "pending"] : "处理状态待确认")}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && !waitRequired && <p>处理详情：{sourcePolicyLabel || ai.error}</p>}</div>}
   const excluded = ai.content_quality?.policy_version === "reader-content-quality-v1" && ai.content_quality.recommendation_eligible === false
   return <div className={detailed ? "ai-verdict ai-verdict-detail" : "ai-verdict"}>
     <div className="ai-scoreline"><strong>{excluded ? "AI 评分" : "推荐"} {ai.score}/10</strong><span>技术 {ai.technical_score}</span><span>商业启发 {ai.business_score}</span>{note}</div>

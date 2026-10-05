@@ -145,7 +145,9 @@ def claimed_entries(roots):
             for batch, state, manifest_hash in batches:
                 if not _batch_id(batch) or batch in states:
                     raise DispatchBlocked('invalid_id', peer)
-                if state not in FINISHED | {'prepared','submitting','submitted','running','submit_unknown','terminal','downloaded'}:
+                # Quarantine parks an explicitly reviewed uncertain batch. It
+                # is not remote absence or completion: every claim stays held.
+                if state not in FINISHED | {'prepared','submitting','submitted','running','submit_unknown','terminal','downloaded','quarantined'}:
                     raise DispatchBlocked('invalid_state', peer)
                 if not isinstance(manifest_hash, str) or re.fullmatch(r'[0-9a-f]{64}', manifest_hash) is None:
                     raise DispatchBlocked('invalid_ledger', peer)

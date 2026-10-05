@@ -27,8 +27,8 @@ def test_cache_observation_preserves_databases_and_does_not_call_providers(tmp_p
         db_path=tmp_path/f'state/kaggle-month-{lane}/batches.sqlite3'
         db_path.parent.mkdir(parents=True)
         with sqlite3.connect(db_path) as db:
-            db.executescript('CREATE TABLE batches(id TEXT PRIMARY KEY,state TEXT); CREATE TABLE batch_claims(batch_id TEXT,entry_id INTEGER);')
-            db.execute('INSERT INTO batches VALUES(?,?)',(f'batch-{index}','submit_unknown'))
+            db.executescript('CREATE TABLE batches(id TEXT PRIMARY KEY,state TEXT,error TEXT); CREATE TABLE batch_claims(batch_id TEXT,entry_id INTEGER);')
+            db.execute('INSERT INTO batches(id,state) VALUES(?,?)',(f'batch-{index}','submit_unknown'))
             db.execute('INSERT INTO batch_claims VALUES(?,?)',(f'batch-{index}',index))
         files.append(db_path)
     before={path:hashlib.sha256(path.read_bytes()).hexdigest() for path in files}

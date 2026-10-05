@@ -445,6 +445,10 @@ def main():
         if args.action=='resolve':
             if not args.batch:
                 raise ValueError('resolve requires --batch')
+            row=control.row(args.batch)
+            if row['state']=='quarantined':
+                print(json.dumps(row))
+                return
             print(json.dumps(resolve_recovery(control,config['database'],args.batch,args.replacement,admission=guard)))
             return
         if args.action=='prepare':
@@ -541,7 +545,9 @@ def main():
         if not args.batch:
             raise ValueError('advance requires --batch')
         row=control.row(args.batch)
-        if row['state'] in {'imported','resolved','retired'}:
+        # A parked uncertain batch remains claimed, but is never advanced or
+        # resubmitted merely because its old remote outcome is still unknown.
+        if row['state'] in {'imported','resolved','retired','quarantined'}:
             print(json.dumps(row))
             return
         if row['state']=='prepared':

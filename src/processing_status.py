@@ -7,6 +7,7 @@ import time
 from feed_consumption import restricted_analysis_reason
 
 LANES = ('primary', 'secondary', 'third', 'fourth', 'fifth')
+SUBMIT_RECEIPT_ERRORS = ('submit_receipt_invalid', 'submit_receipt_write_failed', 'submit_cas_conflict')
 MESSAGES = {
     'complete': '分析已完成',
     'not_recommended': '已保留原始条目；当前内容资格不进入AI精选',
@@ -14,6 +15,7 @@ MESSAGES = {
     'schedule_disabled': '后台自动处理已关闭；文章会保留待处理',
     'reconcile_only': '当前仅允许核对已有任务，未开启新文章处理',
     'submission_unknown': '已有批次的提交结果尚未确认，正在保留任务身份等待安全核实',
+    'submission_quarantined': '旧任务已隔离，提交结果未确认，等待核实',
     'quota_reserved': '缓存显示剩余额度未超过安全保留线，暂不启动新任务',
     'quota_unknown': '额度状态尚未确认，暂不能保证开始处理',
     'cooldown': '后台处理正在等待重试时间',
@@ -60,17 +62,22 @@ def project(*, entry_state, evidence, now, max_snapshot_age=300):
     reasons = []
     reason = 'unknown'
     next_retry = None
+    quarantined = local_fresh and evidence.get('entry_claim_quarantined') is True
+    unconfirmed = local_fresh and (evidence.get('entry_claim_submission_unknown') is True
+                                  or evidence.get('entry_claim_receipt_conflict') is True)
+    claim_held = entry_state != 'done' and (quarantined or unconfirmed)
+    ledger_unknown = local_fresh and evidence.get('ledgers_complete') is False
     if entry_state == 'done':
         reason = 'complete'
         observed_at = _time(evidence.get('analyzed_at'))
         fresh = observed_at is not None
-    elif entry_state == 'content_excluded':
+    elif entry_state == 'content_excluded' and not claim_held:
         reason = 'not_recommended'
         observed_at = _time(evidence.get('analyzed_at')) or local_at
         fresh = observed_at is not None
-    elif entry_state in ('fetch_error', 'ai_error'):
+    elif entry_state in ('fetch_error', 'ai_error') and not claim_held and not ledger_unknown:
         reason = 'extraction_failed' if entry_state == 'fetch_error' else 'source_review_required'
-    elif entry_state in ('requires_fulltext_adapter', 'requires_source_review', 'requires_model_review', 'insufficient_content'):
+    elif entry_state in ('requires_fulltext_adapter', 'requires_source_review', 'requires_model_review', 'insufficient_content') and not claim_held:
         reason = 'source_review_required'
     elif local_fresh and evidence.get('pause_exists') is True:
         reason, observed_at, fresh = 'paused', local_at, True
@@ -79,8 +86,12 @@ def project(*, entry_state, evidence, now, max_snapshot_age=300):
     elif local_fresh and complete_configs and not automatic and any(
             configs[key].get('schedule_enabled') is True and configs[key].get('reconcile_only') is True for key in LANES):
         reason, observed_at, fresh = 'reconcile_only', local_at, True
-    elif local_fresh and evidence.get('entry_claim_submission_unknown') is True:
+    elif quarantined:
+        reason, observed_at, fresh = 'submission_quarantined', local_at, True
+    elif unconfirmed:
         reason, observed_at, fresh = 'submission_unknown', local_at, True
+    elif ledger_unknown:
+        reason, observed_at, fresh = 'unknown', local_at, False
     elif fresh:
         reason = {
             'schedule_disabled': 'schedule_disabled',
@@ -109,13 +120,18 @@ def project(*, entry_state, evidence, now, max_snapshot_age=300):
                 elif gate_states <= {'quota_reserved', 'quota_unknown'} and 'quota_unknown' in gate_states:
                     reason = 'quota_unknown'
     reasons.insert(0, reason)
-    if entry_state != 'done' and local_fresh and unknown_count and reason != 'submission_unknown':
+    if claim_held and quarantined and reason != 'submission_quarantined':
+        reasons.append('submission_quarantined')
+    elif claim_held and unconfirmed and reason != 'submission_unknown':
         reasons.append('submission_unknown')
+    if entry_state != 'done' and local_fresh and unknown_count and reason != 'submission_unknown':
+        if 'submission_unknown' not in reasons:reasons.append('submission_unknown')
     retry = _time(scheduler.get('next_retry_at'))
     if fresh and reason == 'cooldown' and retry is not None and retry > now:
         next_retry = retry
     return {'reason_code': reason, 'reason_codes': reasons, 'message': MESSAGES[reason],
-            'observed_at': observed_at, 'next_retry_at': next_retry, 'stale': not fresh}
+            'observed_at': observed_at, 'next_retry_at': next_retry, 'stale': not fresh,
+            'claim_held': bool(claim_held)}
 
 
 def _json(path):
@@ -162,6 +178,10 @@ def observe(root, entry_ids=(), *, now=None):
             scheduler['lanes'][key] = {'quota_gate': {name: gate.get(name) for name in ('allowed', 'state')}}
     count = 0
     claimed = set()
+    quarantined_count = 0
+    quarantined_claim_count = 0
+    quarantined_claimed = set()
+    receipt_conflict_claimed = set()
     complete = True
     for key in LANES:
         database = root/f'state/kaggle-month-{key}/batches.sqlite3'
@@ -171,11 +191,22 @@ def observe(root, entry_ids=(), *, now=None):
             connection.execute('PRAGMA query_only=ON')
             connection.execute('BEGIN')
             count += connection.execute("SELECT COUNT(*) FROM batches WHERE state='submit_unknown'").fetchone()[0]
+            quarantined_count += connection.execute("SELECT COUNT(*) FROM batches WHERE state='quarantined'").fetchone()[0]
+            quarantined_claim_count += connection.execute("SELECT COUNT(*) FROM batch_claims c JOIN batches b ON b.id=c.batch_id WHERE b.state='quarantined'").fetchone()[0]
             if ids:
                 rows = connection.execute(
                     "SELECT DISTINCT c.entry_id FROM batch_claims c JOIN batches b ON b.id=c.batch_id "
                     "WHERE b.state='submit_unknown' AND c.entry_id IN ("+','.join('?' for _ in ids)+')', ids)
                 claimed.update(row[0] for row in rows)
+                rows = connection.execute(
+                    "SELECT DISTINCT c.entry_id FROM batch_claims c JOIN batches b ON b.id=c.batch_id "
+                    "WHERE b.state='quarantined' AND c.entry_id IN ("+','.join('?' for _ in ids)+')', ids)
+                quarantined_claimed.update(row[0] for row in rows)
+                rows = connection.execute(
+                    "SELECT DISTINCT c.entry_id FROM batch_claims c JOIN batches b ON b.id=c.batch_id "
+                    "WHERE b.state NOT IN ('imported','retired','resolved') AND b.error IN (?,?,?) "
+                    "AND c.entry_id IN ("+','.join('?' for _ in ids)+')', (*SUBMIT_RECEIPT_ERRORS, *ids))
+                receipt_conflict_claimed.update(row[0] for row in rows)
         except (OSError, sqlite3.Error):
             complete = False
         finally:
@@ -183,7 +214,11 @@ def observe(root, entry_ids=(), *, now=None):
                 connection.close()
     return {'local_observed_at': now, 'pause_exists': paused, 'configs': configs,
             'scheduler': scheduler, 'submission_unknown_count': count if complete else None,
-            'entry_claim_unknown_ids': claimed, 'ledgers_complete': complete}
+            'entry_claim_unknown_ids': claimed, 'ledgers_complete': complete,
+            'quarantined_batch_count': quarantined_count if complete else None,
+            'quarantined_claim_count': quarantined_claim_count if complete else None,
+            'entry_claim_quarantined_ids': quarantined_claimed,
+            'entry_claim_receipt_conflict_ids': receipt_conflict_claimed}
 
 
 def for_entry(row, evidence, *, now=None):
@@ -191,6 +226,8 @@ def for_entry(row, evidence, *, now=None):
     evidence = evidence if isinstance(evidence, dict) else {}
     result = project(entry_state=row.get('state', 'pending'), now=time.time() if now is None else now,
         evidence={**evidence, 'entry_claim_submission_unknown': row.get('entry_id') in evidence.get('entry_claim_unknown_ids', set()),
+                  'entry_claim_quarantined': row.get('entry_id') in evidence.get('entry_claim_quarantined_ids', set()),
+                  'entry_claim_receipt_conflict': row.get('entry_id') in evidence.get('entry_claim_receipt_conflict_ids', set()),
                   'analyzed_at': row.get('analyzed_at')})
     policy_reason = restricted_analysis_reason(row.get('error'))
     expected_state = {'rss_summary_only': 'requires_fulltext_adapter',
@@ -200,6 +237,6 @@ def for_entry(row, evidence, *, now=None):
         result['reason_codes'] = [policy_reason if code == 'source_review_required' else code
                                   for code in result['reason_codes']]
         result['message'] = MESSAGES[policy_reason]
-    if row.get('state') != 'done' and evidence.get('ledgers_complete') is False:
+    if row.get('state') != 'done' and evidence.get('ledgers_complete') is False and 'ledger_unavailable' not in result['reason_codes']:
         result['reason_codes'].append('ledger_unavailable')
     return result
