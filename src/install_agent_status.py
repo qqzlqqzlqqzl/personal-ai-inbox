@@ -7,7 +7,7 @@ from pathlib import Path
 PIN='534eeb97723ac11025de4ec1ac56335072e3be52'
 ROUTES_BEFORE='90eb803fcf6feeaa32038dce6e8e8e6a14c09db6d37d51a930e3d348e39a2a34'
 PANEL_BEFORE='b1e501e816b32994c276f8497d4b8e88b683b9504484fd92bcc6b8df7888fb29'
-TOOLBAR_BEFORE='f4f433120afe9fce94f1ca816b8bc49211b53cb4db1aca1aa32e20e6efe89e62'
+TOOLBAR_BEFORE='ca8723c283ac71c1965674da6f73025f91f62656dc8b7d886ccacc07f6f178d6'
 LINK_IMPORT='import { Link } from "react-router";\n'
 PANEL_ANCHOR='    <section className="review-resource-freshness" aria-label="各资源读取状态">'
 LINK='    <p><Link to="/agent-status" style={{display:"inline-flex",alignItems:"center",minHeight:44,padding:"8px 12px"}} onClick={e => {if(dirty.current||busyRef.current){e.preventDefault();setMessage("请先保存或还原设置，再打开任务状态。")}else onClose()}}>任务状态</Link></p>\n'
