@@ -13,6 +13,17 @@ FULLTEXT = {
     'src/kaggle_batch/test_reader_fulltext.py',
 }
 BACKUP = {'src/backup.py', 'tests/test_operational_cli_admission.py'}
+IMAGE_HISTORY = 'frontend-review/previous-hashes.json'
+IMAGE_HELPER = 'frontend-review/after/src/components/Article/reader-image-variants.js'
+IMAGE_KEY = 'src/components/Article/reader-image-variants.js'
+IMAGES = {
+    IMAGE_HELPER, IMAGE_HISTORY, 'src/reader_image_proxy.py',
+    'frontend-review/before/src/components/Article/ArticleGridCard.jsx',
+    'frontend-review/after/src/components/Article/ArticleGridCard.jsx',
+    'frontend-review/after/src/components/Article/ReaderThumbnail.jsx',
+    'tests/test_reader_image_proxy.py', 'tests/test_reader_thumbnails.mjs',
+    'tests/test_reader_thumbnail_component.mjs',
+}
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
     'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -31,6 +42,7 @@ INTERFACES = NATIVE | {
 PIN_FILE = 'tests/dev_fixture_workspace_browser_acceptance.py'
 PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
+    'images': ['tests/test_reader_image_proxy.py'],
     'fulltext': [
         'src/kaggle_batch/test_fulltext_source.py',
         'src/kaggle_batch/test_fulltext_bridge.py',
@@ -66,7 +78,7 @@ def pin_only(before, after, base_src, head_src):
             == after[:right.start(1)] + after[right.end(1):])
 
 
-def classify(changes, verified_pin=False):
+def classify(changes, verified_pin=False, verified_image_history=False):
     if not changes or any(row['status'] not in {'A', 'M'} for row in changes):
         return 'full'
     paths = {row['path'] for row in changes}
@@ -82,6 +94,8 @@ def classify(changes, verified_pin=False):
         return 'fulltext'
     if paths and paths <= BACKUP:
         return 'backup'
+    if paths and paths <= IMAGES:
+        return 'images' if IMAGE_HISTORY not in paths or verified_image_history else 'full'
     if paths and paths <= INTERFACES:
         return 'interfaces'
     return 'full'
@@ -130,7 +144,17 @@ def select(root, event_name, event, expected_head):
             head_src = git(root, 'rev-parse', head+':src').decode().strip()
             verified = pin_only(git(root, 'show', comparison+':'+PIN_FILE),
                                 git(root, 'show', head+':'+PIN_FILE), base_src, head_src)
-        scope = classify(changes, verified)
+        verified_history = False
+        if any(row['path'] == IMAGE_HISTORY for row in changes):
+            import hashlib
+            before = json.loads(git(root, 'show', comparison+':'+IMAGE_HISTORY))
+            after = json.loads(git(root, 'show', head+':'+IMAGE_HISTORY))
+            previous = before.pop(IMAGE_KEY, [])
+            updated = after.pop(IMAGE_KEY, [])
+            old_helper = hashlib.sha256(git(root, 'show', comparison+':'+IMAGE_HELPER)).hexdigest()
+            verified_history = (before == after and isinstance(previous, list)
+                                and updated == previous + [old_helper])
+        scope = classify(changes, verified, verified_history)
         return {**result, 'scope': scope, 'base': base, 'comparison_base': comparison,
                 'changes': changes, 'verified_src_pin_only': verified,
                 'native': bool({row['path'] for row in changes} & NATIVE),
