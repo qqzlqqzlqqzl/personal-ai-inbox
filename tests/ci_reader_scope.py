@@ -70,6 +70,10 @@ def classify(changes, verified_pin=False):
     if not changes or any(row['status'] not in {'A', 'M'} for row in changes):
         return 'full'
     paths = {row['path'] for row in changes}
+    paths = {path for path in paths if not (
+        path == 'README.md' or path.startswith('docs/') and path.endswith('.md'))}
+    if not paths:
+        return 'docs'
     if PIN_FILE in paths:
         if not verified_pin:
             return 'full'
@@ -130,7 +134,8 @@ def select(root, event_name, event, expected_head):
         return {**result, 'scope': scope, 'base': base, 'comparison_base': comparison,
                 'changes': changes, 'verified_src_pin_only': verified,
                 'native': bool({row['path'] for row in changes} & NATIVE),
-                'reason': 'related_files' if scope != 'full' else 'unknown_mixed_or_structural_change'}
+                'reason': ('documentation_only' if scope == 'docs' else
+                           'related_files' if scope != 'full' else 'unknown_mixed_or_structural_change')}
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         return result
 

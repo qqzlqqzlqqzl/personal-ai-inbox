@@ -79,12 +79,35 @@ class ScopeTests(unittest.TestCase):
         self.assertTrue(result['verified_src_pin_only'])
 
     def test_unknown_and_cross_module_changes_select_full(self):
-        for paths in [[], ['README.md'], ['src/core.py'],
+        for paths in [[], ['config.json'], ['src/core.py'],
                       ['src/backup.py', 'src/api.py'],
                       ['src/kaggle_batch/fulltext_source.py', 'src/api.py'],
                       ['.github/workflows/reader-regression.yml']]:
             with self.subTest(paths=paths):
                 self.assertEqual(classify([{'path': p, 'status': 'M'} for p in paths]), 'full')
+
+    def test_documentation_and_mixed_code_from_complete_event_diff(self):
+        self.write('README.md', '# usage update\n')
+        self.write('docs/ops/PRODUCT-ACCEPTANCE.md', '# acceptance update\n')
+        head = self.commit()
+        result = self.pr(head)
+        self.assertEqual(result['scope'], 'docs')
+        self.assertEqual(result['reason'], 'documentation_only')
+        self.assertFalse(result['native'])
+        self.assertEqual(select(self.root, 'push', {'before': self.base, 'after': head}, head)['scope'], 'docs')
+        self.write('src/backup.py', '# backup update with documentation\n')
+        self.assertEqual(self.pr(self.commit())['scope'], 'backup')
+        self.write('src/backup.py', '# synthetic original\n')
+        self.write('src/api.py', '# interface update with documentation\n')
+        result = self.pr(self.commit())
+        self.assertEqual(result['scope'], 'interfaces')
+        self.assertTrue(result['native'])
+        self.write('src/core.py', '# shared logic update\n')
+        self.assertEqual(self.pr(self.commit())['scope'], 'full')
+        for row in ({'path': 'docs/ops/guide.py', 'status': 'M'},
+                    {'path': 'docs/ops/guide.md', 'status': 'D'},
+                    {'path': '.github/workflows/reader-regression.yml', 'status': 'M'}):
+            self.assertEqual(classify([row]), 'full')
 
     def test_bad_or_additional_fixture_logic_is_not_ignored(self):
         self.write('src/kaggle_batch/fulltext_source.py', '# changed\n')
@@ -199,6 +222,17 @@ class WiringTests(unittest.TestCase):
             exec(code,{})
         with patch.dict(os.environ,{**baseline,'GITHUB_EVENT_NAME':'push','NATIVE_REQUIRED':'true'},clear=True):
             with self.assertRaises(AssertionError): exec(code,{})
+        docs = {**baseline, 'SELECT_SCOPE': 'docs', 'PYTHON_RESULT': 'skipped'}
+        with patch.dict(os.environ, docs, clear=True): exec(code, {})
+        for outcome in ('failure', 'skipped', 'cancelled', ''):
+            with patch.dict(os.environ, {**docs, 'SELECT_RESULT': outcome}, clear=True):
+                with self.assertRaises(AssertionError): exec(code, {})
+        for key in ('FULL_RESULT', 'PYTHON_RESULT', 'INTERFACE_RESULT', 'NATIVE_RESULT'):
+            for outcome in ('success', 'failure'):
+                with patch.dict(os.environ, {**docs, key: outcome}, clear=True):
+                    with self.assertRaises(AssertionError): exec(code, {})
+        with patch.dict(os.environ, {**docs, 'NATIVE_REQUIRED': 'true'}, clear=True):
+            with self.assertRaises(AssertionError): exec(code, {})
 
 
 if __name__ == '__main__':
