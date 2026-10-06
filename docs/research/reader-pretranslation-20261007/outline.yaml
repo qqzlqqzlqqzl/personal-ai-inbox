@@ -1,0 +1,94 @@
+{
+  "topic": "个人 AI 阅读箱：英文文章后台预翻译与逐段中英对照",
+  "date": "2026-10-07",
+  "status": "research_complete_not_implemented",
+  "requested_result": "文章打开后默认显示一段中文、一段英文；译文尽量在打开前生成，保持原文、图片、代码和阅读功能。",
+  "items": [
+    {
+      "item_name": "沉浸式翻译当前官方项目",
+      "conclusion": "当前非开源；主仓库只发布版本和收集反馈，不含当前产品源码。",
+      "source": "https://github.com/immersive-translate/immersive-translate/blob/main/README_english.md"
+    },
+    {
+      "item_name": "官方旧开源代码",
+      "conclusion": "归档版本采用 MPL-2.0。已读取实际段落抽取、双语 DOM、翻译服务、IndexedDB 缓存源码；可参考分段、格式保留和缓存思路。",
+      "ref": "6df13da22664bea2f51efe5db64c63aca59c4e79",
+      "files": [
+        "src/contentScript/pageTranslator.js",
+        "src/contentScript/enhance.js",
+        "src/background/translationService.js",
+        "src/background/translationCache.js"
+      ],
+      "source": "https://github.com/immersive-translate/old-immersive-translate"
+    },
+    {
+      "item_name": "官方 AI 多段翻译协议",
+      "conclusion": "官方文档支持段落批量翻译、段落 ID 映射、标题上下文和非文本占位符。我们的接口采用带 ID 的 JSON，返回值必须覆盖请求段落。",
+      "sources": [
+        "https://immersivetranslate.com/en/docs/prompts/",
+        "https://immersivetranslate.com/en/docs/services/custom/"
+      ]
+    },
+    {
+      "item_name": "官方嵌入式 SDK",
+      "conclusion": "当前文档要求联系官方获取 SDK 接入，不适合作为此次自主后台预翻译的核心依赖。",
+      "source": "https://immersivetranslate.com/en/docs/js-sdk/"
+    },
+    {
+      "item_name": "现有阅读箱可复用部分",
+      "conclusion": "已有标题/简介翻译，不是全文翻译。复用 FastAPI 后台生命周期、SQLite 队列/缓存/预算模式、详情 API 的用户鉴权和 React HTML 解析入口。",
+      "local_files": [
+        "src/card_translation.py:17",
+        "src/card_translation.py:19",
+        "src/api.py:30",
+        "src/api.py:338",
+        "src/core.py:246",
+        "src/prepared_content.py:52",
+        "frontend-review/after/src/components/Article/ArticleDetail.jsx:462"
+      ]
+    },
+    {
+      "item_name": "推荐实现",
+      "conclusion": "轻量后台预翻译并缓存，详情页直接展示对应段落；不需要安装浏览器扩展或新增 Redis、消息队列、数据库服务。"
+    }
+  ],
+  "recommendation": {
+    "pipeline": [
+      "已取得的正文 HTML → 提取可翻译的非重叠文本块",
+      "按段落 ID、标题上下文、字数/模型上下文限制分批调用 AI",
+      "校验段落 ID、完整性与占位符；缺段只重试缺段，保留成功译文",
+      "缓存到现有 SQLite；详情响应携带当前正文版本的翻译",
+      "前端沿用原 HTML 解析器，在对应段落前显示中文；原文、图片、代码仍可用"
+    ],
+    "priority": "新入库且已有正文的英文文章自动入队；优先全局 AI 8 分及以上、按发布时间从新到旧，再处理其他英文文章；正在打开但未翻译的文章提升优先级。该排序是建议，具体日处理量依据接口费用与额度设定。",
+    "paragraphs": "段落、标题、列表项、引用、表格单元格和图注；识别非重叠文本块，避免嵌套内容重复翻译。中文段落跳过，英文与中文混合内容逐块判断。",
+    "format": "原文 DOM 保留；链接、强调、代码标识等通过受控占位符或安全内联节点映射保留。AI 只返回文本/段落映射，禁止直接注入未经处理的模型 HTML。",
+    "cache": "按用户、文章 ID、正文版本哈希、目标语言、模型/提示版本匹配；缓存段落 ID 与中文译文，不重复存多份原文或 HTML 包。正文变更使旧全文映射失效，并可复用未变段落的译文。",
+    "rendering": "默认中文在前、英文在后；提供双语/仅中文/原文切换。未完成或失败时先显示原文和简短状态，正文和图片读取不等待 AI。",
+    "provider": "AI 密钥仅存服务器；接口配置可与评分/卡片翻译分别设置，避免全文翻译占满原业务预算。若为 OpenAI 兼容接口，复用 HTTP 调用方式；协议不同则加一个适配器。",
+    "scope": "仅翻译阅读箱实际获得的内容。付费或截断文章标注实际内容范围，不把简介译文显示成完整全文。",
+    "operations": "在现有服务内运行后台任务，有限并发、超时、退避重试和额度控制；网页访问读取缓存，不在 HTTP 详情请求里同步等待模型。"
+  },
+  "acceptance": [
+    "已翻译英文文章打开即见逐段中文和对应英文，前端没有 AI 密钥，也不直接调用模型。",
+    "相同正文反复打开不重复付费翻译；今天与全部指向同一文章时共用当前翻译结果。",
+    "正文变化后不显示错位旧译文；缺段、模型截断、超时和限额不会阻塞原文阅读。",
+    "代码块、链接、列表、表格、图片和现有阅读/收藏/笔记行为保持有效。",
+    "用相关单元/组件测试覆盖分段、ID/占位符校验、缓存失效和失败回退；用少量真实英文文章检查排版和译文质量。",
+    "取得接口后，开发 → 针对性 CI → PR 合并 → 实际部署 → 线上抽查，不增加跨平台/PWA 或长期等待验收。"
+  ],
+  "execution": {
+    "batch_size": 1,
+    "items_per_agent": 6,
+    "output_dir": "docs/research/reader-pretranslation-20261007",
+    "method": "primary_sources_and_actual_code_readonly",
+    "source_checkout_cloned": false,
+    "production_changed": false,
+    "paid_model_calls": 0
+  },
+  "uncertain": [
+    "接口地址、模型名、认证方式和兼容协议尚待用户提供。",
+    "接口价格、额度、上下文和输出上限尚未知；目前不给出虚构成本或承诺处理时长。",
+    "翻译功能本轮仅完成研究，尚未实施、测试或部署。"
+  ]
+}

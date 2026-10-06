@@ -379,7 +379,7 @@ class WiringTests(unittest.TestCase):
         full = text[text.index('  full-regression:'):text.index('    runs-on:')]
         self.assertIn("needs.scope-job.result != 'success'", full)
         accepted = json.loads(re.search(r"fromJSON\('([^']+)'\)", full)[1])
-        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance'})
+        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'translation'})
         self.assertIn('!contains(', full)
 
     def test_original_required_gate_rejects_failed_skipped_or_cancelled_selected_job(self):
@@ -423,6 +423,20 @@ class WiringTests(unittest.TestCase):
         for outcome in ('failure', 'skipped', 'cancelled', ''):
             with patch.dict(os.environ, {**image, 'IMAGE_RESULT': outcome}, clear=True):
                 with self.assertRaises(AssertionError): exec(code, {})
+        translation = {**image, 'SELECT_SCOPE': 'translation'}
+        with patch.dict(os.environ, translation, clear=True): exec(code, {})
+        for outcome in ('failure', 'skipped', 'cancelled', ''):
+            with patch.dict(os.environ, {**translation, 'IMAGE_RESULT': outcome}, clear=True):
+                with self.assertRaises(AssertionError): exec(code, {})
+
+    def test_bilingual_scope_is_bounded_and_unknown_changes_still_use_full(self):
+        changes = [{'path': path, 'status': 'M'} for path in (
+            'src/bilingual_translation.py', 'src/api.py', 'patches/BilingualReading.jsx',
+            '.github/workflows/reader-regression.yml')]
+        self.assertEqual(classify(changes), 'translation')
+        self.assertEqual(classify(changes + [{'path': 'src/core.py', 'status': 'M'}]), 'full')
+        self.assertEqual(classify(changes + [{'path': 'src/bilingual_translation.py', 'status': 'D'}]), 'full')
+        self.assertEqual(classify(changes + [{'path': IMAGE_HISTORY, 'status': 'M'}]), 'full')
 
 
 if __name__ == '__main__':

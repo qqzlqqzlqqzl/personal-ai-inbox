@@ -260,6 +260,28 @@ patch('src/components/Article/ArticleEntry.jsx','import useEntryActions from "@/
 patch('src/components/Article/ArticleEntry.jsx','        <Presenter entry={entry} previewContent={previewContent} />','        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />')
 patch('src/components/Article/ArticleEntry.jsx','{ title: entry.title })\n    : entry.title','{ title: entry.card?.title || entry.title })\n    : (entry.card?.title || entry.title)')
 shutil.copy2(ROOT/'patches/CardLanguage.jsx', WEB/'src/components/Ai/CardLanguage.jsx')
+
+def install_bilingual_reading(root, web):
+    """Install owned language controls; the reviewed detail overlay wires them.
+
+    Keep the early pinned ArticleDetail untouched so the final narrow overlay
+    admits both pristine and previously reviewed sources without weakening it.
+    """
+    names = ('BilingualReading.jsx', 'BilingualReading.css')
+    planned = []
+    for name in names:
+        source = root / 'patches' / name
+        data = source.read_bytes()
+        target = web / 'src/components/Ai' / name
+        if target.exists() and target.read_bytes() != data:
+            raise RuntimeError(f'Unreviewed bilingual reading helper: {name}')
+        planned.append((target, data))
+    for target, data in planned:
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+
+install_bilingual_reading(ROOT, WEB)
 diffs=[]
 for original in BACK.rglob('*'):
  if original.is_file():

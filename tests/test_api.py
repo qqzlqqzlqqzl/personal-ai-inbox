@@ -40,6 +40,51 @@ async def test_unauthorized_settings_blocked(browser_api):
 
 
 @pytest.mark.asyncio
+async def test_bilingual_poll_requires_auth_and_article_ownership(browser_api, monkeypatch):
+    path = "/mf/v1/ai/translation/1"
+    assert (await browser_api.get(path)).status_code == 401
+
+    async def foreign_article(*args, **kwargs):
+        from fastapi import HTTPException
+        raise HTTPException(404, "Article not found")
+
+    monkeypatch.setattr(api, "require_readable_entry", foreign_article)
+    monkeypatch.setattr(api, "attach_bilingual", lambda *_: pytest.fail("foreign cache was read"))
+    assert (await browser_api.get(path, headers={"X-Auth-Token": "test-session"})).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_bilingual_poll_returns_cached_translation_without_ai_call(browser_api, monkeypatch):
+    cached = {"status": "done", "blocks_total": 1, "blocks_done": 1,
+              "bilingual_html": "<p>中文</p><p>Original.</p>", "chinese_html": "<p>中文</p>"}
+    admitted = []
+    monkeypatch.setattr(api, "enqueue_bilingual", lambda item, priority=0: admitted.append((item["id"], priority)))
+    monkeypatch.setattr(api, "attach_bilingual", lambda item, uid: {**item, "translation": cached})
+    r = await browser_api.get("/mf/v1/ai/translation/1", headers={"X-Auth-Token": "test-session"})
+    assert r.status_code == 200
+    assert r.json() == cached
+    assert admitted == [(1, 100)]
+    assert r.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_bilingual_detail_keeps_original_and_list_stays_compact(browser_api, entry, monkeypatch):
+    original = entry["content"]
+    cached = {"status": "done", "bilingual_html": "<p>译文</p>"}
+    calls = []
+    monkeypatch.setattr(api, "enqueue_bilingual", lambda item, priority=0: calls.append(item["id"]))
+    monkeypatch.setattr(api, "attach_bilingual", lambda item, uid: {**item, "translation": cached})
+    detail = await browser_api.get("/mf/v1/entries/1", headers={"X-Auth-Token": "test-session"})
+    assert detail.status_code == 200
+    assert detail.json()["content"] == original
+    assert detail.json()["translation"] == cached
+    calls.clear()
+    result = api.enrich_reader_entries([entry])
+    assert "translation" not in result[0]
+    assert not calls
+
+
+@pytest.mark.asyncio
 async def test_cross_site_write_blocked(browser_api):
     r = await browser_api.put(
         "/mf/v1/ai/settings",

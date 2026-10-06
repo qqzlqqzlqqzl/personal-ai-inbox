@@ -1,0 +1,72 @@
+{
+  "field_categories": [
+    {
+      "category": "来源",
+      "fields": [
+        {
+          "name": "官方仓库与版本",
+          "description": "区分当前闭源产品和归档开源代码，注明固定版本与实际读取文件。",
+          "detail_level": "moderate"
+        },
+        {
+          "name": "许可证与复用范围",
+          "description": "记录所读代码的许可证；直接移用代码时保留对应许可与出处，当前产品不按开源代码复制。",
+          "detail_level": "moderate"
+        }
+      ]
+    },
+    {
+      "category": "业务接入",
+      "fields": [
+        {
+          "name": "当前能力",
+          "description": "区分已有标题/卡片简介翻译和缺失的全文逐段翻译。",
+          "detail_level": "moderate"
+        },
+        {
+          "name": "处理触发与优先级",
+          "description": "正文可用后入队，优先全局 AI 8 分及以上与最新内容；打开中的文章可提升优先级。",
+          "detail_level": "moderate"
+        },
+        {
+          "name": "显示与失败回退",
+          "description": "中文/英文逐段、切换模式、未完成先读原文。",
+          "detail_level": "moderate"
+        }
+      ]
+    },
+    {
+      "category": "实现",
+      "fields": [
+        {
+          "name": "段落映射与格式",
+          "description": "非重叠文本块、稳定 ID、上下文、占位符、代码/图片保留。",
+          "detail_level": "detailed"
+        },
+        {
+          "name": "缓存与失效",
+          "description": "用户隔离、正文哈希、模型/提示版本、变化失效、避免重复计费。",
+          "detail_level": "detailed"
+        },
+        {
+          "name": "资源与费用",
+          "description": "复用现有服务和 SQLite，控制队列并发、API 次数、token 预算和缓存增长。",
+          "detail_level": "moderate"
+        },
+        {
+          "name": "验收与部署",
+          "description": "针对性自动化检查和少量真实文章验收，通过 PR/CI 后实际部署。",
+          "detail_level": "moderate"
+        }
+      ]
+    }
+  ],
+  "uncertain": [
+    "provider_endpoint",
+    "provider_model",
+    "authentication",
+    "api_protocol",
+    "provider_pricing_and_quota",
+    "context_and_output_limits"
+  ]
+}
