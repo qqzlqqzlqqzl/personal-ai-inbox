@@ -118,6 +118,7 @@ export default function AiToolbar() {
       setUpdatesAvailable(false)
       invalidateArticleList()
     }}>有新内容 / 中文更新 · 点击刷新</button>}
+    <a className="ai-service-home" href="/">服务首页</a>
     <button className="ai-settings-button" onClick={() => setOpen(true)}>AI 设置 · 来源</button>
     {open && <AiPanel onClose={() => setOpen(false)} />}
   </div>
