@@ -381,7 +381,8 @@ def reader_rows(sql, values):
         return [dict(row) for row in c.execute(sql, values)]
 
 
-def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False):
+def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False, reader_base=None):
+    from reader_cover_proxy import selected_cover_proxy
     from processing_status import observe
     from month_control import ROOT as control_root
     processing_evidence = observe(ROOT, [entry['id'] for entry in entries], control_root=control_root)
@@ -397,6 +398,15 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False)
                 if cover:
                     ai["cover_url"] = cover
                     ai["cover_source"] = "extracted_content"
+        ai = item.setdefault("ai", {})
+        # Reserve this response-only field: an analysis/model result cannot invent
+        # a proxy. Match the selected URL against this actual native entry instead.
+        ai.pop("cover_proxy_url", None)
+        cover_proxy = (selected_cover_proxy(entry, ai["cover_url"], native_base=MF, reader_base=reader_base)
+                       if ai.get("cover_url") else None)
+        if cover_proxy:
+            ai["cover_proxy_url"] = cover_proxy
+        if recommended:
             # Fingerprint/enqueue must see the real content before it is deferred.
             item["content"] = ""
             item["content_deferred"] = True
@@ -404,12 +414,12 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False)
     return result
 
 
-def enrich_reader_response(content):
+def enrich_reader_response(content, *, reader_base=None):
     data = json.loads(content)
     if isinstance(data, dict) and isinstance(data.get("entries"), list):
-        data["entries"] = enrich_reader_entries(data["entries"])
+        data["entries"] = enrich_reader_entries(data["entries"], reader_base=reader_base)
     elif isinstance(data, dict) and all(key in data for key in ("content", "user_id", "id")):
-        data = enrich_reader_entries([data], detail=True)[0]
+        data = enrich_reader_entries([data], detail=True, reader_base=reader_base)[0]
     return json.dumps(data, ensure_ascii=False).encode()
 
 
@@ -535,7 +545,8 @@ async def note_entries(request, uid, allowed_ids, upstream_headers, *, feed_id=N
             if attempt == 0:
                 continue
             break
-        enriched = await reader_work.run(enrich_reader_entries, results, uid)
+        enriched = await reader_work.run(enrich_reader_entries, results, uid,
+                                        reader_base=str(getattr(request, "base_url", "")).rstrip("/") + "/mf")
         return {"total": total, "entries": enriched}
     raise HTTPException(503, "笔记列表在读取期间发生变化，请重试", headers={"Retry-After": "1"})
 
@@ -633,7 +644,8 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
         filtered.sort(key=lambda item: (item[2], int(item[1]["id"])), reverse=reverse)
     total = len(filtered)
     result = await reader_work.run(
-        enrich_reader_entries, [entry for _, entry, _ in filtered[offset : offset + limit]], uid
+        enrich_reader_entries, [entry for _, entry, _ in filtered[offset : offset + limit]], uid,
+        reader_base=str(getattr(request, "base_url", "")).rstrip("/") + "/mf"
     )
     return {"total": total, "entries": result}
 
@@ -890,7 +902,8 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
             return await ai_entries(request, uid, feed_id=feed_id, category_id=category_id, _quality_retry=False)
         raise HTTPException(503, '推荐资格正在变化，请稍后重试')
     entries = await reader_work.run(
-        enrich_reader_entries, raw_entries, uid, recommended=p.get("ai_view") == "recommended"
+        enrich_reader_entries, raw_entries, uid, recommended=p.get("ai_view") == "recommended",
+        reader_base=str(getattr(request, "base_url", "")).rstrip("/") + "/mf"
     )
     if p.get('ai_view') == 'recommended' and any(
             entry.get('ai',{}).get('content_quality',{}).get('recommendation_eligible') is False for entry in entries):
@@ -1444,7 +1457,8 @@ async def proxy(path: str, request: Request):
             and path.startswith("v1/")
             and path != "v1/entries/metadata"
         ):
-            content = await reader_work.run(enrich_reader_response, r.content)
+            content = await reader_work.run(enrich_reader_response, r.content,
+                reader_base=str(request.base_url).rstrip("/") + "/mf")
         if "json" in content_type or "text/html" in content_type:
             content = content.replace(b"http://127.0.0.1:8092/mf", b"/mf")
         keep = {

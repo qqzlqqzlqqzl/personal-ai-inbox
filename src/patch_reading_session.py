@@ -16,6 +16,12 @@ s=s.replace('forwardRef, useCallback, useEffect, useRef, useState','forwardRef')
 s=s.replace('import { useInView } from "react-intersection-observer"\n','')
 s=s.replace('import useLoadMore from "@/hooks/useLoadMore"\n','')
 assert 'LoadMoreComponent' not in s
+old_buffer='bufferSize={300}'
+new_buffer='bufferSize={1000}'
+if old_buffer in s:
+ assert s.count(old_buffer)==1 and new_buffer not in s, 'unreviewed virtual buffer'
+ s=s.replace(old_buffer,new_buffer,1)
+else: assert s.count(new_buffer)==1, 'virtual buffer patch anchor missing'
 p.write_text(s)
 print('Reading snapshot and quarter-page prefetch overlay applied')
 

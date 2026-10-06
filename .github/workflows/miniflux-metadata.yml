@@ -48,7 +48,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-          fetch-depth: 0 # Compare runtime src/ against the exact reviewed paired baseline.
+          fetch-depth: 0 # Bind runtime bytes to the exact event commit.
       - name: Verify package and fetch exact official upstream
         shell: bash
         run: |
@@ -75,6 +75,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_notes_pair_guards.py -v
       - name: Real Reader and candidate binary paired acceptance
         env:
+          READER_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           ISSUE73_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           python tests/notes_pair_acceptance.py \
