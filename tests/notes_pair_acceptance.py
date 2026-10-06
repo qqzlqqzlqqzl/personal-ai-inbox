@@ -26,7 +26,6 @@ from urllib.parse import urlsplit
 
 import httpx
 
-CODE = 'd6935449eaae89f93476f0f4d7b1680c790f29f7'
 BINARY_SHA = '20d6c314a0c8030be4ae02254838948b9262935422e6cb074e3f4eb7dca7a1c4'
 IMAGE = 'postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f'
 DSN = 'postgres://issue73:issue73-disposable-only@127.0.0.1:55473/issue73_metadata_test?sslmode=disable'
@@ -70,8 +69,10 @@ def command(*args, **kw):
     return subprocess.check_output(args, text=True, **kw).strip()
 
 
-def verify_runtime_source(root, baseline=CODE):
+def verify_runtime_source(root, baseline=None):
     """Read actual import-tree bytes; do not trust Git's cached stat/index view."""
+    baseline = baseline or command('git','rev-parse','HEAD',cwd=root,timeout=15)
+    require(re.fullmatch('[0-9a-f]{40}',baseline), 'invalid runtime commit')
     source = root / 'src'
     require(source.is_dir() and not source.is_symlink(), 'invalid runtime source directory')
     tags = command('git','ls-files','-v','-z','--','src',cwd=root)
@@ -248,7 +249,10 @@ def main():
     require(isinstance(inspected,list) and len(inspected)==1,'unexpected container inspection')
     verify_container_binding(inspected[0],args.postgres_container)
     require(hashlib.sha256(args.binary.read_bytes()).hexdigest() == BINARY_SHA, 'unexpected candidate binary')
-    verify_runtime_source(root)
+    runtime_code = command('git','rev-parse','HEAD',cwd=root,timeout=15)
+    expected = os.environ.get('READER_EXPECTED_HEAD',runtime_code)
+    require(expected == runtime_code, 'CI runtime commit mismatch')
+    verify_runtime_source(root,runtime_code)
     for port in (8092,8093):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1',port)) # Reject pre-existing listeners before any fixture mutation.
@@ -427,8 +431,8 @@ def main():
                     prefs=json.loads(db.execute("SELECT value FROM settings WHERE name='preferences'").fetchone()[0])
                     require(not prefs['enabled'] and not prefs['translation_enabled'],'paid workers remain disabled')
                 require_process_identity(mf,BINARY_SHA)
-                verify_runtime_source(root)
-                report={'passed':True,'runtime_source_commit':CODE,'candidate_binary_sha256':BINARY_SHA,
+                verify_runtime_source(root,runtime_code)
+                report={'passed':True,'runtime_source_commit':runtime_code,'candidate_binary_sha256':BINARY_SHA,
                         'actual_miniflux_process':True,'actual_reader_process':True,'actual_postgresql':True,
                         'external_model_credentials':False,'production_acceptance':False,
                         'runtime_admission':{'actual_bytes_verified':True,'index_flags_verified':True,
@@ -440,7 +444,7 @@ def main():
                                        'Only selected404 deletes synthetic PG fixture data; notes remain intact.'],
                         'cases':results}
                 (evidence/'paired-result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
-                print(json.dumps({'passed':True,'cases':len(results),'source':CODE,'binary_sha256':BINARY_SHA}))
+                print(json.dumps({'passed':True,'cases':len(results),'source':runtime_code,'binary_sha256':BINARY_SHA}))
     finally:
         if not (evidence/'paired-result.json').exists():
             (evidence/'paired-result.json').write_text(json.dumps(
