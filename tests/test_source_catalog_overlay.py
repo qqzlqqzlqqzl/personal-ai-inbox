@@ -90,6 +90,14 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_image).hexdigest(), reviewed_image)
         self.assertNotIn(reviewed_image, old[image])
         old[image].append(reviewed_image)
+        # PR #140 admits only this exact pre-thumbnail helper for upgrade.
+        variants = "src/components/Article/reader-image-variants.js"
+        reviewed_variants = "8e85c775606c8bf356cf2f310953ed4e0aeda5d0d8d5f7e11e8bbd87150cc2b3"
+        prior_variants = subprocess.check_output(
+            ['git', 'show', '67fdff4766d6ec498ee1be9518cee8d7fa563d16:frontend-review/after/' + variants], cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_variants).hexdigest(), reviewed_variants)
+        self.assertNotIn(variants, old)
+        old[variants] = [reviewed_variants]
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
