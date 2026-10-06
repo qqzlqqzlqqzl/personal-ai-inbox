@@ -28,6 +28,12 @@ from worker import run_worker, MF
 from preview_worker import run_preview_worker, run_discovery_worker
 from content_input import first_image_src
 from card_translation import enqueue as enqueue_cards, run_translation_worker
+from bilingual_translation import (
+    migrate as migrate_bilingual,
+    attach as attach_bilingual,
+    enqueue as enqueue_bilingual,
+    run_worker as run_bilingual_worker,
+)
 from reader_work import reader_work
 import notes_metadata
 
@@ -37,6 +43,7 @@ async def lifespan(app):
     init_db()
     init_usage()
     migrate()
+    migrate_bilingual()
     # Only the legacy worker may recover its old work at web startup.
     # Live Kaggle preparations are managed by their own claim ledger.
     if settings().get("enabled"):
@@ -52,12 +59,14 @@ async def lifespan(app):
     preview_task = asyncio.create_task(run_preview_worker())
     discovery_task = asyncio.create_task(run_discovery_worker())
     translation_task = asyncio.create_task(run_translation_worker())
+    bilingual_task = asyncio.create_task(run_bilingual_worker())
     yield
     task.cancel()
     preview_task.cancel()
     discovery_task.cancel()
     translation_task.cancel()
-    for background_task in (task, preview_task, discovery_task, translation_task):
+    bilingual_task.cancel()
+    for background_task in (task, preview_task, discovery_task, translation_task, bilingual_task):
         with contextlib.suppress(asyncio.CancelledError):
             await background_task
     await app.state.client.aclose()
@@ -391,6 +400,9 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False,
     for entry in entries:
         item = decorate(entry, uid if uid is not None else entry["user_id"],
                         include_source_fallback=detail, processing_evidence=processing_evidence)
+        if detail:
+            enqueue_bilingual(item, priority=100)
+            item = attach_bilingual(item, uid if uid is not None else entry["user_id"])
         if recommended:
             ai = item.setdefault("ai", {})
             if not ai.get("cover_url"):
@@ -1120,6 +1132,20 @@ async def reading_session(request: Request):
             ),
         )
     return {"saved": True}
+
+
+@app.get("/mf/v1/ai/translation/{entry_id}")
+async def get_bilingual_translation(entry_id: int, request: Request):
+    uid = await authorize(request)
+    eid = positive_id(entry_id)
+    entry = await require_readable_entry(request, uid, eid)
+
+    def cached_translation():
+        item = decorate(entry, uid, include_source_fallback=True)
+        enqueue_bilingual(item, priority=100)
+        return attach_bilingual(item, uid)["translation"]
+
+    return await reader_work.run(cached_translation)
 
 
 @app.get("/mf/v1/ai/notes/{entry_id}")

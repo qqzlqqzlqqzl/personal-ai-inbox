@@ -26,7 +26,7 @@ concurrency:
 jobs:
   full-regression:
     needs: scope-job
-    if: ${{ !cancelled() && (needs.scope-job.result != 'success' || !contains(fromJSON('["docs","fulltext","backup","interfaces","images","performance"]'), needs.scope-job.outputs.scope)) }}
+    if: ${{ !cancelled() && (needs.scope-job.result != 'success' || !contains(fromJSON('["docs","fulltext","backup","interfaces","images","performance","translation"]'), needs.scope-job.outputs.scope)) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env: &reader_env
@@ -374,7 +374,7 @@ jobs:
 
   images:
     needs: scope-job
-    if: ${{ needs.scope-job.outputs.scope == 'images' }}
+    if: ${{ needs.scope-job.outputs.scope == 'images' || needs.scope-job.outputs.scope == 'translation' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env: *reader_env
@@ -388,7 +388,11 @@ jobs:
       - *verify_identity
       - *related_python
       - name: Responsive image selection and actual error fallback
+        if: needs.scope-job.outputs.scope == 'images'
         run: timeout --signal=TERM --kill-after=10s 90s node --test tests/test_reader_thumbnails.mjs tests/test_reader_thumbnail_component.mjs tests/test_reading_session.mjs
+      - name: Bilingual article mode and background update contracts
+        if: needs.scope-job.outputs.scope == 'translation'
+        run: timeout --signal=TERM --kill-after=10s 90s node --test tests/test_bilingual_reading.mjs
       - *build_reader
       - *upload_build
       - *upload_evidence
@@ -493,7 +497,7 @@ jobs:
               for key in ('FULL_RESULT', 'PYTHON_RESULT', 'INTERFACE_RESULT', 'IMAGE_RESULT', 'NATIVE_RESULT'):
                   assert os.environ[key] == 'skipped', key + ' unexpectedly ran for documentation'
           else:
-              key = {'fulltext': 'PYTHON_RESULT', 'backup': 'PYTHON_RESULT', 'performance': 'PYTHON_RESULT', 'interfaces': 'INTERFACE_RESULT', 'images': 'IMAGE_RESULT'}.get(scope, 'FULL_RESULT')
+              key = {'fulltext': 'PYTHON_RESULT', 'backup': 'PYTHON_RESULT', 'performance': 'PYTHON_RESULT', 'interfaces': 'INTERFACE_RESULT', 'images': 'IMAGE_RESULT', 'translation': 'IMAGE_RESULT'}.get(scope, 'FULL_RESULT')
               assert os.environ[key] == 'success', key + ' did not succeed'
           if os.environ['NATIVE_REQUIRED'] == 'true' and os.environ['GITHUB_EVENT_NAME'] != 'pull_request':
               assert os.environ['NATIVE_RESULT'] == 'success', 'native pair did not succeed'
