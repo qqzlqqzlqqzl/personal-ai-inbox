@@ -126,6 +126,18 @@ class CatalogOverlayTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(previous).hexdigest(), expected)
             self.assertNotIn(expected, old.get(name, []))
             old.setdefault(name, []).append(expected)
+        # #155 admits only the exact preceding detail overlay for bilingual reading.
+        detail = 'src/components/Article/ArticleDetail.jsx'
+        detail_base = '9208fbee81e6e3c0a2ab762cad827bce22531d6f'
+        subprocess.run(['git', 'merge-base', '--is-ancestor', detail_base, 'HEAD'],
+                       cwd=ROOT, check=True, timeout=15)
+        prior_detail = subprocess.check_output(
+            ['git', 'show', detail_base + ':frontend-review/after/' + detail],
+            cwd=ROOT, timeout=15)
+        expected_detail = '7d01753a874395ccd366f851ccfb1c6eea76c212f9fae648812eb90c4f96529a'
+        self.assertEqual(hashlib.sha256(prior_detail).hexdigest(), expected_detail)
+        self.assertNotIn(expected_detail, old[detail])
+        old[detail].append(expected_detail)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
