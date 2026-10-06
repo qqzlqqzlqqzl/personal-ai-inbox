@@ -271,6 +271,38 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             output = json.dumps({key: [{'id': 1, 'text': '简短的文字。'}]})
             self.assertEqual(bilingual._validate(output, rows), {1: '简短的文字。'})
 
+    def test_mini_closing_marker_typo_is_repaired_from_source_only(self):
+        source = '[[t1]]Certificate validation:[[/t1]] Check the local clock.'
+        output = '[[t1]]证书验证：[[t1]]检查本地时钟。'
+        self.assertEqual(bilingual._validate(json.dumps({'items': [{'id': 1, 'text': output}]}),
+            [{'block_id': 1, 'source_text': source}]),
+            {1: '[[t1]]证书验证：[[/t1]]检查本地时钟。'})
+        self.assertIsNone(bilingual._repair_tokens('[[t9]]内容[[/t9]]', source))
+        self.assertIsNone(bilingual._repair_tokens('[[t1]]内容', source))
+
+    def test_natural_sibling_link_order_keeps_source_nesting_and_all_markers(self):
+        source = '[[t1]]Issue[[/t1]] by [[t3]]Author[[/t3]]'
+        target = '由[[t3]]作者[[t3]]提交[[t1]]问题[[t1]]'
+        self.assertEqual(bilingual._repair_tokens(target, source),
+                         '由[[t3]]作者[[/t3]]提交[[t1]]问题[[/t1]]')
+        nested = '[[t1]]bold [[t3]]link[[/t3]][[/t1]]'
+        self.assertIsNone(bilingual._repair_tokens('[[t3]]链接[[/t3]][[t1]]加粗[[/t1]]', nested))
+
+    async def test_technical_names_remain_verbatim_once_in_both_modes(self):
+        for literal in ('EmbeddingGemma2', '@vasqu', 'key = HKDF-SHA256(master, salt = BE32(day))'):
+            self.entry['content'] = '<p>' + literal + '</p>'
+            bilingual.enqueue(self.entry)
+            def response(request):
+                items = json.loads(json.loads(request.content)['messages'][1]['content'])['items']
+                return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({'items': items})}}]})
+            async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+                await bilingual.run_once(client)
+            value = self.attached()
+            self.assertEqual(value['status'], 'done')
+            for mode in ('bilingual_html', 'chinese_html'):
+                self.assertEqual(value[mode].count(literal), 1)
+        self.assertFalse(bilingual._technical_literal('This natural sentence must be translated.'))
+
     def test_long_runs_split_without_overlapping_text_or_tokens(self):
         html = '<p>Intro <strong>' + 'A paragraph sentence. ' * 500 + '</strong> end.</p>'
         _, _, blocks = bilingual.extract(html)

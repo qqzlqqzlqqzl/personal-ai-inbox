@@ -4,6 +4,7 @@ Only the background worker calls the model. The detail path reads an exact body
 version and enqueues work; it never replaces entry.content or waits for a model.
 """
 import asyncio
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import fcntl
@@ -243,6 +244,10 @@ def render(html, translated):
                 end, ids, tokens = run
                 source = ''.join(_html(child) for child in node.children[index:end])
                 text = ''.join(translated[part] for part in ids)
+                if TOKEN.sub('', text).strip() == ''.join(_plain(child) for child in node.children[index:end]).strip():
+                    output.append(source)
+                    index = end
+                    continue
                 target = ''
                 # Capture tokens separately; every other byte is escaped AI text.
                 for part in re.split(r'(\[\[/?t\d+\]\])', text):
@@ -379,6 +384,48 @@ def attach(entry, user_id):
     return {**entry, 'translation': value}
 
 
+def _repair_tokens(text, source):
+    expected, observed = TOKEN.findall(source), TOKEN.findall(text)
+    names = lambda tokens: [token.replace('/', '') for token in tokens]
+    left, right = names(expected), names(observed)
+    if left == right:
+        markers = iter(expected)
+        return TOKEN.sub(lambda _: next(markers), text)
+    # Natural Chinese may reorder sibling links. Admit only the same IDs/counts
+    # with the exact source nesting; markup still comes exclusively from source.
+    counts = Counter(left)
+    if Counter(right) != counts or any(count != 2 for count in counts.values()):
+        return None
+    parents, stack = {}, []
+    for marker, name in zip(expected, left):
+        if '/' not in marker:
+            parents[name] = stack[-1] if stack else None
+            stack.append(name)
+        elif not stack or stack.pop() != name:
+            return None
+    stack, seen, replacements = [], set(), []
+    for name in right:
+        if name not in seen:
+            if parents.get(name) != (stack[-1] if stack else None):
+                return None
+            stack.append(name); seen.add(name); replacements.append(name)
+        else:
+            if not stack or stack.pop() != name:
+                return None
+            replacements.append(name.replace('[[', '[[/'))
+    if stack:
+        return None
+    markers = iter(replacements)
+    return TOKEN.sub(lambda _: next(markers), text)
+
+
+def _technical_literal(text):
+    text = text.strip()
+    return bool((re.fullmatch(r'[@#]?[A-Za-z0-9_.:/+-]+', text) and
+                 re.search(r'[\d@#_.:/+-]|[a-z][A-Z]|^[A-Z0-9]+$', text)) or
+                re.fullmatch(r'[A-Za-z_]\w*\s*=\s*[A-Z][A-Za-z0-9_-]*\(.*\)', text))
+
+
 def _validate(raw, rows):
     data = json.loads(raw)
     items = next((data[name] for name in ('items', 'blocks', 'translations')
@@ -393,13 +440,17 @@ def _validate(raw, rows):
         index, text = item['id'], item.get('text')
         seen.add(index)
         source = expected[index]
-        if (not isinstance(text, str) or not text.strip() or len(text) > len(source) * 3 + 200
-                or TOKEN.findall(text) != TOKEN.findall(source)):
+        if not isinstance(text, str) or not text.strip() or len(text) > len(source) * 3 + 200:
+            continue
+        text = _repair_tokens(text, source)
+        if text is None:
             continue
         visible = TOKEN.sub('', text)
         original = TOKEN.sub('', source)
+        unchanged_literal = visible.strip() == original.strip() and _technical_literal(original)
         if (len(re.sub(r'\s', '', visible)) < max(1, int(len(re.sub(r'\s', '', original)) * 0.12))
-                or (re.search(r'[A-Za-z]{2}', original) and not re.search(r'[\u3400-\u9fff]', visible))):
+                or (re.search(r'[A-Za-z]{2}', original) and not re.search(r'[\u3400-\u9fff]', visible)
+                    and not unchanged_literal)):
             continue
         result[index] = text
     return result
