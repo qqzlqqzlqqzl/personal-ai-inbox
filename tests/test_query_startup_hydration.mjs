@@ -9,18 +9,20 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 if (!process.argv[2]) {
-  for (const minimum of ["6", "8"]) {
-    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), minimum], {
+  for (const [minimum, order] of [["6", "settings-first"], ["8", "settings-first"], ["6", "entries-first"], ["8", "entries-first"]]) {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), minimum, order], {
       encoding: "utf8", timeout: 40000, env: process.env,
     });
     process.stdout.write(child.stdout || "");
     process.stderr.write(child.stderr || "");
-    assert.equal(child.status, 0, `startup minimum ${minimum} failed`);
+    assert.equal(child.status, 0, `startup minimum ${minimum}, ${order} failed`);
   }
   console.log("PASS: mismatched startup request stays unowned; aligned fixture accepts its first response");
   process.exit(0);
 }
 assert.ok(["6", "8"].includes(process.argv[2]));
+const responseOrder=process.argv[3]||"settings-first";
+assert.ok(["settings-first","entries-first"].includes(responseOrder));
 const web = new URL("../upstream/reactflux/", import.meta.url).pathname;
 const sourceWeb = process.env.READER_UX_SOURCE || web;
 const require = createRequire(import.meta.url);
@@ -166,9 +168,14 @@ const read=()=>({minimum:app.aiState.get().minimum,ready:app.contentState.get().
 await React.act(async()=>root.render(React.createElement(View)));
 assert.equal(pending.length,1);assert.equal(pending[0].query.ai_min,8);
 const stages={before_settings:read()};
+if(responseOrder==='entries-first'){
+ await React.act(async()=>pending[0].resolve(response));
+ stages.fast_response=read();
+ assert.equal(stages.fast_response.count,1965,'the valid fast initial response is owned before settings arrive');
+}
 await React.act(async()=>releaseSettings({minimum_score:serverMinimum}));
 stages.after_settings=read();
-await React.act(async()=>pending[0].resolve(response));
+if(responseOrder==='settings-first')await React.act(async()=>pending[0].resolve(response));
 stages.after_first_response=read();
 if(serverMinimum!==8){
  assert.equal(pending.length,2);assert.equal(pending[1].query.ai_min,serverMinimum);
@@ -179,7 +186,7 @@ if(serverMinimum!==8){
  assert.equal(pending.length,1);assert.equal(stages.after_first_response.count,1965);
 }
 assert.equal(apiCalls.filter(([m])=>m!=='GET').length,0);
-console.log(JSON.stringify({kind:'actual_F_components_synthetic_response_order_not_browser',serverMinimum,stages,
+console.log(JSON.stringify({kind:'actual_F_components_synthetic_response_order_not_browser',serverMinimum,responseOrder,stages,
  requests:pending.map(p=>p.query),apiCalls},null,2));
 await React.act(async()=>root.unmount());dom.window.close();
 await retainTestDirectory(directory);

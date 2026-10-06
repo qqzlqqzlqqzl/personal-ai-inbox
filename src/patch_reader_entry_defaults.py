@@ -115,13 +115,13 @@ patch(
     'import { settingsState, updateSettings } from "@/store/settingsState"\nimport { articleListResultReadyState } from "@/store/contentState"',
 )
 
-# Inactive native totals are valid only for the unfiltered raw-unread lens.
-# Other scopes have no same-lens total yet: omit it rather than borrow today's
-# total, expose a raw count or issue an expensive per-scope request.
+# AI totals come from one authenticated batch, not from a visited scope's total.
+# Native totals remain a fallback only for the unfiltered raw-unread lens.
 patch(
     "src/components/Sidebar/Sidebar.jsx",
-    'import {\n  contentState,',
     'import { aiState } from "@/store/aiState"\nimport {\n  contentState,',
+    'import { aiState } from "@/store/aiState"\nimport { sidebarScopeCountsState } from "@/store/sidebarScopeCountsState"\nimport {\n  contentState,',
+    previous='import {\n  contentState,',
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
@@ -151,6 +151,7 @@ patch(
     'const SidebarMenuItems = () => {\n  const { infoFrom } = useStore(contentState, { keys: ["infoFrom"] })',
     'const SidebarMenuItems = ({ activeScopeCount, infoFrom }) => {',
 )
+patch("src/components/Sidebar/Sidebar.jsx", '{count || ""}', '{count ?? ""}')
 patch(
     "src/components/Sidebar/Sidebar.jsx",
     '''  const unreadTotal = useStore(unreadTotalState)
@@ -158,11 +159,18 @@ patch(
   return (''',
     '''  const unreadTotal = useStore(unreadTotalState)
   const nativeCountsMatch = useNativeSidebarCounts()
+  const batchCounts = useStore(sidebarScopeCountsState)
   const scopedCount = (scope, nativeCount) =>
-    infoFrom === scope ? activeScopeCount : nativeCountsMatch ? nativeCount : null
+    infoFrom === scope ? activeScopeCount ?? batchCounts?.[scope] ?? null
+      : batchCounts?.[scope] ?? (nativeCountsMatch ? nativeCount : null)
 
   return (''',
     previous=('''  const unreadTotal = useStore(unreadTotalState)
+  const nativeCountsMatch = useNativeSidebarCounts()
+  const scopedCount = (scope, nativeCount) =>
+    infoFrom === scope ? activeScopeCount : nativeCountsMatch ? nativeCount : null
+
+  return (''', '''  const unreadTotal = useStore(unreadTotalState)
   const scopedCount = (scope, nativeCount) =>
     infoFrom === scope ? activeScopeCount : nativeCount
 
@@ -209,14 +217,26 @@ patch(
     "submenu-inactive": !isCategoryActive,
   })
   const nativeCountsMatch = useNativeSidebarCounts()
+  const batchCounts = useStore(sidebarScopeCountsState)
+  const displayCount =
+    activeScope === "category" &&
+    Number(activeScopeId) === Number(category.id)
+      ? activeScopeCount ?? batchCounts?.category[category.id] ?? null
+      : batchCounts?.category[category.id] ?? (nativeCountsMatch ? unreadCount : null)
+
+  return (''',
+    previous=('''  const categoryClassName = classNames("category-title", {
+    "submenu-active": isCategoryActive,
+    "submenu-inactive": !isCategoryActive,
+  })
+  const nativeCountsMatch = useNativeSidebarCounts()
   const displayCount =
     activeScope === "category" &&
     Number(activeScopeId) === Number(category.id)
       ? activeScopeCount
       : nativeCountsMatch ? unreadCount : null
 
-  return (''',
-    previous=('''  const categoryClassName = classNames("category-title", {
+  return (''', '''  const categoryClassName = classNames("category-title", {
     "submenu-active": isCategoryActive,
     "submenu-inactive": !isCategoryActive,
   })
@@ -241,14 +261,17 @@ patch(
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
-    '            width: unreadCount ? "80%" : "100%",',
-    '            width: displayCount ? "80%" : "100%",',
+    '\n            width: unreadCount ? "80%" : "100%",',
+    '\n            width: displayCount != null ? "80%" : "100%",',
+    previous='\n            width: displayCount ? "80%" : "100%",',
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
     '''        {unreadCount > 0 && (
           <Typography.Ellipsis''',
-    '''        {displayCount > 0 && (
+    '''        {displayCount != null && (
+          <Typography.Ellipsis''',
+    previous='''        {displayCount > 0 && (
           <Typography.Ellipsis''',
 )
 patch(
@@ -277,14 +300,24 @@ patch(
     '''  const feedTarget = createEntityHomeTarget("feed", feed.id)
   const isHomePage = isSameHomeTarget(homeTarget, feedTarget)
   const nativeCountsMatch = useNativeSidebarCounts()
+  const batchCounts = useStore(sidebarScopeCountsState)
+  const displayCount =
+    activeScope === "feed" &&
+    Number(activeScopeId) === Number(feed.id)
+      ? activeScopeCount ?? batchCounts?.feed[feed.id] ?? null
+      : batchCounts?.feed[feed.id] ?? (nativeCountsMatch ? feed.unreadCount : null)
+
+  return (''',
+    previous=('''  const feedTarget = createEntityHomeTarget("feed", feed.id)
+  const isHomePage = isSameHomeTarget(homeTarget, feedTarget)
+  const nativeCountsMatch = useNativeSidebarCounts()
   const displayCount =
     activeScope === "feed" &&
     Number(activeScopeId) === Number(feed.id)
       ? activeScopeCount
       : nativeCountsMatch ? feed.unreadCount : null
 
-  return (''',
-    previous=('''  const feedTarget = createEntityHomeTarget("feed", feed.id)
+  return (''', '''  const feedTarget = createEntityHomeTarget("feed", feed.id)
   const isHomePage = isSameHomeTarget(homeTarget, feedTarget)
   const displayCount =
     activeScope === "feed" &&
@@ -305,8 +338,9 @@ patch(
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
-    '              width: feed.unreadCount ? "80%" : "100%",',
-    '              width: displayCount ? "80%" : "100%",',
+    '\n              width: feed.unreadCount ? "80%" : "100%",',
+    '\n              width: displayCount != null ? "80%" : "100%",',
+    previous='\n              width: displayCount ? "80%" : "100%",',
 )
 patch(
     "src/components/Sidebar/Sidebar.jsx",
@@ -315,12 +349,13 @@ patch(
               {feed.unreadCount}
             </Typography.Ellipsis>
           )}''',
-    '''          {displayCount > 0 && (
+    '''          {displayCount != null && (
             <Typography.Ellipsis className="item-count" expandable={false}>
               {displayCount}
             </Typography.Ellipsis>
           )}''',
-    previous='          {displayCount !== 0 && (\n            <Typography.Ellipsis className="item-count" expandable={false}>\n              {displayCount}\n            </Typography.Ellipsis>\n          )}',
+    previous=('          {displayCount !== 0 && (\n            <Typography.Ellipsis className="item-count" expandable={false}>\n              {displayCount}\n            </Typography.Ellipsis>\n          )}',
+              '          {displayCount > 0 && (\n            <Typography.Ellipsis className="item-count" expandable={false}>\n              {displayCount}\n            </Typography.Ellipsis>\n          )}'),
 )
 
 patch(

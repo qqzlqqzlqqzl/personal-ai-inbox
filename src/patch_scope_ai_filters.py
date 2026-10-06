@@ -149,6 +149,11 @@ patch(
 )
 
 # Today uses the authenticated account reading calendar; see the final calendar overlay.
+patch(
+    "src/pages/Today.jsx",
+    'const getEntries = (status, _starred, filterParams) => getTodayEntries(status, filterParams)',
+    'const getEntries = (status, starred, filterParams) => getTodayEntries(status, { ...filterParams, ...(starred ? { starred: true } : {}) })',
+)
 
 # The checked-in earlier stage installs only a score-order toggle. Older
 # deployments already have the selector. Normalize the former explicitly so a
@@ -599,6 +604,110 @@ for locale, anchor, additions in [
 
 # Calendar inputs are checked in; the helper uses the same strict/idempotent anchors.
 exec(compile((ROOT / "patches/calendar-overlay.py").read_text(), str(ROOT / "patches/calendar-overlay.py"), "exec"))
+
+# One authenticated, same-lens batch supplies every sidebar scope on first open.
+# Navigation does not start another request; changed identity/filters cancel it.
+SIDEBAR_SCOPE_COUNTS = '''import { atom, computed } from "nanostores"
+import apiClient from "@/apis/ofetch"
+import { aiState, getAiQuery } from "@/store/aiState"
+import { authState } from "@/store/authState"
+import { contentState } from "@/store/contentState"
+import { dataState } from "@/store/dataState"
+import { readingCalendarKeyState, getReadingCalendarSnapshot } from "@/store/readingCalendarState"
+import { settingsState } from "@/store/settingsState"
+import { getCalendarStartTimestamp, getDayEndTimestamp } from "@/utils/date"
+
+const result = atom({ key: null, counts: null })
+const requestSnapshot = () => {
+  const calendar = getReadingCalendarSnapshot()
+  const ai = aiState.get()
+  const settings = settingsState.get()
+  const content = contentState.get()
+  const query = { ...getAiQuery() }
+  delete query.limit
+  const ready = calendar.ready && ai.hydrated === true && Boolean(query.ai_view)
+  if (ready) {
+    query.today_after = calendar.cutoff
+    query.globally_visible = !settings.showHiddenFeeds
+    if (settings.showStatus === "unread") query.status = "unread"
+    if (settings.showStatus === "starred") query.starred = true
+    if (content.filterString) query.search = content.filterString
+    if (content.filterDate) {
+      query.date_after = getCalendarStartTimestamp(content.filterDate)
+      query.date_before = getDayEndTimestamp(content.filterDate)
+      query.date_field = settings.orderBy
+    }
+  }
+  return { ready, query, key: JSON.stringify([calendar.key, ai.hydrated, query,
+    settings.showStatus, settings.showHiddenFeeds, content.filterDate, content.filterString,
+    content.articleListRevision]) }
+}
+const requestState = computed(
+  [authState, dataState, aiState, contentState, settingsState, readingCalendarKeyState],
+  requestSnapshot,
+)
+export const sidebarScopeCountsState = computed([result, requestState], (value, current) =>
+  current.ready && value.key === current.key ? value.counts : null,
+)
+
+export const validateScopeCounts = (response) => {
+  const counts = response?.scope_counts
+  const validCount = value => Number.isSafeInteger(value) && value >= 0
+  if (!counts || !["all", "today", "starred", "history"].every(scope => validCount(counts[scope])))
+    throw new TypeError("Invalid sidebar scope counts")
+  const validated = Object.fromEntries(["all", "today", "starred", "history"].map(scope => [scope, counts[scope]]))
+  for (const scope of ["category", "feed"]) {
+    const entries = counts[scope]
+    if (!entries || typeof entries !== "object" || Array.isArray(entries) || Object.keys(entries).length > 10000)
+      throw new TypeError("Invalid sidebar entity counts")
+    validated[scope] = Object.fromEntries(Object.entries(entries).map(([id, count]) => {
+      if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0 || String(Number(id)) !== id || !validCount(count))
+        throw new TypeError("Invalid sidebar entity count")
+      return [id, count]
+    }))
+  }
+  return validated
+}
+
+export const startSidebarScopeCounts = () => {
+  let active = true
+  let previousKey
+  let controller
+  const load = current => {
+    if (current.key === previousKey) return
+    previousKey = current.key
+    controller?.abort()
+    result.set({ key: null, counts: null })
+    if (!current.ready) return
+    const pending = new AbortController()
+    controller = pending
+    void apiClient.get(`/v1/ai/scope-counts?${new URLSearchParams(current.query)}`, {
+      retry: 0, timeout: 15000, signal: pending.signal,
+    }).then(response => {
+      if (active && !pending.signal.aborted && requestSnapshot().key === current.key)
+        result.set({ key: current.key, counts: validateScopeCounts(response) })
+    }).catch(() => {
+      // A failed/incomplete batch stays unknown; it never becomes a false zero.
+    })
+  }
+  let queued = false
+  const unlisten = requestState.subscribe(() => {
+    if (queued) return
+    queued = true
+    // Hydrating preferences can invalidate the list in the same turn.
+    queueMicrotask(() => { queued = false; if (active) load(requestSnapshot()) })
+  })
+  return () => { active = false; controller?.abort(); unlisten(); result.set({ key: null, counts: null }) }
+}
+'''
+scope_counts_path = WEB / "src/store/sidebarScopeCountsState.js"
+if scope_counts_path.exists() and scope_counts_path.read_text() != SIDEBAR_SCOPE_COUNTS:
+    raise RuntimeError("Unreviewed sidebar scope counts module")
+scope_counts_path.write_text(SIDEBAR_SCOPE_COUNTS)
+patch("src/components/AppDataProvider.jsx", 'import { getAuthSessionKey } from "@/utils/auth"',
+      'import { startSidebarScopeCounts } from "@/store/sidebarScopeCountsState"\nimport { getAuthSessionKey } from "@/utils/auth"')
+patch("src/components/AppDataProvider.jsx", '  const [coordinator] = useState(createAppDataCoordinator)',
+      '  const [coordinator] = useState(createAppDataCoordinator)\n\n  useEffect(startSidebarScopeCounts, [])')
 
 # A retained total belongs to the query/session that produced it, not to whichever
 # route happens to be selected while the next request is pending. Keep the existing
