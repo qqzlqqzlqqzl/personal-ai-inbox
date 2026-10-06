@@ -20,3 +20,29 @@ export function readerImageProps(props, viewport = 768, ratio = 1, origin) {
   const width = WIDTHS.find(value => value >= cssWidth * density) ?? 1600
   return {...props, src: `${props.src}?reader_width=${width}`}
 }
+
+// Reuse native signed covers; body and original preview URLs stay untouched.
+function signedPath(value, origin) {
+  if (typeof value !== "string") return null
+  let path = value
+  if (/^https?:\/\//.test(value)) {
+    let url
+    try { url = new URL(value) } catch { return null }
+    if (url.origin !== origin || url.username || url.password || url.search || url.hash) return null
+    path = url.pathname
+  }
+  return SIGNED_PROXY.test(path) ? path : null
+}
+
+export function readerThumbnailProps(entry, origin) {
+  const originalSrc = entry.coverSource
+  const image = entry.attachments?.images?.find(item => signedPath(item.url, origin))
+  const path = signedPath(originalSrc, origin) || signedPath(image?.url, origin)
+  if (!path) return {src: originalSrc, originalSrc}
+  return {
+    src: `${path}?reader_width=480`,
+    srcSet: [480, 960, 1600].map(width => `${path}?reader_width=${width} ${width}w`).join(", "),
+    sizes: "auto, (max-width: 768px) calc(100vw - 32px), 480px",
+    originalSrc,
+  }
+}

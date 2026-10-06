@@ -118,7 +118,7 @@ def test_actual_and_declared_input_caps_stop_before_codec(monkeypatch, declared)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("query", ["reader_width=0", "reader_width=480", "reader_width=999999", "reader_width=nan",
+@pytest.mark.parametrize("query", ["reader_width=0", "reader_width=320", "reader_width=999999", "reader_width=nan",
                                     "reader_width=960&reader_width=1600", "reader_width=960&url=https://outside.test/"])
 async def test_invalid_variant_never_fetches(monkeypatch, query):
     monkeypatch.setattr(images, "fetch_variant", lambda *_: pytest.fail("invalid variant fetched"))
@@ -138,7 +138,8 @@ async def test_cache_validator_is_applied_only_after_native_response(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_actual_gateway_dispatch_keeps_original_route_unchanged(monkeypatch):
+@pytest.mark.parametrize('width', [480, 960])
+async def test_actual_gateway_dispatch_keeps_original_route_unchanged(monkeypatch, width):
     import api
     calls = []
     async def variant(path, req, native):
@@ -150,7 +151,7 @@ async def test_actual_gateway_dispatch_keeps_original_route_unchanged(monkeypatc
         monkeypatch.setattr(api.app.state, "client", native, raising=False)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://testserver") as browser:
             original = await browser.get("/mf/" + PATH)
-            resized = await browser.get("/mf/" + PATH + "?reader_width=960")
+            resized = await browser.get("/mf/" + PATH + f"?reader_width={width}")
     assert original.content == b"original" and resized.content == b"variant"
     assert calls == [(PATH, api.MF)]
 
