@@ -63,7 +63,7 @@ TRANSLATION = {
     'docs/research/reader-pretranslation-20261007/outline.yaml',
     'docs/research/reader-pretranslation-20261007/fields.yaml',
 }
-TRANSLATION_ANCHORS = {'src/bilingual_translation.py', 'patches/BilingualReading.jsx'}
+TRANSLATION_ANCHORS = {'src/bilingual_translation.py', 'patches/BilingualReading.jsx', 'patches/BilingualReading.css'}
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
     'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',

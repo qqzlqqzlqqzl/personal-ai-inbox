@@ -430,6 +430,7 @@ class WiringTests(unittest.TestCase):
                 with self.assertRaises(AssertionError): exec(code, {})
 
     def test_bilingual_scope_is_bounded_and_unknown_changes_still_use_full(self):
+        self.assertEqual(classify([{'path': 'patches/BilingualReading.css', 'status': 'M'}]), 'translation')
         changes = [{'path': path, 'status': 'M'} for path in (
             'src/bilingual_translation.py', 'src/api.py', 'patches/BilingualReading.jsx',
             '.github/workflows/reader-regression.yml')]
