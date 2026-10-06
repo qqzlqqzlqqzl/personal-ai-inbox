@@ -185,6 +185,7 @@ test('unbound Today covers issue no origin warmups while ten-page lifecycle stay
     globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:true,articleListSnapshotRevision:'old-filter',articleListOffset:13,infoFrom:'today',infoId:0}
     const paintRetired=get=>root.render(React.createElement(component.exports.default,{key:'retire',scrollRootRef:{current:scroll},getEntries:get}))
     await act(async()=>paintRetired(()=>{oldCalls++;return new Promise(resolve=>{releaseOld=resolve})}))
+    await settleUntil(()=>oldCalls===1,'old filter request starts after its first paint')
     assert.equal(oldCalls,1)
     globalThis.__readerFixtureContent={...globalThis.__readerFixtureContent,articleListSnapshotRevision:'new-filter',articleListOffset:0}
     globalThis.__readerFixtureEntries=[]
