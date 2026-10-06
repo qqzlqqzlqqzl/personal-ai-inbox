@@ -52,7 +52,7 @@ without overlapping parent/child text. Chinese and code are not sent for transla
 Immutable markers preserve source inline structure. A mini response that repeats an
 opening marker instead of its closing marker is normalized from the exact source
 IDs; reordered sibling links must retain source nesting and all IDs/counts. Missing
-or unknown markers are retried. Technical names, account handles and code formulas
+or unknown markers are retried. Technical names, short unchanged table labels, shell commands, account handles and code formulas
 may remain verbatim and render once. Images occur once in each output mode. All model-provided text
 is HTML-escaped; only sanitized original-source formatting markers become markup.
 Chinese-only partial views retain untranslated original sections instead of blanking
@@ -68,3 +68,31 @@ python -m py_compile src/bilingual_translation.py tests/test_bilingual_translati
 
 These tests use temporary databases and fake-key `httpx.MockTransport` exclusively.
 They do not test production credentials, model quality, deployment, or browser UI.
+## Production acceptance, 2026-10-07 UTC+8
+
+Issue #155 is closed; PRs #156, #157, #158 and #159 are merged into the delivery
+branch `codex/kaggle-qwen36-batches`. Final runtime source head is
+`8215a0d32bc420daa05e9ccdcf666bf94855974c`, merged as
+`9df99b80ada6280ecdfb8e1cdf2966c6d0144627`, src tree
+`8f28e1d8e812695c3d8a6a81ce8d8e8f190f52a1`.
+[CI 37520403931](https://github.com/qqzlqqzlqqzl/personal-ai-inbox/actions/runs/37520403931)
+passed 120 Python tests and 110 subtests, 8 frontend contracts, 5 actual React
+component tests, and the locked frontend build. Unrelated full/native suites were
+correctly skipped for the translation scope.
+
+The matching CI artifact 11441125272 was actually published at 03:40:55 UTC+8.
+The public index was verified byte-for-byte against that bundle. Production uses
+the existing internal New API loopback relay with `gpt-4o-mini`, with its key
+remaining only in the private service environment. Runtime configuration is
+160 requests / 250,000 tokens per UTC day; its daily boundary is 08:00 UTC+8.
+The initial backfill reached the request limit, and queued articles will resume
+automatically at the next UTC-day boundary. This does not affect reading cached
+translations or original bodies.
+
+Real articles completed 48/48 and 86/86 blocks. Three repeated detail requests left
+the 48-block article at 6 model requests / 6699 tokens, including after subsequent
+format fixes. Windows Edge verified the default Chinese-above-English layout,
+Chinese-only, and original modes. At acceptance, 26 articles had completed; this
+is a continuous bounded queue, not a claim that the entire historical library
+has already been translated. Native reader PID and Kaggle claims were unchanged.
+No extra runtime, backup bundle, or permanent verification process was created.
