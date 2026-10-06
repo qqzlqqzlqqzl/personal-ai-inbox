@@ -135,9 +135,9 @@ async def scoped_reader(db, entry, model_result, monkeypatch):
     }
 
     feeds = [
-        {"id": 1, "hide_globally": False, "category": {"id": 10, "title": "Category 10", "hide_globally": False}},
-        {"id": 2, "hide_globally": False, "category": {"id": 10, "title": "Category 10", "hide_globally": False}},
-        {"id": 3, "hide_globally": False, "category": {"id": 20, "title": "Category 20", "hide_globally": False}},
+        {"id": 1, "user_id": 1, "hide_globally": False, "category": {"id": 10, "user_id": 1, "title": "Category 10", "hide_globally": False}},
+        {"id": 2, "user_id": 1, "hide_globally": False, "category": {"id": 10, "user_id": 1, "title": "Category 10", "hide_globally": False}},
+        {"id": 3, "user_id": 1, "hide_globally": False, "category": {"id": 20, "user_id": 1, "title": "Category 20", "hide_globally": False}},
     ]
     unexpected_scoped_native = []
 
@@ -153,9 +153,19 @@ async def scoped_reader(db, entry, model_result, monkeypatch):
                 if (not status or raw["status"] == status)
                 and (starred is None or raw["starred"] == (starred == "true"))
             ]
-            return httpx.Response(200, json={"entry_ids": ids, "total": len(ids)})
+            offset, limit = int(req.url.params.get("offset", 0)), int(req.url.params.get("limit", 10000))
+            return httpx.Response(200, json={"entry_ids": ids[offset:offset+limit], "total": len(ids)})
         if path.endswith("/v1/feeds"):
             return httpx.Response(200, json=feeds)
+        if path.endswith("/v1/categories"):
+            return httpx.Response(200, json=[feeds[0]["category"], feeds[2]["category"],
+                {"id": 30, "user_id": 1, "hide_globally": False}])
+        if path.endswith("/entries/metadata"):
+            ids = json.loads(req.content)["entry_ids"]
+            return httpx.Response(200, json={"entries": [
+                {**{key: records[eid].get(key) for key in api.notes_metadata.FIELDS},
+                 "changed_at": records[eid].get("changed_at", records[eid]["published_at"])}
+                for eid in ids if eid in records]}, headers={"X-Reader-Entry-Metadata": "1"})
         if "/v1/feeds/" in path and path.endswith("/entries"):
             unexpected_scoped_native.append(path)
             return httpx.Response(599, json={"error": "AI route leaked to native feed endpoint"})
@@ -292,3 +302,102 @@ async def test_note_sort_and_filter_validation(scoped_reader):
         params={"ai_view": "recommended", "ai_sort": "note_updated"},
     )
     assert bad_sort.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_ai_sidebar_counts_are_complete_on_first_request_without_bodies(scoped_reader, monkeypatch):
+    client, _, _ = scoped_reader
+    calls = []
+    original = api.app.state.client.request
+    async def request(method, url, **kwargs):
+        calls.append((method, str(url)))
+        return await original(method, url, **kwargs)
+    monkeypatch.setattr(api.app.state.client, "request", request)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("counts must not hydrate or enqueue article bodies")
+    monkeypatch.setattr(api, "enrich_reader_entries", forbidden)
+    response = await client.get("/mf/v1/ai/scope-counts", params={
+        "ai_view": "recommended", "ai_min": 0, "today_after": 1790553600, "status": "unread"})
+    assert response.status_code == 200, response.text
+    assert response.json() == {"scope_counts": {"all": 4, "today": 4, "starred": 1, "history": 1,
+        "category": {"10": 3, "20": 1, "30": 0}, "feed": {"1": 1, "2": 2, "3": 1}}}
+    assert sum(url.endswith("/entries/metadata") for _, url in calls) == 1
+    assert not any("/entries/" in url and url.rsplit("/", 1)[-1].isdigit() for _, url in calls)
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_ai_sidebar_pending_notes_and_starred_lenses(scoped_reader):
+    client, _, _ = scoped_reader
+    params = {"today_after": 1790553600, "ai_min": 0}
+    response = await client.get("/mf/v1/ai/scope-counts", params={**params, "ai_view": "pending"})
+    assert response.json()["scope_counts"] == {"all": 1, "today": 1, "starred": 0, "history": 0,
+        "category": {"10": 0, "20": 1, "30": 0}, "feed": {"1": 0, "2": 0, "3": 1}}
+    with core.connect() as c:
+        c.executemany("INSERT INTO entry_notes(user_id,entry_id,note,created_at,updated_at) VALUES (?,?,?,?,?)",
+                      [(1, 7, "motor note", 1, 2), (2, 1, "other user's motor note", 1, 2)])
+    response = await client.get("/mf/v1/ai/scope-counts", params={**params, "ai_view": "notes", "search": "motor"})
+    assert response.json()["scope_counts"]["all"] == 1
+    assert response.json()["scope_counts"]["feed"] == {"1": 0, "2": 1, "3": 0}
+    response = await client.get("/mf/v1/ai/scope-counts", params={**params, "ai_view": "recommended", "starred": "true"})
+    assert response.json()["scope_counts"]["all"] == response.json()["scope_counts"]["starred"] == 1
+    assert response.json()["scope_counts"]["history"] == 0
+
+
+@pytest.mark.asyncio
+async def test_ai_sidebar_quality_exclusions_and_current_url_binding(scoped_reader):
+    from content_quality import bind, POLICY
+    client, records, _ = scoped_reader
+    source = "assessed synthetic paid source"
+    quality = bind({"policy_version": POLICY, "recommendation_eligible": False,
+                    "reason_codes": ["paid_subscribers"], "access": "paid_subscription", "information": "unknown"},
+                   entry_id=3, user_id=1, url=records[3]["url"], content_hash="bound", source_text=source)
+    core.update(3, source_text=source, content_hash="bound", content_quality=json.dumps(quality))
+    params = {"today_after": 1790553600, "ai_view": "recommended", "ai_min": 0}
+    response = await client.get("/mf/v1/ai/scope-counts", params=params)
+    assert response.status_code == 200, response.text
+    assert response.json()["scope_counts"]["all"] == 4
+    assert response.json()["scope_counts"]["starred"] == 0
+    records[3]["url"] = "https://example.org/changed-source"
+    response = await client.get("/mf/v1/ai/scope-counts", params=params)
+    assert response.json()["scope_counts"]["all"] == 5, "stale quality cannot bind a changed source"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["capability", "owner", "body", "incomplete-ids"])
+async def test_ai_sidebar_incomplete_snapshot_never_returns_fake_zero(scoped_reader, monkeypatch, failure):
+    client, _, _ = scoped_reader
+    original_get, original_post = api.app.state.client.get, api.app.state.client.post
+    async def get(url, **kwargs):
+        response = await original_get(url, **kwargs)
+        if failure == "incomplete-ids" and url.endswith("/entries/ids"):
+            return httpx.Response(200, json={"entry_ids": [], "total": 1}, request=response.request)
+        return response
+    async def post(url, **kwargs):
+        response = await original_post(url, **kwargs)
+        payload = response.json()
+        if failure == "owner": payload["entries"][0]["user_id"] = 2
+        if failure == "body": payload["entries"][0]["content"] = "unexpected body"
+        return httpx.Response(200, json=payload, request=response.request,
+            headers={} if failure == "capability" else response.headers)
+    monkeypatch.setattr(api.app.state.client, "get", get)
+    monkeypatch.setattr(api.app.state.client, "post", post)
+    response = await client.get("/mf/v1/ai/scope-counts", params={
+        "ai_view": "recommended", "ai_min": 0, "today_after": 1790553600})
+    assert response.status_code == 503, response.text
+    assert "scope_counts" not in response.json()
+
+
+@pytest.mark.asyncio
+async def test_ai_sidebar_auth_and_invalid_filters_do_not_return_counts(scoped_reader):
+    client, _, _ = scoped_reader
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://testserver") as anonymous:
+        response = await anonymous.get("/mf/v1/ai/scope-counts", params={
+            "ai_view": "recommended", "today_after": 1790553600})
+        assert response.status_code == 401
+    for query in ({"ai_view": "all", "today_after": 1790553600},
+                  {"ai_view": "recommended"},
+                  {"ai_view": "recommended", "today_after": 1790553600, "ai_min": "nan"}):
+        response = await client.get("/mf/v1/ai/scope-counts", params=query)
+        assert response.status_code == 400, response.text
+        assert "scope_counts" not in response.json()
