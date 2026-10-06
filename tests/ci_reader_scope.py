@@ -57,6 +57,7 @@ TRANSLATION = {
     'patches/BilingualReading.jsx', 'patches/BilingualReading.css',
     'frontend-review/after/src/components/Article/ArticleDetail.jsx', IMAGE_HISTORY,
     'tests/test_bilingual_translation.py', 'tests/test_bilingual_reading.mjs',
+    'tests/test_bilingual_reading_component.mjs', 'tests/test_bilingual_reading_install.py',
     'tests/test_api.py', 'tests/test_frontend_overlay_rebuild.py',
     'tests/test_source_catalog_overlay.py',
     'docs/research/reader-pretranslation-20261007/outline.yaml',
@@ -83,6 +84,7 @@ PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
     'translation': [
         'tests/test_bilingual_translation.py', 'tests/test_api.py',
+        'tests/test_bilingual_reading_install.py',
         'tests/test_ci_reader_scope.py', 'tests/test_frontend_overlay_rebuild.py',
         'tests/test_source_catalog_overlay.py',
     ],

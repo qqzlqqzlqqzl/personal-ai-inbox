@@ -46,7 +46,7 @@ FLOW = BLOCK - {'ul', 'ol', 'dl', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'pre
 ALLOWED = BLOCK | {'a', 'span', 'strong', 'b', 'em', 'i', 'u', 's', 'small', 'mark',
                    'sub', 'sup', 'code', 'kbd', 'samp', 'var', 'br', 'img', 'picture',
                    'source', 'wbr', 'colgroup', 'col', 'abbr', 'time', 'del', 'ins'}
-ATTRS = {'href', 'src', 'srcset', 'sizes', 'media', 'alt', 'title', 'width', 'height',
+ATTRS = {'id', 'href', 'src', 'srcset', 'sizes', 'media', 'alt', 'title', 'width', 'height',
          'colspan', 'rowspan', 'start', 'value', 'type', 'datetime', 'scope', 'loading', 'decoding'}
 TOKEN = re.compile(r'\[\[/?t\d+\]\]')
 
@@ -103,12 +103,12 @@ class BodyParser(HTMLParser):
             self.stack[-1].children.append(data)
 
 
-def _opening(node):
+def _opening(node, *, ids=True):
     if node.tag not in ALLOWED:
         return ''
     attrs = []
     for name, value in node.attrs:
-        if name not in ATTRS or value is None:
+        if name not in ATTRS or value is None or (name == 'id' and not ids):
             continue
         if name in {'href', 'src', 'srcset'}:
             values = [part.strip().split()[0] for part in value.split(',') if part.strip()] if name == 'srcset' else [value]
@@ -122,15 +122,15 @@ def _opening(node):
     return '<' + node.tag + ''.join(attrs) + '>'
 
 
-def _html(node, *, images=True):
+def _html(node, *, images=True, ids=True):
     if isinstance(node, str):
         return escape(node)
     if not images and node.tag in {'img', 'picture', 'source'}:
         return ''
-    body = ''.join(_html(child, images=images) for child in node.children)
+    body = ''.join(_html(child, images=images, ids=ids) for child in node.children)
     if node.tag not in ALLOWED:
         return body
-    return _opening(node) + body + ('' if node.tag in VOID else '</' + node.tag + '>')
+    return _opening(node, ids=ids) + body + ('' if node.tag in VOID else '</' + node.tag + '>')
 
 
 def _plain(node):
@@ -199,9 +199,9 @@ def extract(html):
                 number = len(tokens) + 1
                 opening, closing = f'[[t{number}]]', f'[[/t{number}]]'
                 if child.tag in {'code', 'kbd', 'samp', 'img', 'picture', 'source'}:
-                    tokens[opening] = (_html(child), _html(child, images=False))
+                    tokens[opening] = (_html(child, ids=False), _html(child, images=False, ids=False))
                     return opening
-                tokens[opening] = (_opening(child), _opening(child))
+                tokens[opening] = (_opening(child, ids=False), _opening(child, ids=False))
                 inside = ''.join(encode(grandchild) for grandchild in child.children)
                 if child.tag in VOID:
                     return opening
@@ -273,7 +273,9 @@ def config():
     base = os.environ.get('BILINGUAL_API_BASE_URL', '').strip().rstrip('/')
     try:
         url = urlsplit(base)
-        valid = url.scheme == 'https' and bool(url.hostname) and not (
+        transport_ok = url.scheme == 'https' or (
+            url.scheme == 'http' and url.hostname in {'127.0.0.1', 'localhost', '::1'})
+        valid = transport_ok and bool(url.hostname) and not (
             url.username or url.password or url.query or url.fragment)
     except ValueError:
         valid = False
@@ -488,11 +490,8 @@ def _reserve(rows, payload, cfg, maximum, admission):
 
 
 async def _translate(client, cfg, admission):
+    seeded = await _seed(client, admission)
     rows = _next_rows()
-    seeded = 0
-    if not rows:
-        seeded = await _seed(client, admission)
-        rows = _next_rows()
     if not rows:
         return {'processed': 0, 'seeded': seeded}
     payload = json.dumps({'items': [{'id': row['block_id'], 'text': row['source_text']} for row in rows]}, ensure_ascii=False)
@@ -565,10 +564,12 @@ async def run_once(client=None, *, admission=None):
 
 async def run_worker():
     while True:
+        progressed = False
         try:
-            await run_once()
+            result = await run_once()
+            progressed = result.get('processed', 0) > 0
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.warning('reader bilingual worker_error type=%s', type(exc).__name__)
-        await asyncio.sleep(20)
+        await asyncio.sleep(1 if progressed else 20)

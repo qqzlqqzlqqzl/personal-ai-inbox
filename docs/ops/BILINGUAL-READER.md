@@ -13,7 +13,8 @@ Configuration is read from the existing service environment. No credentials belo
 in source, logs, fixtures or this document:
 
 - `BILINGUAL_ENABLED`: opt in with `true` (default off).
-- `BILINGUAL_API_BASE_URL`: HTTPS OpenAI-compatible API root, without credentials,
+- `BILINGUAL_API_BASE_URL`: HTTPS OpenAI-compatible API root (HTTP is allowed only
+  for a loopback relay), without credentials,
   query parameters or `/chat/completions`; the worker appends that path.
 - `BILINGUAL_API_KEY`: supplied securely by the operator.
 - `BILINGUAL_MODEL`: defaults to `gpt-4o-mini`.
@@ -28,14 +29,15 @@ characters per request, and four attempts per missing chunk with backoff. Succes
 chunks are persisted immediately and never included in another paid request for the
 same cache version. Source bodies over 2 MiB are not queued.
 
-When ready work is absent, each worker round fetches at most two existing Miniflux
+When the bounded queue has room, each worker round fetches at most two existing Miniflux
 entries using `worker.MF` and `MINIFLUX_API_KEY`. Candidates must have analyses in
 `done` with score at least 8, ordered newest publication first. It uses the same
 decorated body as Reader, including prepared/source fallback content. It does not
 fetch article websites, re-score entries, or run an all-library model backfill. The
 active pending queue is bounded, and completed source candidates are revisited only
 after six hours or a changed analysis revision. Opening an uncached detail promotes
-its work ahead of background articles.
+its work ahead of background articles. Successful work continues after one second;
+idle or unavailable work waits twenty seconds.
 
 `entry.translation` returns `status`, `language`, `model`, `source_hash`,
 `blocks_total`, `blocks_done`, and `updated_at`. `bilingual_html` and `chinese_html`

@@ -239,6 +239,23 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.attached()['status'], 'native')
         self.assertEqual(bilingual._next_rows(), [])
 
+    def test_internal_api_allows_loopback_http_but_rejects_external_cleartext(self):
+        for base, expected in [('http://127.0.0.1:18767/v1', True),
+                               ('http://external.invalid/v1', False),
+                               ('https://key:secret@external.invalid/v1', False)]:
+            with patch.dict('os.environ', {'BILINGUAL_API_BASE_URL': base}):
+                self.assertEqual(bilingual.config()['ready'], expected)
+
+    async def test_translated_body_keeps_anchor_targets_without_duplicate_inline_ids(self):
+        self.entry['content'] = '<h2 id="intro">Introduction</h2><p>Read <a id="ref" href="#intro">this section</a>.</p>'
+        bilingual.enqueue(self.entry)
+        await self.run_mock()
+        for mode in ('bilingual_html', 'chinese_html'):
+            body = self.attached()[mode]
+            self.assertEqual(body.count('id="intro"'), 1)
+            self.assertLessEqual(body.count('id="ref"'), 1)
+            self.assertIn('href="#intro"', body)
+
     def test_validation_rejects_bad_ids_markers_short_and_english(self):
         rows = [{'block_id': 1, 'source_text': 'Read [[t1]]the full documentation[[/t1]].'}]
         with self.assertRaises(ValueError):
