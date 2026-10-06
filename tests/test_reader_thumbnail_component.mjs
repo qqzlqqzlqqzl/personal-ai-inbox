@@ -9,7 +9,7 @@ const webRequire=createRequire(local?join(local,'package.json'):new URL('../upst
 const {build}=local?webRequire('esbuild'):createRequire(webRequire.resolve('vite'))('esbuild')
 const {JSDOM}=local?webRequire('jsdom'):createRequire(new URL('../runtime/history-test-tools/package.json',import.meta.url))('jsdom')
 const dom=new JSDOM('<body><div id="root"></div></body>',{url:'https://reader.example.test/inbox/'})
-Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true})
+Object.assign(globalThis,{window:dom.window,document:dom.window.document,CustomEvent:dom.window.CustomEvent,IS_REACT_ACT_ENVIRONMENT:true})
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true})
 const React=webRequire('react'),{act}=React,{createRoot}=webRequire('react-dom/client')
 const file=new URL('../frontend-review/after/src/components/Article/ReaderThumbnail.jsx',import.meta.url).pathname
