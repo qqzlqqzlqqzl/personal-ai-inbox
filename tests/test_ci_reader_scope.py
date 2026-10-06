@@ -1,5 +1,6 @@
 """Only selector/CI wiring tests; tiny Git fixtures never run product suites."""
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -9,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ci_reader_scope import BACKUP, FULLTEXT, IMAGES, IMAGE_HISTORY, IMAGE_HELPER, IMAGE_KEY, PIN_FILE, PYTHON_TESTS, classify, pin_only, select
+from ci_reader_scope import BACKUP, FULLTEXT, IMAGES, IMAGE_HISTORY, IMAGE_HELPER, IMAGE_KEY, PIN_FILE, PERFORMANCE, PYTHON_TESTS, classify, pin_only, select
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -116,6 +117,81 @@ class ScopeTests(unittest.TestCase):
                     {'path': 'docs/ops/guide.md', 'status': 'D'},
                     {'path': '.github/workflows/reader-regression.yml', 'status': 'M'}):
             self.assertEqual(classify([row]), 'full')
+
+    def test_performance_allowlist_and_python_contracts_are_exact(self):
+        self.assertEqual(PERFORMANCE, {
+            'tests/fixtures/reader-loading-product-ab-inputs.json',
+            'tests/test_reader_product_ab_profile.py',
+            'tests/reader_loading_ab_ci.py',
+            'tests/test_reader_loading_ab_ci.py',
+        })
+        self.assertEqual(PYTHON_TESTS['performance'], [
+            'tests/test_reader_product_ab_profile.py',
+            'tests/test_reader_loading_ab_ci.py',
+        ])
+        for size in range(1, len(PERFORMANCE) + 1):
+            for paths in itertools.combinations(sorted(PERFORMANCE), size):
+                for status in ('A', 'M'):
+                    with self.subTest(paths=paths, status=status):
+                        changes = [{'path': p, 'status': status} for p in paths]
+                        self.assertEqual(classify(changes), 'performance')
+                        self.assertEqual(classify(changes + [
+                            {'path': 'docs/ops/benchmark.md', 'status': 'M'}]), 'performance')
+
+    def test_performance_mixed_product_unknown_workflow_and_structural_changes_are_full(self):
+        benchmark = {'path': 'tests/reader_loading_ab_ci.py', 'status': 'M'}
+        other_paths = FULLTEXT | BACKUP | IMAGES | {
+            'src/api.py', 'src/core.py', PIN_FILE, 'requirements.dev.lock.txt',
+            'tests/ci_reader_scope.py', 'tests/test_ci_reader_scope.py',
+            '.github/workflows/reader-regression.yml', '.github/workflows/reader-loading-ab.yml',
+            'tests/fixtures/reader-loading-ab-inputs.json', 'tests/reader_loading_ci.py',
+            'tests/reader_loading_performance.py', 'tests/test_reader_loading_future.py',
+        }
+        for path in other_paths:
+            with self.subTest(path=path):
+                self.assertEqual(classify([benchmark, {'path': path, 'status': 'M'}],
+                                          verified_pin=True, verified_image_history=True), 'full')
+        for path in PERFORMANCE:
+            for status in ('D', 'T', 'R100', 'C100', 'U'):
+                with self.subTest(path=path, status=status):
+                    self.assertEqual(classify([{'path': path, 'status': status}]), 'full')
+
+    def test_performance_complete_event_diff_routes_only_benchmark_changes(self):
+        for path in PERFORMANCE:
+            self.write(path, '# synthetic benchmark baseline\n')
+        base = self.commit()
+        for path in PERFORMANCE:
+            self.write(path, '# synthetic benchmark update\n')
+        head = self.commit()
+        events = [
+            ('pull_request', {'pull_request': {'base': {'sha': base}, 'head': {'sha': head}}}),
+            ('push', {'before': base, 'after': head}),
+            ('workflow_dispatch', {'inputs': {'scope': 'auto', 'base_sha': base}}),
+        ]
+        for event_name, event in events:
+            with self.subTest(event=event_name):
+                result = select(self.root, event_name, event, head)
+                self.assertEqual(result['scope'], 'performance')
+                self.assertFalse(result['native'])
+                self.assertEqual({row['path'] for row in result['changes']}, PERFORMANCE)
+                self.assertEqual({row['status'] for row in result['changes']}, {'M'})
+        self.assertEqual(select(self.root, 'workflow_dispatch', {}, head)['scope'], 'full')
+        # The whole push includes this earlier product change, despite a final benchmark commit.
+        self.write('src/core.py', '# changed product\n'); self.commit()
+        self.write('tests/reader_loading_ab_ci.py', '# later benchmark update\n')
+        head = self.commit()
+        self.assertEqual(select(self.root, 'push', {'before': base, 'after': head}, head)['scope'], 'full')
+
+    def test_performance_git_add_delete_and_rename_fail_closed_when_structural(self):
+        path = 'tests/reader_loading_ab_ci.py'
+        self.write(path, '# added benchmark\n')
+        added = self.commit()
+        self.assertEqual(self.pr(added)['scope'], 'performance')
+        self.git('mv', path, 'tests/test_reader_loading_ab_ci.py')
+        renamed = self.commit()
+        self.assertEqual(self.pr(renamed, added)['scope'], 'full')
+        self.git('rm', 'tests/test_reader_loading_ab_ci.py')
+        self.assertEqual(self.pr(self.commit(), renamed)['scope'], 'full')
 
     def test_bad_or_additional_fixture_logic_is_not_ignored(self):
         self.write('src/kaggle_batch/fulltext_source.py', '# changed\n')
@@ -228,6 +304,25 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn('continue-on-error:', text)
         self.assertNotIn('HEAD^', text)
 
+    def test_performance_reuses_python_only_job_and_preserves_full_fallback(self):
+        text = (ROOT/'.github/workflows/reader-regression.yml').read_text()
+        focused = text[text.index('  python-focused:'):text.index('  interfaces:')]
+        self.assertIn("needs.scope-job.outputs.scope == 'performance'", focused)
+        self.assertIn('runs-on: ubuntu-22.04', focused)
+        self.assertIn("targets = PYTHON_TESTS[os.environ['READER_CI_SCOPE']]", focused)
+        self.assertIn("['-q', *targets, '--junitxml=artifacts/ci-python.xml']", focused)
+        for name in ('prepare_evidence', 'setup_python', 'upload_evidence'):
+            self.assertIn('- *' + name, focused)
+        for name in ('setup_node', 'install_dependencies', 'prepare_reader', 'build_reader',
+                     'chromium_os', 'chromium', 'fulltext_browser'):
+            self.assertNotIn('- *' + name + '\n', focused)
+        self.assertNotIn('playwright install', focused)
+        full = text[text.index('  full-regression:'):text.index('    runs-on:')]
+        self.assertIn("needs.scope-job.result != 'success'", full)
+        accepted = json.loads(re.search(r"fromJSON\('([^']+)'\)", full)[1])
+        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance'})
+        self.assertIn('!contains(', full)
+
     def test_original_required_gate_rejects_failed_skipped_or_cancelled_selected_job(self):
         text = (ROOT/'.github/workflows/reader-regression.yml').read_text()
         block = text[text.index('      - name: Require the selected regression to succeed'):]
@@ -245,6 +340,14 @@ class WiringTests(unittest.TestCase):
             exec(code,{})
         with patch.dict(os.environ,{**baseline,'GITHUB_EVENT_NAME':'push','NATIVE_REQUIRED':'true'},clear=True):
             with self.assertRaises(AssertionError): exec(code,{})
+        performance = {**baseline, 'SELECT_SCOPE': 'performance'}
+        with patch.dict(os.environ, performance, clear=True): exec(code, {})
+        for outcome in ('failure', 'skipped', 'cancelled', ''):
+            with patch.dict(os.environ, {**performance, 'PYTHON_RESULT': outcome,
+                                        'FULL_RESULT': 'success'}, clear=True):
+                with self.assertRaises(AssertionError): exec(code, {})
+        with patch.dict(os.environ, {**performance, 'SELECT_RESULT': 'failure'}, clear=True):
+            with self.assertRaises(AssertionError): exec(code, {})
         docs = {**baseline, 'SELECT_SCOPE': 'docs', 'PYTHON_RESULT': 'skipped'}
         with patch.dict(os.environ, docs, clear=True): exec(code, {})
         for outcome in ('failure', 'skipped', 'cancelled', ''):

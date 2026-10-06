@@ -103,10 +103,12 @@ class ProductProfileControls(unittest.TestCase):
             self.assertIn(selected.relative_to(ab.ROOT).as_posix(),names)
             self.assertNotIn(absent.relative_to(ab.ROOT).as_posix(),names)
 
-    def test_workflow_default_and_pull_requests_remain_regression(self):
+    def test_workflow_default_and_pull_requests_measure_product(self):
         text=(ROOT/'.github/workflows/reader-loading-ab.yml').read_text()
-        self.assertIn('type: choice\n        required: true\n        default: regression',text)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.comparison_profile || 'regression'",text)
+        self.assertIn('type: choice\n        required: true\n        default: product',text)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.comparison_profile || 'product'",text)
+        self.assertIn('          - regression\n          - product',text)
+        self.assertIn("      - 'tests/fixtures/reader-loading-product-ab-inputs.json'",text)
         self.assertEqual(text.count('--comparison-profile "$READER_AB_PROFILE"'),4)
         self.assertNotIn('secrets.',text)
         self.assertIn('mode: [keyboard, touch, weak-network]',text)

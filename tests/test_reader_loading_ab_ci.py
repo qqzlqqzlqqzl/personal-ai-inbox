@@ -72,11 +72,20 @@ class InputContracts(unittest.TestCase):
         with patch.object(ab, 'admit_build') as admission:
             result = ab.unpack_one(root, spec)
         self.assertEqual(result['files'], 2)
-        self.assertFalse(result['full_regression_passed'])
+        self.assertFalse(result['producer_workflow_passed'])
+        self.assertNotIn('full_regression_passed', result)
         admission.assert_called_once()
         self.assertEqual((root/'build/assets/test.js').read_bytes(), b'export default 1')
         with self.assertRaises(FileExistsError), patch.object(ab, 'admit_build'):
             ab.unpack_one(root, spec)
+
+    def test_successful_producer_workflow_does_not_claim_full_regression(self):
+        root, spec = self.sample_archive()
+        spec['producer_conclusion'] = 'success'
+        with patch.object(ab, 'admit_build'):
+            result = ab.unpack_one(root, spec)
+        self.assertTrue(result['producer_workflow_passed'])
+        self.assertNotIn('full_regression_passed', result)
 
     def test_wrong_count_manifest_identity_and_symlink_member_fail_before_write(self):
         for kind in ('count', 'manifest', 'identity', 'mode', 'traversal'):

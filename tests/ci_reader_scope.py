@@ -13,6 +13,13 @@ FULLTEXT = {
     'src/kaggle_batch/test_reader_fulltext.py',
 }
 BACKUP = {'src/backup.py', 'tests/test_operational_cli_admission.py'}
+# Benchmark orchestration/fixtures only; product and shared CI changes fail closed.
+PERFORMANCE = {
+    'tests/fixtures/reader-loading-product-ab-inputs.json',
+    'tests/test_reader_product_ab_profile.py',
+    'tests/reader_loading_ab_ci.py',
+    'tests/test_reader_loading_ab_ci.py',
+}
 IMAGE_HISTORY = 'frontend-review/previous-hashes.json'
 IMAGE_HELPER = 'frontend-review/after/src/components/Article/reader-image-variants.js'
 IMAGE_KEY = 'src/components/Article/reader-image-variants.js'
@@ -42,6 +49,10 @@ INTERFACES = NATIVE | {
 PIN_FILE = 'tests/dev_fixture_workspace_browser_acceptance.py'
 PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
+    'performance': [
+        'tests/test_reader_product_ab_profile.py',
+        'tests/test_reader_loading_ab_ci.py',
+    ],
     'images': ['tests/test_reader_image_proxy.py'],
     'fulltext': [
         'src/kaggle_batch/test_fulltext_source.py',
@@ -86,6 +97,8 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         path == 'README.md' or path.startswith('docs/') and path.endswith('.md'))}
     if not paths:
         return 'docs'
+    if paths <= PERFORMANCE:
+        return 'performance'
     if PIN_FILE in paths:
         if not verified_pin:
             return 'full'
