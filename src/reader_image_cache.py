@@ -15,9 +15,9 @@ try:
 except ImportError:  # The Windows unit tests still exercise the same cache logic.
     fcntl = None
 
-MAX_TOTAL_BYTES = 256 * 1024 * 1024
+MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
-MAX_FILES = 4096
+MAX_FILES = 8192
 MAX_HEADER = 4096
 MAX_TTL = 7 * 86400
 DEFAULT_TTL = 86400

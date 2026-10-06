@@ -1,0 +1,11 @@
+[Unit]
+Description=Warm useful Reader covers every ten minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Unit=ai-news-reader-covers.service
+
+[Install]
+WantedBy=timers.target

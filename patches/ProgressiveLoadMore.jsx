@@ -3,7 +3,7 @@ import { useStore } from "@nanostores/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import useLoadMore from "@/hooks/useLoadMore"
 import { contentState, filteredEntriesState } from "@/store/contentState"
-import { nextWindow, prefetchDecision, autoPrefetchDecision } from "@/utils/reading-session"
+import { nextWindow, prefetchDecision, autoPrefetchDecision, scheduleAutoPrefetch } from "@/utils/reading-session"
 import { createThumbnailPreloader } from "@/components/Article/reader-image-variants"
 
 /** Warm ten additional pages, then retain the existing scroll/manual policy. */
@@ -71,7 +71,9 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   useEffect(() => {
     if (!isArticleListReady || !loadMoreVisible || loadingMore || loadMoreError || inFlightRef.current) return
     const decision = autoPrefetchDecision(windowRef.current, autoRef.current.started)
-    if (decision) void requestRef.current(false, decision)
+    if (decision) return scheduleAutoPrefetch(() => {
+      if (latest.current.snapshot === snapshot) void requestRef.current(false, decision)
+    }, autoRef.current.started)
   }, [isArticleListReady, snapshot, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled])
 
   useEffect(() => {
@@ -86,7 +88,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const visible = [...root.querySelectorAll('[data-entry-id]')].filter(el => el.getBoundingClientRect().bottom > bounds.top + 1 && el.getBoundingClientRect().top < bounds.bottom)
       const first = visible[0]
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
-      const cover = root.querySelector('.grid-card-cover')
+      const cover = root.querySelector('.grid-card-cover, .grid-card-media')
       const width = cover?.getBoundingClientRect().width
       if (width > 0 && offeredCoversRef.current.snapshot === s.snapshot) {
         const offered = offeredCoversRef.current

@@ -12,7 +12,7 @@ const dom=new JSDOM('<body><div id="root"></div></body>',{url:'https://reader.ex
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,CustomEvent:dom.window.CustomEvent,IS_REACT_ACT_ENVIRONMENT:true})
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true})
 const React=webRequire('react'),{act}=React,{createRoot}=webRequire('react-dom/client')
-const file=new URL('../frontend-review/after/src/components/Article/ReaderThumbnail.jsx',import.meta.url).pathname
+const file=fileURLToPath(new URL('../frontend-review/after/src/components/Article/ReaderThumbnail.jsx',import.meta.url))
 const bundled=await build({entryPoints:[file],write:false,bundle:true,platform:'node',format:'cjs',jsx:'automatic',plugins:[{name:'real-react',setup(b){
   b.onResolve({filter:/^react(?:\/.*)?$/},({path})=>({path:webRequire.resolve(path),external:true}))
 }}]})
@@ -21,40 +21,74 @@ const ReaderThumbnail=component.exports.default
 const signed='/mf/proxy/'+'A'.repeat(43)+'=/aHR0cHM6Ly9leGFtcGxlLm9yZy9jb3Zlci5qcGc='
 const original='https://example.org/cover.jpg'
 
-test('thumbnail failure tries original once, clears responsive URLs, then reports real failure',async()=>{
+function trackImageRequests() {
+  const requests=[]
+  const element=dom.window.Element.prototype,image=dom.window.HTMLImageElement.prototype
+  const setAttribute=element.setAttribute
+  element.setAttribute=function(name,value){
+    if(this instanceof dom.window.HTMLImageElement && ['src','srcset'].includes(name.toLowerCase()) && value) requests.push(String(value))
+    return setAttribute.call(this,name,value)
+  }
+  const descriptors=new Map()
+  for(const name of ['src','srcset']){
+    const descriptor=Object.getOwnPropertyDescriptor(image,name)
+    descriptors.set(name,descriptor)
+    Object.defineProperty(image,name,{...descriptor,set(value){
+      if(value)requests.push(String(value))
+      descriptor.set.call(this,value)
+    }})
+  }
+  return {requests,restore(){
+    element.setAttribute=setAttribute
+    for(const [name,descriptor] of descriptors)Object.defineProperty(image,name,descriptor)
+  }}
+}
+
+async function settleUntil(predicate, message, timeout=12000) {
+  const deadline=Date.now()+timeout
+  while(!predicate() && Date.now()<deadline) {
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10))})
+  }
+  assert.ok(predicate(),message)
+}
+
+test('real thumbnail proxy failure reports the placeholder path without a raw origin request',async()=>{
   const root=createRoot(document.querySelector('#root'));let errors=0
+  const tracked=trackImageRequests()
   const entry={id:1,coverSource:original,attachments:{images:[{url:signed}]}}
   try {
-    await act(async()=>root.render(React.createElement(ReaderThumbnail,{entry,loading:'lazy',onError:()=>errors++})))
+    await act(async()=>root.render(React.createElement(ReaderThumbnail,{entry,src:original,srcSet:original+' 1x',loading:'lazy',onError:()=>errors++})))
     let img=document.querySelector('img')
     assert.equal(img.getAttribute('src'),signed+'?reader_width=480')
     assert.match(img.getAttribute('srcset'),/1600w/)
     await act(async()=>img.dispatchEvent(new dom.window.Event('error')))
-    img=document.querySelector('img')
-    assert.equal(img.getAttribute('src'),original)
-    assert.equal(img.getAttribute('srcset'),null)
-    assert.equal(img.getAttribute('sizes'),null)
-    assert.equal(errors,0)
-    await act(async()=>img.dispatchEvent(new dom.window.Event('error')))
-    assert.equal(errors,1);assert.equal(img.getAttribute('src'),original)
-  } finally {await act(async()=>root.unmount())}
+    assert.equal(document.querySelector('img'),null)
+    assert.equal(errors,1,'the existing card onError can show its placeholder immediately')
+    assert.ok(tracked.requests.length)
+    assert.ok(tracked.requests.every(value=>value.includes('/mf/proxy/') && !value.includes(original)), 'neither src nor srcset ever requests the external original')
+    assert.equal(entry.coverSource,original,'original source data is preserved')
+  } finally {await act(async()=>root.unmount());tracked.restore()}
 })
 
-test('changing entry/source starts a fresh thumbnail; unproxied originals report failure directly',async()=>{
+test('changing entry/source starts a fresh proxy thumbnail; unproxied covers request nothing',async()=>{
   document.querySelector('#root').innerHTML='';const root=createRoot(document.querySelector('#root'));let errors=0
+  const tracked=trackImageRequests()
   const render=entry=>root.render(React.createElement(ReaderThumbnail,{key:entry.id+':'+entry.coverSource,entry,onError:()=>errors++}))
   try {
     await act(async()=>render({id:1,coverSource:original,attachments:{images:[{url:signed}]}}))
     await act(async()=>document.querySelector('img').dispatchEvent(new dom.window.Event('error')))
     await act(async()=>render({id:2,coverSource:signed}))
     assert.equal(document.querySelector('img').getAttribute('src'),signed+'?reader_width=480')
+    const before=tracked.requests.length
     await act(async()=>render({id:3,coverSource:original}))
-    await act(async()=>document.querySelector('img').dispatchEvent(new dom.window.Event('error')))
-    assert.equal(errors,1);assert.equal(document.querySelector('img').getAttribute('src'),original)
-  } finally {await act(async()=>root.unmount())}
+    assert.equal(errors,2)
+    assert.equal(document.querySelector('img'),null)
+    assert.equal(tracked.requests.length,before,'an unbound original has no image request')
+    assert.ok(tracked.requests.every(value=>!value.includes(original)))
+  } finally {await act(async()=>root.unmount());tracked.restore()}
 })
 
-test('raw Today cover queue and bounded automatic page lifecycle',async()=>{
+test('unbound Today covers issue no origin warmups while ten-page lifecycle stays bounded',async()=>{
   const entryList=Array.from({length:13},(_,id)=>({id,coverSource:`https://example.org/today-${id}.jpg`}))
   const file=fileURLToPath(new URL('../patches/ProgressiveLoadMore.jsx',import.meta.url))
   const fixtures={
@@ -92,16 +126,16 @@ test('raw Today cover queue and bounded automatic page lifecycle',async()=>{
     await act(async()=>{root.render(React.createElement(component.exports.default,{scrollRootRef:{current:scroll},getEntries:()=>{lists++;return Promise.resolve({entries:[]})}}))})
     await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
     assert.equal(lists,0)
-    assert.deepEqual(images.map(image=>image.src),entryList.slice(0,2).map(entry=>entry.coverSource))
+    assert.equal(images.length,0)
     scroll.dispatchEvent(new dom.window.Event('scroll'))
     await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
-    assert.equal(images.length,2)
+    assert.equal(images.length,0)
     // Same actual component, but before Virtua has mounted any visible rows.
     globalThis.__readerFixtureMore=true
     scroll.innerHTML='';scroll.scrollTop=0
     Object.defineProperty(scroll,'scrollHeight',{value:600,configurable:true})
     await act(async()=>{root.render(React.createElement(component.exports.default,{key:'empty-tail',scrollRootRef:{current:scroll},getEntries:()=>{lists++;return Promise.resolve({entries:[]})}}))})
-    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
+    await settleUntil(()=>lists===1,'automatic startup prefetch begins after the first paint')
     assert.equal(lists,1,'automatic startup prefetch does not wait for virtual rows or scrolling')
     scroll.scrollTop=60
     Object.defineProperty(scroll,'scrollHeight',{value:660,configurable:true})
@@ -132,7 +166,8 @@ test('raw Today cover queue and bounded automatic page lifecycle',async()=>{
       }
       scroll.scrollTop=0
       await act(async()=>paint())
-      await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
+      const expected=fail?1:Math.min(10,stopAfter)
+      await settleUntil(()=>calls.length>=expected && active===0,'background page queue finishes its bounded work')
       assert.equal(maxActive,1)
       assert.equal(new Set(calls).size,calls.length,'no repeated page cursor')
       return calls
@@ -140,6 +175,7 @@ test('raw Today cover queue and bounded automatic page lifecycle',async()=>{
     assert.equal((await pagePhase('ten-pages')).length,10,'exactly ten forward pages without scrolling')
     await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
     assert.equal(globalThis.__readerFixtureContent.articleListOffset,253,'initial thirteen plus ten pages, not ten total pages')
+    assert.equal(images.length,0,'ten loaded pages never warm unbound external covers')
     assert.equal((await pagePhase('short-list',3)).length,3,'hasNextPage false ends automatic work')
     assert.equal((await pagePhase('failed-page',Infinity,true)).length,1,'failure stops automatic retries')
 
@@ -161,7 +197,7 @@ test('raw Today cover queue and bounded automatic page lifecycle',async()=>{
     await act(async()=>paintRetired(next))
     assert.equal(newCalls,0,'old in-flight page keeps the single network slot')
     await act(async()=>releaseOld())
-    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
+    await settleUntil(()=>newCalls===1,'new filter starts after the old request retires')
     assert.equal(oldCalls,1,'retired filter cannot start more pages')
     assert.equal(newCalls,1,'new filter starts after the existing request retires')
     assert.equal(globalThis.__readerFixtureContent.articleListSnapshotRevision,'new-filter')

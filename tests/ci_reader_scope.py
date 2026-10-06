@@ -23,9 +23,17 @@ PERFORMANCE = {
 IMAGE_HISTORY = 'frontend-review/previous-hashes.json'
 IMAGE_HELPER = 'frontend-review/after/src/components/Article/reader-image-variants.js'
 IMAGE_KEY = 'src/components/Article/reader-image-variants.js'
+IMAGE_HISTORY_FILES = {
+    IMAGE_KEY: IMAGE_HELPER,
+    'src/components/Article/ReaderThumbnail.jsx':
+        'frontend-review/after/src/components/Article/ReaderThumbnail.jsx',
+}
 IMAGES = {
     IMAGE_HELPER, IMAGE_HISTORY, 'src/reader_image_proxy.py',
     'src/reader_cover_proxy.py', 'src/reader_image_cache.py',
+    'src/warm_reader_covers.py', 'tests/test_warm_reader_covers.py',
+    'deploy/systemd/ai-news-reader-covers.service',
+    'deploy/systemd/ai-news-reader-covers.timer',
     'patches/ProgressiveLoadMore.jsx', 'patches/reading-session.js',
     'src/patch_reading_session.py', 'tests/test_reading_session.mjs',
     'src/patch_frontend.py', 'tests/test_frontend_overlay_rebuild.py',
@@ -69,6 +77,7 @@ PYTHON_TESTS = {
         'tests/test_reader_cover_proxy.py', 'tests/test_api.py',
         'tests/test_ci_reader_scope.py',
         'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
+        'tests/test_warm_reader_covers.py',
     ],
     'fulltext': [
         'src/kaggle_batch/test_fulltext_source.py',
@@ -178,11 +187,17 @@ def select(root, event_name, event, expected_head):
             import hashlib
             before = json.loads(git(root, 'show', comparison+':'+IMAGE_HISTORY))
             after = json.loads(git(root, 'show', head+':'+IMAGE_HISTORY))
-            previous = before.pop(IMAGE_KEY, [])
-            updated = after.pop(IMAGE_KEY, [])
-            old_helper = hashlib.sha256(git(root, 'show', comparison+':'+IMAGE_HELPER)).hexdigest()
-            verified_history = (before == after and isinstance(previous, list)
-                                and updated == previous + [old_helper])
+            appended = False
+            verified_history = True
+            for key, path in IMAGE_HISTORY_FILES.items():
+                if before.get(key, []) == after.get(key, []):
+                    continue
+                previous = before.pop(key, [])
+                updated = after.pop(key, [])
+                old_helper = hashlib.sha256(git(root, 'show', comparison+':'+path)).hexdigest()
+                verified_history &= isinstance(previous, list) and updated == previous + [old_helper]
+                appended = True
+            verified_history &= appended and before == after
         scope = classify(changes, verified, verified_history)
         return {**result, 'scope': scope, 'base': base, 'comparison_base': comparison,
                 'changes': changes, 'verified_src_pin_only': verified,

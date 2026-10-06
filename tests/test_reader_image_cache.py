@@ -25,6 +25,8 @@ def test_persistent_hit_expiry_and_age(tmp_path):
 
 
 def test_byte_budget_lru_and_file_count(tmp_path):
+    defaults = ImageCache(tmp_path / 'defaults')
+    assert defaults.max_bytes == 1024 * 1024 * 1024 and defaults.max_files == 8192
     now = [100.0]
     cache = ImageCache(tmp_path / 'images', max_bytes=1100, max_files=2, clock=lambda: now[0])
     for label in ('a', 'b'):
