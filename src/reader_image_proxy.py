@@ -16,7 +16,7 @@ from starlette.responses import Response
 
 from reader_work import ReaderWorkPool
 
-WIDTHS = (960, 1600)
+WIDTHS = (480, 960, 1600)
 MAX_BYTES = 8 * 1024 * 1024
 MAX_PIXELS = 12_000_000
 MAX_OUTPUT_PIXELS = 4_000_000
