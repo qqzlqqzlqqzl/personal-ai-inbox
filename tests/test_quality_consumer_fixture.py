@@ -45,6 +45,22 @@ class QualityFixtureControls(unittest.TestCase):
         ids = self.fixture.select({'ai_view': ['recommended'], 'ai_min': ['8']}, ids=True)
         self.assertEqual(ids, {'total': 2, 'entry_ids': [706, 704]})
 
+    def test_versioned_recommendation_pages_and_changed_results(self):
+        query = {'ai_view': ['recommended'], 'ai_min': ['8'], 'limit': ['1'], 'ai_revision': ['initial']}
+        first = self.fixture.select(query)
+        self.assertEqual(first['entries'][0]['id'], 704)
+        query.update(offset=['1'], ai_revision=[first['ai_revision']])
+        second = self.fixture.select(query)
+        self.assertEqual(second['entries'][0]['id'], 706)
+        self.assertEqual(first['ai_revision'], second['ai_revision'])
+        self.fixture.entries[3]['ai']['score'] = 7
+        changed = self.fixture.select(query)
+        self.assertEqual(changed['entries'], [])
+        self.assertTrue(changed['ai_result_changed'])
+        self.assertNotEqual(changed['ai_revision'], first['ai_revision'])
+        with self.assertRaises(ValueError):
+            self.fixture.select({**query, 'ai_revision': ['broken']})
+
     def test_actual_point_api_is_needed_for_body_and_preserves_quality(self):
         cards = self.fixture.select({})['entries']
         for card in cards:

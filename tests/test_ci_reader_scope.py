@@ -1,5 +1,6 @@
 """Only selector/CI wiring tests; tiny Git fixtures never run product suites."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -8,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ci_reader_scope import BACKUP, FULLTEXT, PIN_FILE, PYTHON_TESTS, classify, pin_only, select
+from ci_reader_scope import BACKUP, FULLTEXT, IMAGES, IMAGE_HISTORY, IMAGE_HELPER, IMAGE_KEY, PIN_FILE, PYTHON_TESTS, classify, pin_only, select
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,6 +20,8 @@ class ScopeTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.git('init', '-q')
+        self.write(IMAGE_HISTORY, '{}')
+        self.write(IMAGE_HELPER, '// original image helper\n')
         for path in FULLTEXT | BACKUP | {'src/api.py', 'src/notes_metadata.py', 'src/core.py'}:
             self.write(path, '# synthetic original\n')
         self.git('add', '.')
@@ -60,12 +63,15 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(len(result['changes']), 3)
 
     def test_backup_two_files_select_operational_module(self):
+        self.assertEqual(classify([{'path': 'src/reader_image_proxy.py', 'status': 'M'}]), 'images')
         for path in BACKUP: self.write(path, '# changed backup\n')
         result = self.pr(self.commit())
         self.assertEqual(result['scope'], 'backup')
         self.assertEqual(PYTHON_TESTS['backup'], ['tests/test_operational_cli_admission.py'])
 
     def test_actual_date_native_pattern_keeps_interface_and_native_gates(self):
+        self.assertEqual(classify([{'path': 'src/reader_image_proxy.py', 'status': 'M'},
+                                  {'path': 'src/api.py', 'status': 'M'}]), 'full')
         paths = ['src/api.py', 'src/notes_metadata.py', 'tests/test_notes_metadata.py',
                  'tests/test_notes_pair_metadata_url_contract.py', 'tests/notes_pair_acceptance.py',
                  'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -79,6 +85,7 @@ class ScopeTests(unittest.TestCase):
         self.assertTrue(result['verified_src_pin_only'])
 
     def test_unknown_and_cross_module_changes_select_full(self):
+        self.assertEqual(classify([{'path': IMAGE_HISTORY, 'status': 'M'}]), 'full')
         for paths in [[], ['config.json'], ['src/core.py'],
                       ['src/backup.py', 'src/api.py'],
                       ['src/kaggle_batch/fulltext_source.py', 'src/api.py'],
@@ -87,6 +94,7 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual(classify([{'path': p, 'status': 'M'} for p in paths]), 'full')
 
     def test_documentation_and_mixed_code_from_complete_event_diff(self):
+        self.assertEqual(PYTHON_TESTS['images'], ['tests/test_reader_image_proxy.py'])
         self.write('README.md', '# usage update\n')
         self.write('docs/ops/PRODUCT-ACCEPTANCE.md', '# acceptance update\n')
         head = self.commit()
@@ -183,6 +191,20 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(self.pr(self.base)['scope'], 'full')
 
 
+    def test_image_scope_requires_exact_history_and_src_binding(self):
+        old_hash = hashlib.sha256(subprocess.check_output(
+            ['git', 'show', self.base+':'+IMAGE_HELPER], cwd=self.root, timeout=10)).hexdigest()
+        for path in IMAGES - {IMAGE_HISTORY}: self.write(path, '// updated image source\n')
+        self.write(IMAGE_HISTORY, json.dumps({IMAGE_KEY: [old_hash]}))
+        result = self.pr(self.commit(rebind=True))
+        self.assertEqual(result['scope'], 'images')
+        self.assertTrue(result['verified_src_pin_only'])
+        self.assertFalse(result['native'])
+        for history in ({IMAGE_KEY: ['b'*64]}, {IMAGE_KEY: [old_hash], 'other/component': ['a'*64]}):
+            self.write(IMAGE_HISTORY, json.dumps(history))
+            self.assertEqual(self.pr(self.commit())['scope'], 'full')
+
+
 class WiringTests(unittest.TestCase):
     def test_full_job_is_exact_original_after_removing_scope_wiring_and_anchors(self):
         text = (ROOT/'.github/workflows/reader-regression.yml').read_text()
@@ -212,6 +234,7 @@ class WiringTests(unittest.TestCase):
         code = block.split("python3 - <<'PY'\n",1)[1].rsplit('          PY',1)[0]
         code = '\n'.join(line[10:] for line in code.splitlines())
         baseline = {'SELECT_RESULT':'success','SELECT_SCOPE':'backup', 'PYTHON_RESULT':'success',
+                    'IMAGE_RESULT':'skipped',
                     'FULL_RESULT':'skipped','INTERFACE_RESULT':'skipped','NATIVE_REQUIRED':'false',
                     'NATIVE_RESULT':'skipped','GITHUB_EVENT_NAME':'pull_request'}
         with patch.dict(os.environ, baseline, clear=True): exec(code, {})
@@ -227,12 +250,17 @@ class WiringTests(unittest.TestCase):
         for outcome in ('failure', 'skipped', 'cancelled', ''):
             with patch.dict(os.environ, {**docs, 'SELECT_RESULT': outcome}, clear=True):
                 with self.assertRaises(AssertionError): exec(code, {})
-        for key in ('FULL_RESULT', 'PYTHON_RESULT', 'INTERFACE_RESULT', 'NATIVE_RESULT'):
+        for key in ('FULL_RESULT', 'PYTHON_RESULT', 'INTERFACE_RESULT', 'IMAGE_RESULT', 'NATIVE_RESULT'):
             for outcome in ('success', 'failure'):
                 with patch.dict(os.environ, {**docs, key: outcome}, clear=True):
                     with self.assertRaises(AssertionError): exec(code, {})
         with patch.dict(os.environ, {**docs, 'NATIVE_REQUIRED': 'true'}, clear=True):
             with self.assertRaises(AssertionError): exec(code, {})
+        image = {**docs, 'SELECT_SCOPE': 'images', 'IMAGE_RESULT': 'success'}
+        with patch.dict(os.environ, image, clear=True): exec(code, {})
+        for outcome in ('failure', 'skipped', 'cancelled', ''):
+            with patch.dict(os.environ, {**image, 'IMAGE_RESULT': outcome}, clear=True):
+                with self.assertRaises(AssertionError): exec(code, {})
 
 
 if __name__ == '__main__':

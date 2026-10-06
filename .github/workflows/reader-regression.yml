@@ -26,7 +26,7 @@ concurrency:
 jobs:
   full-regression:
     needs: scope-job
-    if: ${{ !cancelled() && (needs.scope-job.result != 'success' || !contains(fromJSON('["docs","fulltext","backup","interfaces"]'), needs.scope-job.outputs.scope)) }}
+    if: ${{ !cancelled() && (needs.scope-job.result != 'success' || !contains(fromJSON('["docs","fulltext","backup","interfaces","images"]'), needs.scope-job.outputs.scope)) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env: &reader_env
@@ -372,6 +372,27 @@ jobs:
       - *cjk_save
       - *upload_evidence
 
+  images:
+    needs: scope-job
+    if: ${{ needs.scope-job.outputs.scope == 'images' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env: *reader_env
+    steps:
+      - *reader_checkout
+      - *prepare_evidence
+      - *setup_python
+      - *setup_node
+      - *install_dependencies
+      - *prepare_reader
+      - *verify_identity
+      - *related_python
+      - name: Responsive image selection and actual error fallback
+        run: timeout --signal=TERM --kill-after=10s 90s node --test tests/test_reader_thumbnails.mjs tests/test_reader_thumbnail_component.mjs
+      - *build_reader
+      - *upload_build
+      - *upload_evidence
+
   # PRs already run the unchanged miniflux-metadata.yml for these exact paths.
   # Push/manual comparisons need the same native/PG/pair gate in this workflow.
   native-interface:
@@ -448,7 +469,7 @@ jobs:
 
   # Keep the original required check name; a skipped focused job must not pass it.
   offline-and-browser:
-    needs: [scope-job, full-regression, python-focused, interfaces, native-interface]
+    needs: [scope-job, full-regression, python-focused, interfaces, images, native-interface]
     if: always()
     runs-on: ubuntu-22.04
     timeout-minutes: 5
@@ -458,6 +479,7 @@ jobs:
       FULL_RESULT: ${{ needs.full-regression.result }}
       PYTHON_RESULT: ${{ needs.python-focused.result }}
       INTERFACE_RESULT: ${{ needs.interfaces.result }}
+      IMAGE_RESULT: ${{ needs.images.result }}
       NATIVE_REQUIRED: ${{ needs.scope-job.outputs.native }}
       NATIVE_RESULT: ${{ needs.native-interface.result }}
     steps:
@@ -468,10 +490,10 @@ jobs:
           scope = os.environ['SELECT_SCOPE'] if os.environ['SELECT_RESULT'] == 'success' else 'full'
           if scope == 'docs':
               assert os.environ['NATIVE_REQUIRED'] == 'false', 'documentation selected native work'
-              for key in ('FULL_RESULT', 'PYTHON_RESULT', 'INTERFACE_RESULT', 'NATIVE_RESULT'):
+              for key in ('FULL_RESULT', 'PYTHON_RESULT', 'INTERFACE_RESULT', 'IMAGE_RESULT', 'NATIVE_RESULT'):
                   assert os.environ[key] == 'skipped', key + ' unexpectedly ran for documentation'
           else:
-              key = {'fulltext': 'PYTHON_RESULT', 'backup': 'PYTHON_RESULT', 'interfaces': 'INTERFACE_RESULT'}.get(scope, 'FULL_RESULT')
+              key = {'fulltext': 'PYTHON_RESULT', 'backup': 'PYTHON_RESULT', 'interfaces': 'INTERFACE_RESULT', 'images': 'IMAGE_RESULT'}.get(scope, 'FULL_RESULT')
               assert os.environ[key] == 'success', key + ' did not succeed'
           if os.environ['NATIVE_REQUIRED'] == 'true' and os.environ['GITHUB_EVENT_NAME'] != 'pull_request':
               assert os.environ['NATIVE_RESULT'] == 'success', 'native pair did not succeed'

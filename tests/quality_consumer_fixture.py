@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+import hashlib
 import json
 import re
 import struct
@@ -107,12 +108,15 @@ class QualityConsumerFixture:
 
     def select(self, query, *, ids=False):
         allowed = {"ai_view", "ai_min", "ai_sort", "status", "starred", "order", "direction", "limit",
-                   "offset", "globally_visible", "published_after", "published_before"}
+                   "offset", "globally_visible", "published_after", "published_before", "ai_revision"}
         if set(query) - allowed or any(not isinstance(v, list) or len(v) != 1 for v in query.values()):
             raise ValueError("unsupported or repeated query")
         view = query.get("ai_view", ["all"])[0]
         if view not in ("all", "recommended"):
             raise ValueError("unsupported view")
+        expected_revision = query.get("ai_revision", [None])[0]
+        if expected_revision is not None and expected_revision != "initial" and not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
+            raise ValueError("invalid AI list revision")
         for key, values in (("ai_sort", ("score", "technical", "business", "time", "note_updated")),
                             ("order", ("published_at", "id", "created_at")), ("direction", ("asc", "desc")),
                             ("globally_visible", ("true", "false"))):
@@ -145,6 +149,15 @@ class QualityConsumerFixture:
         if ids:
             rows = sorted(rows, key=lambda e: e["id"], reverse=True)
         result = {"total": len(rows)}
+        if view == "recommended" and not ids and expected_revision is not None:
+            # Match the real versioned-list contract, retaining legacy responses.
+            scope = sorted((key, value) for key, value in query.items()
+                           if key not in {"offset", "limit", "ai_revision"})
+            ranking = [[e["id"], e["ai"]["score"]] for e in rows]
+            revision = hashlib.sha256(json.dumps([scope, ranking], separators=(",", ":")).encode()).hexdigest()
+            result["ai_revision"] = revision
+            if expected_revision not in ("initial", revision):
+                return {**result, "entries": [], "ai_result_changed": True}
         result["entry_ids" if ids else "entries"] = ([e["id"] for e in rows] if ids else deepcopy(rows))[offset:offset + limit]
         if not ids:
             for entry in result["entries"]:
