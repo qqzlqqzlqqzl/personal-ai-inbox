@@ -99,6 +99,7 @@ class ScopeTests(unittest.TestCase):
             'tests/test_reader_image_proxy.py', 'tests/test_reader_image_cache.py',
             'tests/test_reader_cover_proxy.py', 'tests/test_api.py',
             'tests/test_ci_reader_scope.py',
+            'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
         ])
         self.write('README.md', '# usage update\n')
         self.write('docs/ops/PRODUCT-ACCEPTANCE.md', '# acceptance update\n')
@@ -137,6 +138,21 @@ class ScopeTests(unittest.TestCase):
             {'path': 'src/api.py', 'status': 'M'}]), 'full')
         self.assertEqual(classify(owned + support + [
             {'path': 'src/core.py', 'status': 'M'}]), 'full')
+
+    def test_image_prefetch_composition_paths_keep_unrelated_fallback(self):
+        affected = {
+            'src/patch_frontend.py', 'tests/test_frontend_overlay_rebuild.py',
+            'tests/test_source_catalog_overlay.py',
+        }
+        self.assertTrue(affected <= IMAGES)
+        changes = [{'path': path, 'status': 'M'} for path in affected]
+        self.assertEqual(classify(changes), 'images')
+        for path in ('src/api.py', 'src/core.py', 'src/patch_scope_ai_filters.py',
+                     'tests/test_frontend_overlay_unreviewed.py'):
+            with self.subTest(path=path):
+                self.assertEqual(classify(changes + [{'path': path, 'status': 'M'}]), 'full')
+        for status in ('D', 'T', 'R100'):
+            self.assertEqual(classify([{'path': 'src/patch_frontend.py', 'status': status}]), 'full')
 
     def test_performance_allowlist_and_python_contracts_are_exact(self):
         self.assertEqual(PERFORMANCE, {

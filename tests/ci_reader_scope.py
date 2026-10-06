@@ -28,6 +28,8 @@ IMAGES = {
     'src/reader_cover_proxy.py', 'src/reader_image_cache.py',
     'patches/ProgressiveLoadMore.jsx', 'patches/reading-session.js',
     'src/patch_reading_session.py', 'tests/test_reading_session.mjs',
+    'src/patch_frontend.py', 'tests/test_frontend_overlay_rebuild.py',
+    'tests/test_source_catalog_overlay.py',
     'tests/test_reader_cover_proxy.py', 'tests/test_reader_image_cache.py',
     'tests/test_api.py',
     'frontend-review/before/src/components/Article/ArticleGridCard.jsx',
@@ -66,6 +68,7 @@ PYTHON_TESTS = {
         'tests/test_reader_image_proxy.py', 'tests/test_reader_image_cache.py',
         'tests/test_reader_cover_proxy.py', 'tests/test_api.py',
         'tests/test_ci_reader_scope.py',
+        'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
     ],
     'fulltext': [
         'src/kaggle_batch/test_fulltext_source.py',
