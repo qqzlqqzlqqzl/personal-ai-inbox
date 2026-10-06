@@ -25,11 +25,22 @@ IMAGE_HELPER = 'frontend-review/after/src/components/Article/reader-image-varian
 IMAGE_KEY = 'src/components/Article/reader-image-variants.js'
 IMAGES = {
     IMAGE_HELPER, IMAGE_HISTORY, 'src/reader_image_proxy.py',
+    'src/reader_cover_proxy.py', 'src/reader_image_cache.py',
+    'patches/ProgressiveLoadMore.jsx', 'patches/reading-session.js',
+    'src/patch_reading_session.py', 'tests/test_reading_session.mjs',
+    'src/patch_frontend.py', 'tests/test_frontend_overlay_rebuild.py',
+    'tests/test_source_catalog_overlay.py',
+    'tests/test_reader_cover_proxy.py', 'tests/test_reader_image_cache.py',
+    'tests/test_api.py',
     'frontend-review/before/src/components/Article/ArticleGridCard.jsx',
     'frontend-review/after/src/components/Article/ArticleGridCard.jsx',
     'frontend-review/after/src/components/Article/ReaderThumbnail.jsx',
     'tests/test_reader_image_proxy.py', 'tests/test_reader_thumbnails.mjs',
     'tests/test_reader_thumbnail_component.mjs',
+}
+IMAGE_CI_SUPPORT = {
+    'tests/ci_reader_scope.py', 'tests/test_ci_reader_scope.py',
+    '.github/workflows/reader-regression.yml',
 }
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
@@ -53,7 +64,12 @@ PYTHON_TESTS = {
         'tests/test_reader_product_ab_profile.py',
         'tests/test_reader_loading_ab_ci.py',
     ],
-    'images': ['tests/test_reader_image_proxy.py'],
+    'images': [
+        'tests/test_reader_image_proxy.py', 'tests/test_reader_image_cache.py',
+        'tests/test_reader_cover_proxy.py', 'tests/test_api.py',
+        'tests/test_ci_reader_scope.py',
+        'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
+    ],
     'fulltext': [
         'src/kaggle_batch/test_fulltext_source.py',
         'src/kaggle_batch/test_fulltext_bridge.py',
@@ -107,7 +123,7 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         return 'fulltext'
     if paths and paths <= BACKUP:
         return 'backup'
-    if paths and paths <= IMAGES:
+    if paths - IMAGE_CI_SUPPORT and paths <= IMAGES | IMAGE_CI_SUPPORT:
         return 'images' if IMAGE_HISTORY not in paths or verified_image_history else 'full'
     if paths and paths <= INTERFACES:
         return 'interfaces'

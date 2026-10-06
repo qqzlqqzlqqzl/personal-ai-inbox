@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import unittest
 
-from reader_cover_proxy import selected_cover_proxy
+from reader_cover_proxy import selected_cover_proxy, stored_cover_proxy, verified_proxy_target
 
 
 NATIVE = "http://127.0.0.1:8091/mf"
@@ -91,6 +91,37 @@ class CoverProxyTests(unittest.TestCase):
         for cover in (None, "", False, 123):
             with self.subTest(cover=cover):
                 self.assertIsNone(self.match({"content": f'<img src="{signed(COVER)}">'}, cover))
+
+    def test_bound_stored_cover_can_be_signed_without_native_image(self):
+        entry = dict(id=7, user_id=2, url='https://example.org/article', content='')
+        row = dict(entry_id=7, user_id=2, url=entry['url'], cover_url=COVER)
+        self.assertEqual(stored_cover_proxy(entry, COVER, row, 2, 'test-only-native-key', native_base=NATIVE), signed(COVER))
+
+    def test_stored_cover_identity_and_selected_url_must_all_match(self):
+        entry = dict(id=7, user_id=2, url='https://example.org/article')
+        row = dict(entry_id=7, user_id=2, url=entry['url'], cover_url=COVER)
+        for changes in (dict(entry_id=8), dict(user_id=3), dict(url='https://example.org/changed'), dict(cover_url=COVER+'x')):
+            with self.subTest(changes=changes):
+                self.assertIsNone(stored_cover_proxy(entry, COVER, {**row, **changes}, 2,
+                                                    'test-only-native-key', native_base=NATIVE))
+        self.assertIsNone(stored_cover_proxy(entry, COVER, row, 3, 'test-only-native-key', native_base=NATIVE))
+        self.assertIsNone(stored_cover_proxy(entry, COVER, row, 2, None, native_base=NATIVE))
+
+    def test_stored_private_or_non_http_media_is_not_signed(self):
+        entry = dict(id=7, user_id=2, url='https://example.org/article')
+        for cover in ('http://127.0.0.1/private', 'http://169.254.169.254/latest', 'http://localhost/image',
+                      'http://[::1]/image', 'file:///tmp/image', 'https://user:pass@example.org/image'):
+            with self.subTest(cover=cover):
+                row = dict(entry_id=7, user_id=2, url=entry['url'], cover_url=cover)
+                self.assertIsNone(stored_cover_proxy(entry, cover, row, 2, 'test-only-native-key', native_base=NATIVE))
+
+    def test_cache_signature_requires_current_key_and_exact_target(self):
+        path = signed(COVER)[4:]
+        self.assertEqual(verified_proxy_target(path, 'test-only-native-key'), COVER)
+        self.assertIsNone(verified_proxy_target(path, 'rotated-key'))
+        self.assertIsNone(verified_proxy_target(path, None))
+        other_target = base64.urlsafe_b64encode(b'https://example.org/other').decode()
+        self.assertIsNone(verified_proxy_target(path.rsplit('/', 1)[0] + '/' + other_target, 'test-only-native-key'))
 
 
 if __name__ == "__main__":

@@ -63,11 +63,45 @@ export function readerThumbnailProps(entry, origin) {
   }
 }
 
-// Warm only the next few already-loaded covers, using the mounted card's width.
+// Queue already-loaded covers using the mounted card's width and shared slots.
 export function createThumbnailPreloader(createImage, onSettled = () => {}) {
   const seen = new Set(), pending = new Set(), pendingKeys = new Set()
+  const queuedKeys = new Set()
+  let queue = []
   let closed = false, rawPending = 0
-  return {
+  const drain = () => {
+    while (!closed && pending.size < 6 && queue.length) {
+      const index = queue.findIndex(item => !item.raw || rawPending < 2)
+      if (index < 0) break
+      const [item] = queue.splice(index, 1)
+      queuedKeys.delete(item.key)
+      loader.warm([null, item.entry], 0, item.width, item.origin, item.ratio)
+    }
+  }
+  const loader = {
+    enqueue(entries, width, origin, ratio = 1) {
+      if (closed || !Number.isFinite(width) || width <= 0) return
+      const candidate = [480, 960, 1600].find(value => value >= width * ratio) ?? 1600
+      for (const entry of entries) {
+        const props = readerThumbnailProps(entry, origin), raw = !props.srcSet
+        if (raw) {
+          if (typeof props.src !== 'string' || !props.src) continue
+          let url
+          try { url = new URL(props.src, origin) } catch { continue }
+          if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) continue
+        }
+        const key = raw ? props.src : props.srcSet + ':' + candidate
+        if (seen.has(key) || queuedKeys.has(key)) continue
+        queuedKeys.add(key)
+        queue.push({entry, raw, key, width, origin, ratio})
+      }
+      drain()
+    },
+    reset() {
+      // Retire work not yet started; existing downloads keep the shared slots.
+      queue = []
+      queuedKeys.clear()
+    },
     warm(entries, lastVisible, width, origin, ratio = 1) {
       if (closed || lastVisible < 0 || !Number.isFinite(width) || width <= 0) return
       const candidate = [480, 960, 1600].find(value => value >= width * ratio) ?? 1600
@@ -97,7 +131,7 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}) {
           pending.delete(image)
           pendingKeys.delete(key)
           if (raw) rawPending--
-          if (!closed) onSettled()
+          if (!closed) { onSettled(); drain() }
         }
         image.decoding = 'async'
         image.fetchPriority = 'low'
@@ -110,10 +144,13 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}) {
     },
     dispose() {
       closed = true
+      queue = []
+      queuedKeys.clear()
       for (const image of pending) image.onload = image.onerror = null
       pending.clear()
       pendingKeys.clear()
       seen.clear()
     },
   }
+  return loader
 }

@@ -135,8 +135,10 @@ async def test_invalid_entry_identifier_is_400(browser_api, path):
     ("https://example.org/different.jpg", False),
     (None, False),
 ])
-async def test_selected_ai_cover_reuses_only_its_native_proxy(browser_api, entry, model_result, native_image, expected_proxy):
+async def test_selected_ai_cover_reuses_only_its_native_proxy(browser_api, entry, model_result, native_image, expected_proxy, monkeypatch):
     import base64
+    import reader_cover_proxy
+    monkeypatch.setattr(reader_cover_proxy, 'media_proxy_key', lambda: None)
     original = "https://example.org/cover.jpg"
     proxy = ("/mf/proxy/" + "A" * 43 + "=/" + base64.urlsafe_b64encode(native_image.encode()).decode()) if native_image else None
     entry["content"] = f'<p>Native article.</p><img src="http://127.0.0.1:8092{proxy}">' if proxy else "<p>No native image.</p>"
@@ -158,6 +160,23 @@ async def test_selected_ai_cover_reuses_only_its_native_proxy(browser_api, entry
     with core.connect() as c:
         stored = c.execute("SELECT result FROM analyses WHERE entry_id=1").fetchone()[0]
     assert json.loads(stored)["cover_proxy_url"] == "/mf/proxy/invented-by-model/wrong-image"
+
+
+@pytest.mark.asyncio
+async def test_owned_stored_cover_gets_proxy_without_native_image(browser_api, entry, model_result, monkeypatch):
+    import reader_cover_proxy
+    from stabilize_media import signed_url
+    original = 'https://example.org/selected-cover.jpg'
+    monkeypatch.setattr(reader_cover_proxy, 'media_proxy_key', lambda: 'test-only-stable-key')
+    entry['content'] = '<p>No native image in this RSS body.</p>'
+    core.discover([entry])
+    core.update(1, state='done', score=8, result=json.dumps(model_result), cover_url=original, cover_source='extracted_content')
+    response = await browser_api.get('/mf/v1/entries?ai_view=recommended&ai_min=8', headers={'X-Auth-Token': 'test-session'})
+    assert response.status_code == 200, response.text
+    item = response.json()['entries'][0]
+    assert item['content'] == '' and item['content_deferred'] is True
+    assert item['ai']['cover_url'] == original
+    assert item['ai']['cover_proxy_url'] == signed_url(original, 'test-only-stable-key')
 
 
 @pytest.mark.asyncio

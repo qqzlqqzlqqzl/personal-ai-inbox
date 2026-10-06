@@ -11,6 +11,8 @@ from starlette.responses import Response
 
 import reader_image_proxy as images
 from reader_work import ReaderWorkPool
+from reader_image_cache import ImageCache
+from stabilize_media import signed_url
 
 PATH = "proxy/" + "A" * 43 + "=/aHR0cHM6Ly9leGFtcGxlLm9yZy9waG90by5qcGc="
 
@@ -82,7 +84,7 @@ def test_native_failure_is_preserved_before_codec_and_conditionals_never_forward
         return httpx.Response(403, content=b"Forbidden", headers={"content-type": "text/plain"})
     def factory(**options):
         assert options["follow_redirects"] is False and options["trust_env"] is False
-        return httpx.Client(transport=httpx.MockTransport(native), **options)
+        return httpx.AsyncClient(transport=httpx.MockTransport(native), **options)
     monkeypatch.setattr(images, "resize_image", lambda *_: pytest.fail("codec before native approval"))
     response = images.fetch_variant("http://native.test/mf", PATH, 960, "image/*", client_factory=factory)
     assert response.status_code == 403 and response.body == b"Forbidden" and len(calls) == 1
@@ -91,7 +93,7 @@ def test_native_failure_is_preserved_before_codec_and_conditionals_never_forward
 def test_native_success_keeps_cache_policy_and_has_variant_etag():
     source = picture()
     def factory(**options):
-        return httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(
             200, content=source, headers={"content-type": "image/jpeg", "etag": '"native"',
                 "cache-control": "public, max-age=259200", "content-security-policy": "default-src 'none'; sandbox"})), **options)
     response = images.fetch_variant("http://native.test/mf", PATH, 960, "image/*", client_factory=factory)
@@ -107,12 +109,12 @@ def test_native_success_keeps_cache_policy_and_has_variant_etag():
 def test_actual_and_declared_input_caps_stop_before_codec(monkeypatch, declared):
     monkeypatch.setattr(images, "MAX_BYTES", 16)
     monkeypatch.setattr(images, "resize_image", lambda *_: pytest.fail("oversized codec input"))
-    class Stream(httpx.SyncByteStream):
-        def __iter__(self):
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
             yield b"x" * 17
             pytest.fail("read after byte cap")
     def factory(**options):
-        return httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(
             200, stream=Stream(), headers={"content-type": "image/jpeg", **({"content-length": "100"} if declared else {})})), **options)
     assert images.fetch_variant("http://native.test/mf", PATH, 960, "image/*", client_factory=factory).status_code == 413
 
@@ -180,3 +182,77 @@ async def test_cancellation_and_timeout_keep_actual_workers_bounded(monkeypatch)
     finally:
         release.set()
         await asyncio.to_thread(pool.executor.shutdown, wait=True)
+
+
+def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    key = 'test-only-stable-key'
+    path = signed_url('https://example.org/photo.jpg', key)[4:]
+    cache = ImageCache(tmp_path / 'images')
+    fetches, codecs = [], []
+    resize = images.resize_image
+    def codec(*args):
+        codecs.append(1)
+        return resize(*args)
+    monkeypatch.setattr(images, 'resize_image', codec)
+    async def native(req):
+        fetches.append(req)
+        await asyncio.sleep(.02)
+        if req.url.path != '/mf/' + path:
+            return httpx.Response(403, content=b'Forbidden')
+        return httpx.Response(200, content=picture(), headers={'content-type': 'image/jpeg', 'cache-control': 'public, max-age=60'})
+    def factory(**kwargs):
+        return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+    def read():
+        return images.fetch_variant('http://native.test/mf', path, 960, 'image/*',
+                                    client_factory=factory, cache=cache, signature_key=key)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: read(), range(2)))
+    assert all(result.status_code == 200 for result in results)
+    assert len(fetches) == len(codecs) == 1 and results[0].body == results[1].body
+    forged = path.replace(path.split('/')[1], 'A' * 43 + '=')
+    denied = images.fetch_variant('http://native.test/mf', forged, 960, 'image/*',
+                                  client_factory=factory, cache=cache, signature_key=key)
+    assert denied.status_code == 403 and len(fetches) == 2 and len(codecs) == 1
+
+
+@pytest.mark.parametrize('body,mime,policy', [(b'<html>login</html>', 'text/html', 'public, max-age=60'),
+    (b'<html>not an image</html>', 'image/jpeg', 'public, max-age=60'),
+    (None, 'image/jpeg', 'no-store')])
+def test_errors_and_no_store_do_not_persist(tmp_path, body, mime, policy):
+    key = 'test-only-stable-key'
+    path = signed_url('https://example.org/photo.jpg', key)[4:]
+    cache = ImageCache(tmp_path / 'images')
+    calls = []
+    def native(req):
+        calls.append(req)
+        return httpx.Response(200, content=picture() if body is None else body,
+                              headers={'content-type': mime, 'cache-control': policy})
+    def factory(**kwargs):
+        return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+    for _ in range(2):
+        images.fetch_variant('http://native.test/mf', path, 960, 'image/*', client_factory=factory, cache=cache, signature_key=key)
+    assert len(calls) == 2 and not list(cache.root.glob('*.image'))
+
+
+def test_slow_origin_past_old_five_seconds_and_true_whole_fetch_deadline(monkeypatch):
+    # Scale the wall time, while checking that the actual native read budget is
+    # 20s rather than the former 5s and that all headers/body I/O is cancellable.
+    assert images.FETCH_SECONDS == 20 and images.REQUEST_SECONDS == 30
+    body = picture((32, 24))
+    class SlowBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.sleep(.06)
+            yield body[:len(body)//2]
+            await asyncio.sleep(.06)
+            yield body[len(body)//2:]
+    def factory(**kwargs):
+        assert kwargs['timeout'].read == images.FETCH_SECONDS
+        async def native(req):
+            return httpx.Response(200, stream=SlowBody(), headers={'content-type': 'image/jpeg'})
+        return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+    monkeypatch.setattr(images, 'FETCH_SECONDS', .2)
+    assert images.fetch_variant('http://native.test/mf', PATH, 960, 'image/*', client_factory=factory, signature_key=None).status_code == 200
+    monkeypatch.setattr(images, 'FETCH_SECONDS', .08)
+    with pytest.raises(TimeoutError):
+        images.fetch_variant('http://native.test/mf', PATH, 960, 'image/*', client_factory=factory, signature_key=None)

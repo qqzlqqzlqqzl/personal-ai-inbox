@@ -1,4 +1,5 @@
 """Rebuild the overlay twice from the exact pinned upstream, in temporary files."""
+import ast
 import hashlib
 import io
 import shutil
@@ -20,6 +21,89 @@ STAGES = (
     "patch_reading_telemetry.py", "patch_scope_ai_filters.py",
     "patch_reader_detail_quality.py", "patch_reader_entry_defaults.py", "patch_interaction_review.py",
 )
+
+
+NATIVE_LOAD_MORE = '  const handleLoadMore = async (getEntries) => {'
+PREFETCH_LOAD_MORE = '  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {'
+
+
+def _ai_revision_fixture(root, signature):
+    # Exercise the actual revision installer without a network/upstream checkout.
+    tree = ast.parse((ROOT / 'src/patch_frontend.py').read_text())
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'install_ai_pagination_revision')
+    namespace = {'shutil': shutil}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), 'patch_frontend.py', 'exec'), namespace)
+    web = root / 'upstream/reactflux'
+    sources = {
+        'src/store/contentState.js': '  articleListOffset: 0,\nexport const invalidateArticleList = () => {\n}\n',
+        'src/hooks/useArticleList.js': '''  contentState.setKey("articleListOffset", response.entries.length)
+    currentRequestKey.current = automaticRequestKey
+      const filterParams = content.filterString ? { search: content.filterString } : {}
+''',
+        'src/hooks/useLoadMore.js': '''      return { offset: contentState.get().articleListOffset, limit: AI_PAGE_SIZE }
+SIGNATURE
+    const requestKey = getCurrentArticleListRequestKey()
+    const requestSessionRevision = contentState.get().articleListSnapshotRevision
+      const isAiPagination = aiFilterEnabled()
+      if (isAiPagination) {
+      }
+    if (!prefetch) markDuplicatesAsRead(duplicateEntries)
+    updateEntries(newEntries, prefetch)
+'''.replace('SIGNATURE', signature),
+    }
+    for relative, value in sources.items():
+        path = web / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value)
+    return web, namespace['install_ai_pagination_revision']
+
+
+@pytest.mark.parametrize('signature', [NATIVE_LOAD_MORE, PREFETCH_LOAD_MORE])
+def test_ai_revision_composes_with_exact_prefetch_signature_and_repeats(tmp_path, signature):
+    web, apply = _ai_revision_fixture(tmp_path, signature)
+    apply(tmp_path, web)
+    hook = web / 'src/hooks/useLoadMore.js'
+    text = hook.read_text()
+    assert text.count(signature) == 1 and text.count('  const restartChangedList = () => {') == 1
+    assert 'if (!prefetch) markDuplicatesAsRead(duplicateEntries)' in text
+    assert 'updateEntries(newEntries, prefetch)' in text
+    if signature == NATIVE_LOAD_MORE:
+        # The real stage order installs AI revision first, then reading-session
+        # changes just this header before patch_frontend is executed again.
+        hook.write_text(text.replace(NATIVE_LOAD_MORE, PREFETCH_LOAD_MORE, 1))
+    first = _source_bytes(web)
+    backups = _source_bytes(tmp_path / 'runtime/reactflux-original')
+    apply(tmp_path, web)
+    assert _source_bytes(web) == first
+    assert _source_bytes(tmp_path / 'runtime/reactflux-original') == backups
+
+
+@pytest.mark.parametrize('signature', [
+    PREFETCH_LOAD_MORE.replace('false', 'true'),
+    PREFETCH_LOAD_MORE.replace('prefetch = false', 'prefetch = false, unknown = true'),
+    PREFETCH_LOAD_MORE + '\n' + PREFETCH_LOAD_MORE,
+    NATIVE_LOAD_MORE + '\n' + PREFETCH_LOAD_MORE,
+])
+def test_ai_revision_unknown_or_ambiguous_prefetch_signature_refuses_all_writes(tmp_path, signature):
+    web, apply = _ai_revision_fixture(tmp_path, signature)
+    before = _source_bytes(web)
+    with pytest.raises(RuntimeError, match='Unreviewed AI pagination source: src/hooks/useLoadMore.js'):
+        apply(tmp_path, web)
+    assert _source_bytes(web) == before
+    assert not (tmp_path / 'runtime/reactflux-original').exists()
+
+
+def test_ai_revision_repeat_with_drifted_prefetch_header_refuses_all_writes(tmp_path):
+    web, apply = _ai_revision_fixture(tmp_path, PREFETCH_LOAD_MORE)
+    apply(tmp_path, web)
+    hook = web / 'src/hooks/useLoadMore.js'
+    hook.write_text(hook.read_text().replace(PREFETCH_LOAD_MORE, PREFETCH_LOAD_MORE.replace('false', 'true'), 1))
+    before = _source_bytes(web)
+    backups = _source_bytes(tmp_path / 'runtime/reactflux-original')
+    with pytest.raises(RuntimeError, match='Unreviewed AI pagination source: src/hooks/useLoadMore.js'):
+        apply(tmp_path, web)
+    assert _source_bytes(web) == before
+    assert _source_bytes(tmp_path / 'runtime/reactflux-original') == backups
 
 
 def test_pristine_pinned_overlay_and_repeat_are_equivalent(tmp_path, monkeypatch):

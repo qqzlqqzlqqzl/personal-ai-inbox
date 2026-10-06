@@ -105,6 +105,15 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_variants).hexdigest(), deployed_variants)
         self.assertNotIn(deployed_variants, old[variants])
         old[variants].append(deployed_variants)
+        # #151 admits only the exact preceding ten-page prefetch helper blob.
+        prefetch_variants = "a7b309af14b311630f9a8b70948a7c2a445686409f3bd6c1bf914c5456493c58"
+        prefetch_base = 'da50fc6a9414a6bba21a2feac5db3d6223e6f104'
+        subprocess.run(['git', 'merge-base', '--is-ancestor', prefetch_base, 'HEAD'], cwd=ROOT, check=True, timeout=15)
+        prior_variants = subprocess.check_output(
+            ['git', 'show', prefetch_base + ':frontend-review/after/' + variants], cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_variants).hexdigest(), prefetch_variants)
+        self.assertNotIn(prefetch_variants, old[variants])
+        old[variants].append(prefetch_variants)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
