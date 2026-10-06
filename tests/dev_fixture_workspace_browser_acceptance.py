@@ -37,7 +37,7 @@ TOOL_SHA = "068ba17339b5e40c82c0a87a719ea95b72b464ac75974abc2ff656c440c89ba4"
 HARNESS_SHA = "36c4886656118c29a6e01c6b1996f93a4f1596edbbeb7709bc16fac41cc5af22"
 # Exact integrated source tree; the original mismatch refusal
 # and same-head build identity checks remain required for this experiment.
-SRC = "70db497b999f3e6b6edcff6eb8ba509dd9d07d0b"
+SRC = "5c6f4a2138d5e7f00e6b92f6adf3420d642dbc07"
 KEY = "reader.fixture.browser.acceptance.v1"
 NOTE_ID = 987654321
 # The in-page probe has a 12s app deadline and bounded local requests. This

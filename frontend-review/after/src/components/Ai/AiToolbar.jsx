@@ -202,11 +202,12 @@ export default function AiToolbar({ source }) {
         <header><h2>运行状态与更多</h2><button type="button" aria-label="关闭运行状态" onClick={closeStatus}>×</button></header>
         <div className="ai-status-content">{diagnostics}</div>
         <div className="ai-status-actions">
+          <a className="ai-service-home" href="/">服务首页</a>
           <button type="button" className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button>
           <button type="button" onClick={() => { closeStatus(); navigation.current?.() }}>快速跳转</button>
         </div>
       </dialog>
-    </> : <>{diagnostics}<button className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button></>}
+    </> : <>{diagnostics}<a className="ai-service-home" href="/">服务首页</a><button className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button></>}
     <NavigationPalette onConsole={openConsole} launchRef={navigation} beforeLaunch={closeStatus} returnFocusRef={statusButton}
       triggerClassName={compact ? "ai-navigation-hidden" : ""} />
     {open && <AiPanel onClose={() => setOpen(false)} returnFocusRef={statusButton} />}
