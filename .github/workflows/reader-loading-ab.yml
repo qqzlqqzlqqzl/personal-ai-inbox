@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/reader-loading-ab.yml'
       - 'tests/fixtures/reader-loading-ab-inputs.json'
+      - 'tests/fixtures/reader-loading-product-ab-inputs.json'
       - 'tests/reader_loading_*.py'
       - 'tests/test_reader_loading_*.py'
       - 'tests/compare_reader_loading.py'
@@ -15,7 +16,7 @@ on:
         description: Reviewed fixed input manifest
         type: choice
         required: true
-        default: regression
+        default: product
         options:
           - regression
           - product
@@ -43,7 +44,7 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
-      READER_AB_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.comparison_profile || 'regression' }}
+      READER_AB_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.comparison_profile || 'product' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

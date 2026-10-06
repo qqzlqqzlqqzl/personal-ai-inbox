@@ -133,7 +133,7 @@ def download_one(root, side, spec):
     save_new(root / 'evidence' / (side + '-producer.json'), {
         'artifact_id': artifact['id'], 'producer_run': producer['id'], 'producer_attempt': producer['run_attempt'],
         'producer_head': producer['head_sha'], 'producer_conclusion': producer['conclusion'],
-        'full_regression_passed': producer['conclusion'] == 'success', 'build_identity_separately_verified': False})
+        'producer_workflow_passed': producer['conclusion'] == 'success', 'build_identity_separately_verified': False})
     started = time.monotonic()
     size = 0
     process = None
@@ -202,7 +202,7 @@ def unpack_one(target, spec):
             stream.write(manifest)
     admit_build(build, target / 'manifest.json', spec['manifest_sha256'])
     return {'spec': spec, 'crc': 'PASSED', 'files': len(rows), 'expanded_build_bytes': sum(len(v) for v in files.values()),
-            'build_identity_passed': True, 'full_regression_passed': spec['producer_conclusion'] == 'success'}
+            'build_identity_passed': True, 'producer_workflow_passed': spec['producer_conclusion'] == 'success'}
 
 
 def validate_order(observations):
@@ -298,7 +298,7 @@ def measure(root, mode, profile='regression'):
         require(time.monotonic() < deadline, 'whole A/B deadline exhausted before comparison')
         comparison = compare(before, after)
         comparison.update(schedule=observations, instrument_sha256=instruments['sha256'], input_specs=spec,
-                          candidate_full_regression_passed=spec['inputs']['candidate']['producer_conclusion'] == 'success')
+                          candidate_producer_workflow_passed=spec['inputs']['candidate']['producer_conclusion'] == 'success')
         require(time.monotonic() < deadline, 'whole A/B deadline exhausted during comparison')
         save_new(root / 'evidence/comparison.json', comparison)
         require(time.monotonic() < deadline, 'whole A/B deadline exhausted before success receipt')

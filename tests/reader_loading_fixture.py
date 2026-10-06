@@ -262,15 +262,32 @@ class Fixture:
                     and (starred is None or row['starred']==(starred=='true'))), reverse=True)
                 return 200, {'total':len(ids),'entry_ids':ids[offset:offset+limit]}, 'entry-ids', 0
             if path == '/mf/v1/entries':
-                require(set(query) <= {'ai_view','ai_min','ai_sort','status','order','direction','limit','offset','globally_visible','starred','search','published_after','published_before','before','after','has_note'}, 'unknown query')
+                require(set(query) <= {'ai_view','ai_min','ai_sort','ai_revision','status','order','direction','limit','offset','globally_visible','starred','search','published_after','published_before','before','after','has_note'}, 'unknown query')
+                expected_revision = query.get('ai_revision', [None])[0]
+                require(expected_revision is None or expected_revision == 'initial' or
+                        isinstance(expected_revision, str) and re.fullmatch(r'[0-9a-f]{64}', expected_revision),
+                        'invalid AI list revision')
                 limit, offset = int(query.get('limit', ['24'])[0]), int(query.get('offset', ['0'])[0])
                 require(1 <= limit <= 24 and 0 <= offset <= 72, 'unbounded list request')
                 require(query.get('status', ['read'])[0] in ('read','unread'), 'unsupported fixture status')
                 if query.get('status') == ['unread']:
-                    return 200, {'total':0,'entries':[]}, 'unread-count', 0
-                require(query.get('ai_view',['recommended'])[0]=='recommended', 'unsupported benchmark view')
-                label = 'list-count' if limit == 1 else f'list:{offset}:{limit}'
-                return 200, {'total': 72, 'entries': [self.entry(i, True) for i in range(offset+1, min(offset+limit, 72)+1)]}, label, SCENARIO['list_delay_ms']
+                    result, label, delay = {'total':0,'entries':[]}, 'unread-count', 0
+                else:
+                    require(query.get('ai_view',['recommended'])[0]=='recommended', 'unsupported benchmark view')
+                    label, delay = ('list-count' if limit == 1 else f'list:{offset}:{limit}'), SCENARIO['list_delay_ms']
+                    result = {'total': 72, 'entries': [self.entry(i, True) for i in range(offset+1, min(offset+limit, 72)+1)]}
+                if expected_revision is not None:
+                    # Bind the whole ordered scope, never the current page; legacy responses stay unchanged.
+                    scope = sorted((key, values[0]) for key, values in query.items()
+                                   if key not in {'offset', 'limit', 'ai_revision'})
+                    rows = (self.entry(i, True) for i in range(1, result['total']+1))
+                    ranking = [[row['id'], *[row['ai'][key] for key in ('score', 'technical_score', 'business_score')]]
+                               for row in rows]
+                    revision = hashlib.sha256(json.dumps([scope, ranking], separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+                    result['ai_revision'] = revision
+                    if expected_revision not in ('initial', revision):
+                        result.update(entries=[], ai_result_changed=True)
+                return 200, result, label, delay
             match = re.fullmatch(r'/mf/v1/entries/(\d+)', path)
             if match:
                 number = int(match[1]); require(1 <= number <= 72, 'unknown entry')

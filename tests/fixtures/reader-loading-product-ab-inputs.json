@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "repository": "qqzlqqzlqqzl/personal-ai-inbox",
-  "purpose": "Measure reviewed 34ad/F44 product bytes against the fixed baseline; failed producer is retained and does not admit a release",
+  "purpose": "Measure deployed 2d518822 product bytes against the unchanged fixed baseline; producer images CI succeeded while full-regression was skipped, and build identity is verified separately",
   "inputs": {
     "baseline": {
       "artifact_id": 11299074112,
@@ -17,17 +17,17 @@
       "producer_conclusion": "success"
     },
     "candidate": {
-      "artifact_id": 11319676247,
-      "artifact_bytes": 3111586,
-      "artifact_sha256": "b433c570498422972cd080879477a3c5f6669e5e0dd1e859fc6fd623c1876cdf",
-      "manifest_sha256": "2d6e45223f5fa487b4fbd612550daa12a3d0a55ec67f3f6bd1174079488f5108",
-      "files": 125,
-      "head": "34ad59892bdb99b19c3919eeb18a5fbfd5b8d98e",
-      "tree": "4e68a1f4de366d0e89428450c557c6f569dc58c5",
-      "src": "a37afbb0984593aa75d2c4b3d2dcfd3f07f17d38",
-      "producer_run": 37246559550,
+      "artifact_id": 11386787806,
+      "artifact_bytes": 3117369,
+      "artifact_sha256": "222764cdff6475eb64a6e838a569816e2af700cf9fde05a2de4ff96ca0af687a",
+      "manifest_sha256": "e190ee1f170ccb08a64b13c30c1cb1a6c130344e8663ce0a8c9c89dea404ceac",
+      "files": 126,
+      "head": "2d518822ff8311c475e1dc8ba99868728cb6a242",
+      "tree": "8c50c5da0abfb9eec5605505bd1bbf8dceabbc68",
+      "src": "3be59d09925666047e2b1307257e6172144ed712",
+      "producer_run": 37406476678,
       "producer_attempt": 1,
-      "producer_conclusion": "failure"
+      "producer_conclusion": "success"
     }
   },
   "binding_state": "BOUND"
