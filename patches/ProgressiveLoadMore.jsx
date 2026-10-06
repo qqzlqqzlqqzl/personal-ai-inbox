@@ -3,10 +3,10 @@ import { useStore } from "@nanostores/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import useLoadMore from "@/hooks/useLoadMore"
 import { contentState, filteredEntriesState } from "@/store/contentState"
-import { nextWindow, prefetchDecision } from "@/utils/reading-session"
+import { nextWindow, prefetchDecision, autoPrefetchDecision } from "@/utils/reading-session"
 import { createThumbnailPreloader } from "@/components/Article/reader-image-variants"
 
-/** Append at the first quarter of each received batch, at most one batch ahead. */
+/** Warm ten additional pages, then retain the existing scroll/manual policy. */
 export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   const { isArticleListReady, loadMoreVisible, articleListSnapshotRevision, articleListOffset, infoFrom, infoId } = useStore(contentState, {
     keys: ["isArticleListReady", "loadMoreVisible", "articleListSnapshotRevision", "articleListOffset", "infoFrom", "infoId"],
@@ -17,6 +17,8 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   const snapshot = `${infoFrom}:${infoId}:${articleListSnapshotRevision}`
   const windowRef = useRef(null)
   const attemptRef = useRef(null)
+  const autoRef = useRef({ snapshot: null, started: 0 })
+  const offeredCoversRef = useRef({ snapshot: null, count: 0 })
   const inFlightRef = useRef(false)
   const aliveRef = useRef(true)
   const latest = useRef(null)
@@ -32,10 +34,18 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   }, [])
 
   useEffect(() => {
+    if (!isArticleListReady || offeredCoversRef.current.snapshot !== snapshot) {
+      thumbnailsRef.current?.reset()
+      offeredCoversRef.current = { snapshot, count: 0 }
+    }
+  }, [isArticleListReady, snapshot])
+
+  useEffect(() => {
     if (!isArticleListReady) return
     const old = windowRef.current
     windowRef.current = nextWindow(old, snapshot, entries.length, articleListOffset)
     if (!old || old.snapshot !== snapshot) attemptRef.current = null
+    if (autoRef.current.snapshot !== snapshot) autoRef.current = { snapshot, started: 0 }
   }, [snapshot, entries.length, articleListOffset, isArticleListReady])
 
   const request = async (manual = false, observation = null) => {
@@ -45,14 +55,24 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
     const w = windowRef.current
     const key = `${s.snapshot}:${w?.count}:${w?.cursor}`
     if (!manual && attemptRef.current === key) return
+    if (observation?.reason === "startup") {
+      if (!autoPrefetchDecision(w, autoRef.current.started)) return
+      autoRef.current.started++
+    }
     attemptRef.current = key
     inFlightRef.current = true
     if (observation) window.dispatchEvent(new CustomEvent("inbox:prefetch", { detail: { ...observation, count: w.count, start: w.start, size: w.size, cursor: w.cursor, scope: s.snapshot } }))
-    try { await s.handleLoadMore(s.getEntries) }
+    try { await s.handleLoadMore(s.getEntries, { prefetch: observation?.reason === "startup" }) }
     finally { inFlightRef.current = false; if (aliveRef.current) setSettled(v => v + 1) }
   }
   const requestRef = useRef(request)
   requestRef.current = request
+
+  useEffect(() => {
+    if (!isArticleListReady || !loadMoreVisible || loadingMore || loadMoreError || inFlightRef.current) return
+    const decision = autoPrefetchDecision(windowRef.current, autoRef.current.started)
+    if (decision) void requestRef.current(false, decision)
+  }, [isArticleListReady, snapshot, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled])
 
   useEffect(() => {
     if (!isArticleListReady) return
@@ -66,9 +86,14 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const visible = [...root.querySelectorAll('[data-entry-id]')].filter(el => el.getBoundingClientRect().bottom > bounds.top + 1 && el.getBoundingClientRect().top < bounds.bottom)
       const first = visible[0]
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
-      const lastVisible = Math.max(-1, ...visible.map(el => s.indexes.get(el.dataset.entryId) ?? -1))
       const cover = root.querySelector('.grid-card-cover')
-      if (cover) thumbnailsRef.current?.warm(s.entries, lastVisible, cover.getBoundingClientRect().width, window.location.origin, window.devicePixelRatio)
+      const width = cover?.getBoundingClientRect().width
+      if (width > 0 && offeredCoversRef.current.snapshot === s.snapshot) {
+        const offered = offeredCoversRef.current
+        const start = Math.min(offered.count, s.entries.length)
+        thumbnailsRef.current?.enqueue(s.entries.slice(start), width, window.location.origin, window.devicePixelRatio)
+        offered.count = s.entries.length
+      }
       if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
       // An unmeasured initial virtual list is not a scrolled-to empty tail.
       if (index < 0 && root.scrollTop <= 0) return
@@ -101,6 +126,6 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   return <div className="load-more-container" role="status" aria-live="polite" data-prefetch-fraction="0.25" data-loaded-count={entries.length} data-more={String(loadMoreVisible)} data-cursor={articleListOffset}>
     {!loadMoreVisible ? (entries.length ? "已加载全部条目" : null) : loadMoreError ? <Button size="small" onClick={() => void request(true)}>加载失败，点击重试</Button>
       : loadingMore ? <><Spin style={{ paddingRight: 10 }} />正在提前加载下一批…</>
-      : <Button size="small" onClick={() => void request(true)}>继续滚动自动预加载 · 也可点击加载</Button>}
+      : <Button size="small" onClick={() => void request(true)}>已自动预加载前方最多 10 页 · 继续滚动或点击加载</Button>}
   </div>
 }

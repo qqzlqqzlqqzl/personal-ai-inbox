@@ -81,6 +81,47 @@ test("complete Today list warms only its chosen raw covers, at most two in fligh
   loader.dispose()
 })
 
+test("queued covers continue without scrolling, retain six/raw-two limits and deduplicate", () => {
+  const images=[]
+  const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image})
+  const entries=Array.from({length:30},(_,id)=>{
+    const url='https://example.org/queued-'+id+'.jpg'
+    return {id,coverSource:url,...(id%3?{ai:{cover_proxy_url:'/mf/proxy/'+'A'.repeat(43)+'=/'+btoa(url)}}:{})}
+  })
+  loader.enqueue(entries,320,origin,2)
+  assert.equal(images.length,6)
+  loader.enqueue(entries,320,origin,2)
+  for(let completed=0;completed<30;completed++){
+    const active=images.filter(image=>image.onload)
+    assert.ok(active.length<=6)
+    assert.ok(active.filter(image=>!image.srcset).length<=2)
+    assert.ok(active.length,'queued covers must continue when a previous image settles')
+    active[0].onload()
+  }
+  assert.equal(images.length,30)
+  assert.equal(new Set(images.map(image=>image.src)).size,30)
+  loader.enqueue(entries,320,origin,2)
+  assert.equal(images.length,30)
+  loader.dispose()
+})
+
+test("filter retirement discards queued covers while respecting existing download slots", () => {
+  const images=[]
+  const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image})
+  const old=Array.from({length:13},(_,id)=>({coverSource:'https://example.org/old-'+id+'.jpg'}))
+  loader.enqueue(old,320,origin)
+  assert.equal(images.length,2)
+  loader.reset()
+  loader.enqueue([{coverSource:'https://example.org/new.jpg'}],320,origin)
+  assert.equal(images.length,2)
+  images[0].onerror()
+  assert.equal(images.length,3)
+  assert.equal(images[2].src,'https://example.org/new.jpg')
+  images[1].onload();images[2].onload()
+  assert.equal(images.length,3,'old unsent covers must not restart')
+  loader.dispose()
+})
+
 test("external, credentialed, malformed, queried and fragment URLs remain untouched", () => {
   for (const value of [original,"//reader.example.test"+signed,"https://outside.example.test"+signed,
     "https://user:pass@reader.example.test"+signed,signed+"?reader_width=960",signed+"#fragment",

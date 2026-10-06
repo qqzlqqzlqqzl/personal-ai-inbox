@@ -23,7 +23,7 @@ if old_buffer in s:
  s=s.replace(old_buffer,new_buffer,1)
 else: assert s.count(new_buffer)==1, 'virtual buffer patch anchor missing'
 p.write_text(s)
-print('Reading snapshot and quarter-page prefetch overlay applied')
+print('Reading snapshot, ten-page automatic prefetch and scroll overlay applied')
 
 # AI offset totals and native cursor totals have different meanings.
 p=WEB/'hooks/useLoadMore.js';s=p.read_text()
@@ -31,4 +31,20 @@ old="if (response.total <= loadedCount || response.entries.length < effectivePag
 new="if ((isAiPagination ? response.total <= loadedCount : response.total <= effectivePageSize) || response.entries.length < effectivePageSize) {"
 if old in s: s=s.replace(old,new,1)
 else: assert new in s, 'native pagination patch anchor missing'
+p.write_text(s)
+
+# Background lookahead must not perform the legacy duplicate-to-read mutation.
+# Preserve all existing request owner/epoch and cursor checks in this hook.
+p=WEB/'hooks/useLoadMore.js';s=p.read_text()
+for before,after in [
+ ('const handleLoadMore = async (getEntries) => {', 'const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {'),
+ ('const updateEntries = (newEntries) => {', 'const updateEntries = (newEntries, prefetch = false) => {'),
+ ('    markDuplicatesAsRead(duplicateEntries)', '    if (!prefetch) markDuplicatesAsRead(duplicateEntries)'),
+ ('updateEntries(newEntries)', 'updateEntries(newEntries, prefetch)'),
+]:
+ if after in s:
+  assert s.count(after)==1 and before not in s, 'ambiguous background prefetch hook'
+ else:
+  assert s.count(before)==1, 'background prefetch hook anchor missing'
+  s=s.replace(before,after,1)
 p.write_text(s)

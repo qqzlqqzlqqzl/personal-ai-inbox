@@ -1,12 +1,62 @@
-"""Reuse an existing native signature for the same selected cover; never sign/fetch."""
+"""Bind a selected cover to native signing; never fetch media from enrichment."""
 import base64
 import binascii
+import hashlib
+import hmac
 import re
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
 
 SIGNED_PATH = re.compile(r"/mf/proxy/([A-Za-z0-9_-]{43}=)/([A-Za-z0-9_=-]{1,8192})\Z")
+
+
+def media_proxy_key():
+    """Read the existing private config; never create, change, log or return it to clients."""
+    try:
+        from initialize_secrets import read_env
+        value = read_env("miniflux.env").get("MEDIA_PROXY_PRIVATE_KEY")
+        return value if isinstance(value, str) and value else None
+    except (OSError, ImportError, AttributeError, ValueError):
+        return None
+
+
+def verified_proxy_target(path, key):
+    """A cache hit must pass the same HMAC before any cached bytes are exposed."""
+    if not key:
+        return None
+    match = SIGNED_PATH.fullmatch("/mf/" + path)
+    if not match:
+        return None
+    try:
+        raw, supplied = _decode(match[2]), _decode(match[1])
+        if not hmac.compare_digest(supplied, hmac.new(key.encode(), raw, hashlib.sha256).digest()):
+            return None
+        target = raw.decode("utf-8")
+        # Reuse the existing public URL validation without resolving/fetching here.
+        from stabilize_media import signed_url
+        signed_url(target, key)
+        return target
+    except (ValueError, UnicodeError, binascii.Error):
+        return None
+
+
+def stored_cover_proxy(entry, cover_url, row, user_id, key, *, native_base, reader_base=None):
+    """Sign only the selected stored cover bound to this authorized current entry."""
+    if not key or not row or type(user_id) is not int or not isinstance(cover_url, str):
+        return None
+    if (entry.get("user_id") != user_id or row.get("user_id") != user_id
+            or row.get("entry_id") != entry.get("id") or row.get("url") != entry.get("url")
+            or row.get("cover_url") != cover_url):
+        return None
+    try:
+        existing = _native_proxy(cover_url, (native_base, reader_base, "http://127.0.0.1:8092/mf"))
+        original = existing[1] if existing else cover_url
+        from stabilize_media import signed_url
+        signed = signed_url(original, key)
+        return signed if SIGNED_PATH.fullmatch(signed) else None
+    except (ValueError, UnicodeError):
+        return None
 
 
 def _decode(value):
@@ -77,9 +127,21 @@ class _NativeImages(HTMLParser):
 
 
 def selected_cover_proxy(entry, cover_url, *, native_base, reader_base=None):
-    """Only current native media URLs may supply a signature; missing means raw fallback."""
+    """Sign bound stored metadata, or reuse this native entry's same-image signature."""
     if not isinstance(cover_url, str) or not cover_url:
         return None
+    if (type(entry.get('id')) is int and type(entry.get('user_id')) is int
+            and isinstance(entry.get('url'), str)):
+        key = media_proxy_key()
+        if key:
+            from core import connect
+            with connect() as db:
+                row = db.execute('SELECT entry_id,user_id,url,cover_url FROM analyses WHERE entry_id=? AND user_id=?',
+                                 (entry['id'], entry['user_id'])).fetchone()
+            signed = stored_cover_proxy(entry, cover_url, dict(row) if row else None, entry['user_id'], key,
+                                        native_base=native_base, reader_base=reader_base)
+            if signed:
+                return signed
     bases = (native_base, reader_base, "http://127.0.0.1:8092/mf")
     selected_proxy = _native_proxy(cover_url, bases)
     try:

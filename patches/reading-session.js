@@ -1,5 +1,12 @@
 /** Pure per-batch prefetch policy. No network, credentials or model calls. */
 export const PREFETCH_FRACTION = 0.25
+export const AUTO_PREFETCH_PAGES = 10
+
+/** Ten additional pages after the initial page, independent of scroll position. */
+export function autoPrefetchDecision(window, started) {
+  if (!window || started >= AUTO_PREFETCH_PAGES) return null
+  return { reason: "startup", page: started + 1 }
+}
 
 export function nextWindow(previous, snapshot, count, cursor) {
   if (!previous || previous.snapshot !== snapshot || count < previous.count) {

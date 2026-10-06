@@ -388,7 +388,7 @@ jobs:
       - *verify_identity
       - *related_python
       - name: Responsive image selection and actual error fallback
-        run: timeout --signal=TERM --kill-after=10s 90s node --test tests/test_reader_thumbnails.mjs tests/test_reader_thumbnail_component.mjs
+        run: timeout --signal=TERM --kill-after=10s 90s node --test tests/test_reader_thumbnails.mjs tests/test_reader_thumbnail_component.mjs tests/test_reading_session.mjs
       - *build_reader
       - *upload_build
       - *upload_evidence
