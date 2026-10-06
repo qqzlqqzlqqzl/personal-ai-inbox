@@ -42,10 +42,13 @@
 }
 
 .article-body .reader-translation-target {
+  display: block;
   color: var(--color-text-1, #1e293b);
 }
 
 .article-body .reader-translation-original {
+  display: block;
+  margin-block-start: 0.55em;
   color: var(--color-text-2, #475569);
 }
 
