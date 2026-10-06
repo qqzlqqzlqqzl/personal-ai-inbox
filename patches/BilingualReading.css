@@ -1,0 +1,56 @@
+.reader-bilingual-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 auto 16px;
+  color: var(--color-text-2, #475569);
+  font-size: 13px;
+}
+
+.reader-bilingual-modes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.reader-bilingual-modes button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-2, #cbd5e1);
+  border-radius: 8px;
+  background: var(--color-bg-1, #fff);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reader-bilingual-modes button[aria-pressed="true"] {
+  border-color: rgb(var(--primary-6, 57, 122, 184));
+  background: var(--color-fill-2, #eef3fa);
+  color: var(--color-text-1, #1e293b);
+  font-weight: 600;
+}
+
+.reader-bilingual-modes button:focus-visible {
+  outline: 2px solid rgb(var(--primary-6, 57, 122, 184));
+  outline-offset: 2px;
+}
+
+.reader-bilingual-controls [role="status"] {
+  font-size: 12px;
+}
+
+.article-body .reader-translation-target {
+  color: var(--color-text-1, #1e293b);
+}
+
+.article-body .reader-translation-original {
+  color: var(--color-text-2, #475569);
+}
+
+@media (max-width: 620px) {
+  .reader-bilingual-modes button {
+    min-height: 44px;
+  }
+}
