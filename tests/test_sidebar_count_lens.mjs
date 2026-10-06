@@ -129,6 +129,11 @@ export {polyglotState} from '@/hooks/useLanguage';`,
     },
   ],
 });
+// This component fixture does not run main.jsx's React 19 Arco render adapter.
+// Record only retirement warnings; keep the actual sidebar components intact.
+const {Notification}=webRequire('@arco-design/web-react');
+const notificationWarnings=[],originalNotificationWarning=Notification.warning;
+Notification.warning=value=>notificationWarnings.push(value);
 const app=require(output),checks=[],apiCalls=[];
 const Polyglot=webRequire('node-polyglot');
 app.polyglotState.set({polyglot:new Polyglot({phrases:JSON.parse(await readFile(web+'src/locales/zh-CN.json','utf8')),locale:'zh-CN'})});
@@ -282,8 +287,9 @@ try {
  equal(app.sidebarScopeCountsState.get(),null,'logout rejects the old account batch');
  equal(batches.length,5,'logout starts no extra request');
  equal(apiCalls.filter(([method])=>method!=='GET').length,0,'batch bootstrap makes zero writes');
+ equal(notificationWarnings.some(value=>value.title==='本地笔记草稿清理未完成'),true,'account retirement warning remains observed without the main-only renderer');
  equal(errors,[],'no runtime window errors');
  console.log(JSON.stringify({listRequests:listCalls.map(({scope,args})=>({scope,args})),extraApiCalls:apiCalls.length}));
 
  console.log(JSON.stringify({type:'actual generated Sidebar components with React/jsdom, no layout',checks},null,2));
-} finally {await React.act(async()=>{stopBatch?.();root.unmount()});dom.window.close();await retainTestDirectory(directory)}
+} finally {try {await React.act(async()=>{stopBatch?.();root.unmount()})} finally {Notification.warning=originalNotificationWarning;dom.window.close();await retainTestDirectory(directory)}}
