@@ -100,8 +100,10 @@ def validate_badge(entry_id, text):
 
 class QualityConsumerFixture:
     """Exact small synthetic response set. Does NOT test the real backend classifier."""
-    def __init__(self, entries):
+    def __init__(self, entries, *, categories=(), feeds=()):
         self.entries = deepcopy(entries)
+        self.categories = deepcopy(categories)
+        self.feeds = deepcopy(feeds)
         self.requests = []
         self.violations = []
         self.telemetry = []
@@ -165,7 +167,47 @@ class QualityConsumerFixture:
                 entry["content_deferred"] = True
         return result
 
+    def scope_counts(self, query):
+        # This consumer fixture owns the complete seven-entry recommendation set.
+        # Reuse its existing selection rules, not raw/native counts or fake zeros.
+        allowed = {"ai_view", "ai_min", "ai_sort", "direction", "globally_visible",
+                   "status", "starred", "today_after"}
+        if set(query) - allowed or any(not isinstance(v, list) or len(v) != 1 for v in query.values()):
+            raise ValueError("unsupported or repeated scope query")
+        if query.get("ai_view") != ["recommended"] or "today_after" not in query:
+            raise ValueError("scope query requires the fixture recommendation view and calendar")
+        cutoff = int(query["today_after"][0])
+        if not 0 <= cutoff <= 4102444800:
+            raise ValueError("invalid scope calendar")
+        filters = {k: v for k, v in query.items() if k != "today_after"}
+        def rows_for(status=None):
+            selected = self.select({**filters, **({"status": [status]} if status else {}),
+                                    "limit": ["10000"]}, ids=True)["entry_ids"]
+            return [entry for entry in self.entries if entry["id"] in selected]
+        rows = rows_for()
+        def visible(entry):
+            feed = entry["feed"]
+            return query.get("globally_visible") != ["true"] or not (
+                feed.get("hide_globally") or (feed.get("category") or {}).get("hide_globally"))
+        global_rows = [entry for entry in rows if visible(entry)]
+        counts = {"all": len(global_rows),
+                  "today": sum(datetime.fromisoformat(e["published_at"].replace("Z", "+00:00")).timestamp() >= cutoff for e in global_rows),
+                  "starred": sum(e["starred"] for e in global_rows),
+                  "history": sum(visible(e) for e in rows_for("read")),
+                  "category": {str(c["id"]): 0 for c in self.categories},
+                  "feed": {str(f["id"]): 0 for f in self.feeds}}
+        for entry in rows:
+            for scope, value in (("feed", entry["feed_id"]), ("category", (entry["feed"].get("category") or {}).get("id"))):
+                if value is not None:
+                    key = str(value)
+                    counts[scope][key] = counts[scope].get(key, 0) + 1
+        return {"scope_counts": counts}
+
     def respond(self, path, method, query, body=None):
+        if method == "GET" and path == "/mf/v1/ai/scope-counts":
+            response = self.scope_counts(query)
+            self.requests.append({"path": path, "query": deepcopy(query), **deepcopy(response)})
+            return 200, response
         if method == "GET" and path in ("/mf/v1/entries", "/mf/v1/entries/ids"):
             response = self.select(query, ids=path.endswith("/ids"))
             self.requests.append({"path": path, "query": deepcopy(query), "total": response["total"],
