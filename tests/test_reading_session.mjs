@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {execFileSync} from 'node:child_process'
 import vm from 'node:vm'
-import { nextWindow, prefetchDecision, autoPrefetchDecision, AUTO_PREFETCH_PAGES } from '../patches/reading-session.js'
+import { nextWindow, prefetchDecision, autoPrefetchDecision, AUTO_PREFETCH_PAGES, scheduleAutoPrefetch } from '../patches/reading-session.js'
 let w = nextWindow(null, 'all:1', 24, 24)
 assert.equal(prefetchDecision(w, 5, 1800, 800), null)
 assert.deepEqual(prefetchDecision(w, 6, 1800, 800), {reason:'quarter',target:6})
@@ -31,6 +31,30 @@ for(let page=0;page<10;page++)assert.deepEqual(autoPrefetchDecision(w,page),{rea
 assert.equal(autoPrefetchDecision(w,10),null)
 assert.equal(autoPrefetchDecision(null,0),null)
 assert.deepEqual(autoPrefetchDecision(nextWindow(null,'new-scope',24,24),0),{reason:'startup',page:1})
+
+// The network callback cannot run during the first page's render/paint, and
+// disposing a changed scope cancels pending background work.
+function fakeClock() {
+ const jobs = new Map(); let id = 0
+ const add = (type, fn, delay) => { jobs.set(++id,{type,fn,delay}); return id }
+ return { jobs,
+  requestAnimationFrame:fn=>add('frame',fn), cancelAnimationFrame:key=>jobs.delete(key),
+  setTimeout:(fn,delay)=>add('timer',fn,delay), clearTimeout:key=>jobs.delete(key),
+  requestIdleCallback:fn=>add('idle',fn), cancelIdleCallback:key=>jobs.delete(key),
+  step(type) { const [key,job]=[...jobs].find(([,job])=>job.type===type); jobs.delete(key); job.fn() },
+ }
+}
+let calls=0, clock=fakeClock()
+scheduleAutoPrefetch(()=>calls++,0,clock)
+assert.equal(calls,0)
+clock.step('frame');assert.equal(calls,0)
+clock.step('frame');assert.equal(calls,0,'first page has an independent paint before prefetch')
+clock.step('timer');assert.equal(calls,1)
+clock=fakeClock()
+const cancel=scheduleAutoPrefetch(()=>calls++,2,clock)
+clock.step('frame');clock.step('frame');clock.step('timer')
+assert.equal(calls,1,'later pages yield to idle time')
+cancel();assert.equal(clock.jobs.size,0,'changing scope cancels queued idle work')
 
 // Exercise the exact installer replacements on the reviewed hook's small
 // updateEntries/call shape, without running the production-path installer.

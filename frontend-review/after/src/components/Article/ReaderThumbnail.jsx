@@ -1,17 +1,21 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { readerThumbnailProps } from "./reader-image-variants"
 
 export default function ReaderThumbnail({ entry, onError, ...props }) {
-  const { originalSrc, ...variant } = readerThumbnailProps(entry, window.location.origin)
+  const thumbnail = readerThumbnailProps(entry, window.location.origin)
+  const variant = { src: thumbnail.src, srcSet: thumbnail.srcSet, sizes: thumbnail.sizes }
   const [failedSource, setFailedSource] = useState(null)
-  const fallback = failedSource === variant.src
+  useEffect(() => {
+    if (!variant.src) onError?.()
+  }, [variant.src, onError])
+  if (!variant.src || failedSource === variant.src) return null
   return (
     <img
       {...props}
-      {...(fallback ? { src: originalSrc } : variant)}
+      {...variant}
       onError={event => {
-        if (!fallback && variant.src !== originalSrc) setFailedSource(variant.src)
-        else onError?.(event)
+        setFailedSource(variant.src)
+        onError?.(event)
       }}
     />
   )

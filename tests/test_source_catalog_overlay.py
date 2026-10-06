@@ -114,6 +114,18 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_variants).hexdigest(), prefetch_variants)
         self.assertNotIn(prefetch_variants, old[variants])
         old[variants].append(prefetch_variants)
+        # #153 retires automatic raw-origin covers. Admit exactly the deployed
+        # helper and component bytes; no other overlay histories may change.
+        cover_base = '0d09a7d382c0f9a1927b4ec6564a5909d12cafc1'
+        subprocess.run(['git', 'merge-base', '--is-ancestor', cover_base, 'HEAD'], cwd=ROOT, check=True, timeout=15)
+        for name, expected in {
+            variants: 'ecbb0b1b802c2bbafcc09235a2f0bb314c6ada7dbdb439719a9be08a6db7e6de',
+            'src/components/Article/ReaderThumbnail.jsx': '597dbf6257b36c156ee9b65e747411789eefc234e112aee462116e175761894a',
+        }.items():
+            previous = subprocess.check_output(['git', 'show', cover_base + ':frontend-review/after/' + name], cwd=ROOT, timeout=15)
+            self.assertEqual(hashlib.sha256(previous).hexdigest(), expected)
+            self.assertNotIn(expected, old.get(name, []))
+            old.setdefault(name, []).append(expected)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):

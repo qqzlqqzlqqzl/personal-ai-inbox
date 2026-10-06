@@ -30,10 +30,10 @@ test("AI cover proxy must represent the selected cover, never a different attach
   const entry = {coverSource:original, ai:{cover_proxy_url:signed}}
   assert.equal(readerThumbnailProps(entry,origin).src,signed+"?reader_width=480")
   const other = {...entry,coverSource:"https://example.org/different.jpg",attachments:{images:[{url:signed}]}}
-  assert.deepEqual(readerThumbnailProps(other,origin),{src:other.coverSource,originalSrc:other.coverSource})
+  assert.deepEqual(readerThumbnailProps(other,origin),{originalSrc:other.coverSource})
 })
 
-test("cover lookahead has six slots, shared variants and no repeated requests", () => {
+test("cover lookahead leaves browser slots for pages, shares variants and never repeats failed URLs", () => {
   const images=[];let settled=0
   const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image},()=>settled++)
   const entries=Array.from({length:20},(_,id)=>{
@@ -42,21 +42,25 @@ test("cover lookahead has six slots, shared variants and no repeated requests", 
     return {id,coverSource:url,ai:{cover_proxy_url:proxy}}
   })
   loader.warm(entries,2,320,origin,2)
-  assert.equal(images.length,6)
+  assert.equal(images.length,2)
   assert.equal(images[0].src,readerThumbnailProps(entries[3],origin).src)
   assert.equal(images[0].srcset,readerThumbnailProps(entries[3],origin).srcSet)
   assert.equal(images[0].sizes,"320px")
   loader.warm(entries,12,320,origin,2)
-  assert.equal(images.length,6,"in-flight work is bounded even after a fast scroll")
+  assert.equal(images.length,2,"background work keeps two slots even after a fast scroll")
   for (const image of images) image.onerror()
-  assert.equal(settled,6)
+  assert.equal(settled,2)
   loader.warm(entries,2,320,origin,2)
-  assert.equal(images.length,6,"failed prefetch does not loop or retry originals")
+  assert.equal(images.length,4,"lookahead continues with new proxy URLs after failure")
+  assert.equal(new Set(images.map(image=>image.src)).size,4,"failed prefetch never retries a URL")
   loader.warm(entries,12,320,origin,2)
-  assert.equal(images.length,12)
+  assert.equal(images.length,4)
+  images[2].onload();images[3].onload()
+  loader.warm(entries,12,320,origin,2)
+  assert.equal(images.length,6)
   loader.dispose()
   loader.warm(entries,0,480,origin,1)
-  assert.equal(images.length,12,"retired component cannot issue more work")
+  assert.equal(images.length,6,"retired component cannot issue more work")
   assert.ok(images.every(image=>image.onerror===null))
   const invalid=createThumbnailPreloader(()=>{throw new Error("invalid prefetch")})
   invalid.warm([{coverSource:original},{coverSource:"javascript:alert(1)"}],0,320,origin)
@@ -65,23 +69,22 @@ test("cover lookahead has six slots, shared variants and no repeated requests", 
   invalid.dispose()
 })
 
-test("complete Today list warms only its chosen raw covers, at most two in flight", () => {
+test("unproxied covers keep source information without display or background origin requests", () => {
   const today={more:false,entries:Array.from({length:13},(_,id)=>({id,coverSource:`https://example.org/today-${id}.jpg`}))}
   const images=[]
   const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image})
   loader.warm(today.entries,2,320,origin,2)
-  assert.deepEqual(images.map(image=>image.src),today.entries.slice(3,5).map(entry=>entry.coverSource))
-  assert.ok(images.every(image=>image.fetchPriority==='low' && image.srcset===undefined))
+  assert.equal(images.length,0)
   loader.warm(today.entries,8,320,origin,2)
-  assert.equal(images.length,2,"raw work cannot overwhelm the other four image slots")
-  images[0].onerror();images[1].onload()
+  loader.enqueue(today.entries,320,origin,2)
+  assert.equal(images.length,0,"unbound originals never enter the background queue")
   loader.warm(today.entries,2,640,origin,1)
-  assert.deepEqual(images.slice(2).map(image=>image.src),today.entries.slice(5,7).map(entry=>entry.coverSource))
-  assert.equal(images.length,4,"same raw URL is not retried after failure or width changes")
+  assert.equal(images.length,0)
+  for (const entry of today.entries) assert.deepEqual(readerThumbnailProps(entry,origin),{originalSrc:entry.coverSource})
   loader.dispose()
 })
 
-test("queued covers continue without scrolling, retain six/raw-two limits and deduplicate", () => {
+test("queued proxy covers continue without scrolling, retain two slots and never warm originals", () => {
   const images=[]
   const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image})
   const entries=Array.from({length:30},(_,id)=>{
@@ -89,44 +92,50 @@ test("queued covers continue without scrolling, retain six/raw-two limits and de
     return {id,coverSource:url,...(id%3?{ai:{cover_proxy_url:'/mf/proxy/'+'A'.repeat(43)+'=/'+btoa(url)}}:{})}
   })
   loader.enqueue(entries,320,origin,2)
-  assert.equal(images.length,6)
+  assert.equal(images.length,2)
   loader.enqueue(entries,320,origin,2)
-  for(let completed=0;completed<30;completed++){
+  for(let completed=0;completed<20;completed++){
     const active=images.filter(image=>image.onload)
-    assert.ok(active.length<=6)
-    assert.ok(active.filter(image=>!image.srcset).length<=2)
+    assert.ok(active.length<=2)
+    assert.ok(active.every(image=>image.src.startsWith('/mf/proxy/') && image.srcset))
     assert.ok(active.length,'queued covers must continue when a previous image settles')
-    active[0].onload()
+    if (completed%2) active[0].onload()
+    else active[0].onerror()
   }
-  assert.equal(images.length,30)
-  assert.equal(new Set(images.map(image=>image.src)).size,30)
+  assert.equal(images.length,20)
+  assert.equal(new Set(images.map(image=>image.src)).size,20)
   loader.enqueue(entries,320,origin,2)
-  assert.equal(images.length,30)
+  assert.equal(images.length,20,"proxy errors never retry raw URLs or failed variants")
   loader.dispose()
 })
 
 test("filter retirement discards queued covers while respecting existing download slots", () => {
   const images=[]
   const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image})
-  const old=Array.from({length:13},(_,id)=>({coverSource:'https://example.org/old-'+id+'.jpg'}))
+  const cover=name=>{
+    const coverSource='https://example.org/'+name+'.jpg'
+    return {coverSource,ai:{cover_proxy_url:'/mf/proxy/'+'A'.repeat(43)+'=/'+btoa(coverSource)}}
+  }
+  const old=Array.from({length:13},(_,id)=>cover('old-'+id))
   loader.enqueue(old,320,origin)
   assert.equal(images.length,2)
   loader.reset()
-  loader.enqueue([{coverSource:'https://example.org/new.jpg'}],320,origin)
+  const next=cover('new')
+  loader.enqueue([next],320,origin)
   assert.equal(images.length,2)
   images[0].onerror()
   assert.equal(images.length,3)
-  assert.equal(images[2].src,'https://example.org/new.jpg')
-  images[1].onload();images[2].onload()
+  assert.equal(images[2].src,readerThumbnailProps(next,origin).src)
+  for (const image of images.slice(1)) image.onload()
   assert.equal(images.length,3,'old unsent covers must not restart')
   loader.dispose()
 })
 
-test("external, credentialed, malformed, queried and fragment URLs remain untouched", () => {
+test("unbound external, credentialed, malformed, queried and fragment covers preserve originals without requesting them", () => {
   for (const value of [original,"//reader.example.test"+signed,"https://outside.example.test"+signed,
     "https://user:pass@reader.example.test"+signed,signed+"?reader_width=960",signed+"#fragment",
     "/mf/proxy/bad/encoded","javascript:alert(1)"]) {
     assert.deepEqual(readerThumbnailProps({coverSource:original,attachments:{images:[{url:value}]}},origin),
-      {src:original,originalSrc:original})
+      {originalSrc:original})
   }
 })

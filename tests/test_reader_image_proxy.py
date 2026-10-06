@@ -197,23 +197,58 @@ def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_
     monkeypatch.setattr(images, 'resize_image', codec)
     async def native(req):
         fetches.append(req)
+        assert req.headers['accept'] == images.NATIVE_IMAGE_ACCEPT
         await asyncio.sleep(.02)
         if req.url.path != '/mf/' + path:
             return httpx.Response(403, content=b'Forbidden')
-        return httpx.Response(200, content=picture(), headers={'content-type': 'image/jpeg', 'cache-control': 'public, max-age=60'})
+        return httpx.Response(200, content=picture(), headers={'content-type': 'image/jpeg',
+            'cache-control': 'public, max-age=60', 'set-cookie': 'native-session=synthetic; HttpOnly'})
     def factory(**kwargs):
         return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
-    def read():
-        return images.fetch_variant('http://native.test/mf', path, 960, 'image/*',
+    def read(accept):
+        return images.fetch_variant('http://native.test/mf', path, 960, accept,
                                     client_factory=factory, cache=cache, signature_key=key)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: read(), range(2)))
+        results = list(pool.map(read, ('image/*', 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8')))
     assert all(result.status_code == 200 for result in results)
     assert len(fetches) == len(codecs) == 1 and results[0].body == results[1].body
+    assert all(result.headers['cache-control'] == 'public, max-age=60'
+               and 'set-cookie' not in result.headers for result in results)
+    assert len(list(cache.root.glob('*.image'))) == 1
+    assert read('image/avif,image/webp,image/*').body == results[0].body
+    assert len(fetches) == len(codecs) == 1
     forged = path.replace(path.split('/')[1], 'A' * 43 + '=')
     denied = images.fetch_variant('http://native.test/mf', forged, 960, 'image/*',
                                   client_factory=factory, cache=cache, signature_key=key)
     assert denied.status_code == 403 and len(fetches) == 2 and len(codecs) == 1
+
+
+@pytest.mark.parametrize('policy,pragma,status', [
+    (None, None, 200), ('max-age=60', None, 200), ('public, private', None, 200),
+    ('public, no-store', None, 200), ('public, no-cache', None, 200),
+    ('public, must-revalidate', None, 200), ('public, max-age=0', None, 200),
+    ('public, max-age=60', 'no-cache', 200), ('public, max-age=60', None, 403)])
+def test_cookie_without_unconflicted_public_image_does_not_cache(tmp_path, policy, pragma, status):
+    key = 'test-only-stable-key'
+    path = signed_url('https://example.org/photo.jpg', key)[4:]
+    cache = ImageCache(tmp_path / 'images')
+    calls = []
+    headers = {'content-type': 'image/jpeg', 'set-cookie': 'native-session=synthetic; HttpOnly'}
+    if policy is not None:
+        headers['cache-control'] = policy
+    if pragma is not None:
+        headers['pragma'] = pragma
+    def native(req):
+        calls.append(req)
+        return httpx.Response(status, content=picture((32, 24)), headers=headers)
+    def factory(**kwargs):
+        return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+    for _ in range(2):
+        response = images.fetch_variant('http://native.test/mf', path, 960, 'image/*',
+                                        client_factory=factory, cache=cache, signature_key=key)
+        assert response.status_code == status and response.headers['cache-control'] == 'no-store'
+        assert 'set-cookie' not in response.headers
+    assert len(calls) == 2 and not list(cache.root.glob('*.image'))
 
 
 @pytest.mark.parametrize('body,mime,policy', [(b'<html>login</html>', 'text/html', 'public, max-age=60'),

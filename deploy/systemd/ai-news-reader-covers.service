@@ -1,0 +1,18 @@
+[Unit]
+Description=Warm newest AI recommended >=8 Reader covers
+After=ai-news-miniflux.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/website-release-20261004/reader-3349cf2-source/src
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=AI_NEWS_ROOT=/home/ubuntu/website-release-20261004/reader-3349cf2-source
+EnvironmentFile=/home/ubuntu/ai-news/.private/ai.env
+ExecStart=/home/ubuntu/ai-news/runtime/venv/bin/python /home/ubuntu/website-release-20261004/reader-3349cf2-source/src/warm_reader_covers.py --once
+TimeoutStartSec=120s
+Nice=10
+MemoryMax=256M
+UMask=0077
+NoNewPrivileges=true
+

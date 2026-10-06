@@ -88,6 +88,10 @@
   "src/components/Article/reader-image-variants.js": [
     "8e85c775606c8bf356cf2f310953ed4e0aeda5d0d8d5f7e11e8bbd87150cc2b3",
     "ec75521da6aeae56af43e635c504fc270ade7d76502780ac70361eea236d7491",
-    "a7b309af14b311630f9a8b70948a7c2a445686409f3bd6c1bf914c5456493c58"
+    "a7b309af14b311630f9a8b70948a7c2a445686409f3bd6c1bf914c5456493c58",
+    "ecbb0b1b802c2bbafcc09235a2f0bb314c6ada7dbdb439719a9be08a6db7e6de"
+  ],
+  "src/components/Article/ReaderThumbnail.jsx": [
+    "597dbf6257b36c156ee9b65e747411789eefc234e112aee462116e175761894a"
   ]
 }

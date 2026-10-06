@@ -16,7 +16,7 @@ from starlette.responses import Response
 
 from reader_work import ReaderWorkPool
 from reader_cover_proxy import media_proxy_key, verified_proxy_target
-from reader_image_cache import ImageCache, variant_key
+from reader_image_cache import ImageCache, cache_lifetime, variant_key
 from core import ROOT
 
 WIDTHS = (480, 960, 1600)
@@ -26,6 +26,7 @@ MAX_OUTPUT_PIXELS = 4_000_000
 MAX_OUTPUT_HEIGHT = 4096
 FETCH_SECONDS = 20
 REQUEST_SECONDS = 30
+NATIVE_IMAGE_ACCEPT = "image/webp,image/jpeg,image/png,image/*;q=0.8"
 SIGNED_PATH = re.compile(r"proxy/[A-Za-z0-9_-]{43}=/[A-Za-z0-9_=-]{1,8192}\Z")
 FORMATS = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
 image_work = ReaderWorkPool(limit=2)
@@ -100,7 +101,13 @@ async def _native_image(native_base, path, accept, client_factory):
             headers = {key: value for key, value in upstream.headers.items() if key.lower() in
                        {"content-type", "cache-control", "last-modified", "content-security-policy", "location", "age", "pragma"}}
             if 'set-cookie' in upstream.headers:
-                headers['cache-control'] = 'no-store'
+                # Native may attach its session cookie to an explicitly public
+                # signed image. The cookie is never forwarded or stored; retain
+                # only a successful, public policy without cache conflicts.
+                public = any(part.strip().lower() == 'public'
+                             for part in headers.get('cache-control', '').split(','))
+                if upstream.status_code != 200 or not public or not cache_lifetime(headers):
+                    headers['cache-control'] = 'no-store'
             if upstream.status_code != 200:
                 return Response(bytes(body), status_code=upstream.status_code, headers=headers)
             return bytes(body), headers
@@ -135,6 +142,9 @@ def _make_variant(native_base, path, width, accept, client_factory):
 def fetch_variant(native_base, path, width, accept, cache_policy='', *, client_factory=httpx.AsyncClient,
                   cache=None, signature_key=_UNSET):
     """Local HMAC gates hits; native validates every miss. Failure never becomes a hit."""
+    # Native forwards Accept to the origin. Use one representation for the
+    # browser and server warmer, including the actual fetch and disk cache key.
+    accept = NATIVE_IMAGE_ACCEPT
     private_key = media_proxy_key() if signature_key is _UNSET else signature_key
     target = verified_proxy_target(path, private_key)
     bypass = any(part.strip().split('=', 1)[0].lower() in {'no-store', 'no-cache'}

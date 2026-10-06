@@ -70,6 +70,28 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(result['scope'], 'backup')
         self.assertEqual(PYTHON_TESTS['backup'], ['tests/test_operational_cli_admission.py'])
 
+    def test_two_exact_cover_histories_and_warm_job_stay_focused(self):
+        thumbnail = 'frontend-review/after/src/components/Article/ReaderThumbnail.jsx'
+        thumbnail_key = 'src/components/Article/ReaderThumbnail.jsx'
+        self.write(thumbnail, '// original thumbnail\n')
+        self.base = self.commit()
+        history = {}
+        for key, path in ((IMAGE_KEY, IMAGE_HELPER), (thumbnail_key, thumbnail)):
+            body = subprocess.check_output(['git', 'show', self.base+':'+path], cwd=self.root, timeout=10)
+            history[key] = [hashlib.sha256(body).hexdigest()]
+            self.write(path, '// updated signed-only cover\n')
+        self.write(IMAGE_HISTORY, json.dumps(history))
+        self.write('src/warm_reader_covers.py', '# bounded image warm job\n')
+        self.write('tests/test_warm_reader_covers.py', '# related image warm checks\n')
+        self.write('deploy/systemd/ai-news-reader-covers.service', '# bounded image warm unit\n')
+        self.write('deploy/systemd/ai-news-reader-covers.timer', '# automatic image warm timer\n')
+        result = self.pr(self.commit(rebind=True))
+        self.assertEqual(result['scope'], 'images')
+        self.assertFalse(result['native'])
+        history['unrelated-overlay'] = ['0'*64]
+        self.write(IMAGE_HISTORY, json.dumps(history))
+        self.assertEqual(self.pr(self.commit())['scope'], 'full')
+
     def test_actual_date_native_pattern_keeps_interface_and_native_gates(self):
         self.assertEqual(classify([{'path': 'src/reader_image_proxy.py', 'status': 'M'},
                                   {'path': 'src/api.py', 'status': 'M'}]), 'full')
@@ -100,6 +122,7 @@ class ScopeTests(unittest.TestCase):
             'tests/test_reader_cover_proxy.py', 'tests/test_api.py',
             'tests/test_ci_reader_scope.py',
             'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
+            'tests/test_warm_reader_covers.py',
         ])
         self.write('README.md', '# usage update\n')
         self.write('docs/ops/PRODUCT-ACCEPTANCE.md', '# acceptance update\n')
