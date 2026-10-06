@@ -82,7 +82,7 @@ async def notes(db, monkeypatch):
     with core.connect() as c:
         c.executemany('INSERT INTO entry_notes(user_id,entry_id,note,created_at,updated_at) VALUES(1,?,?,0,?)',
                       [(i,f'note {i}',float(i)) for i in upstream.entries])
-    monkeypatch.setattr(api,'enrich_reader_entries',lambda entries, uid: entries)
+    monkeypatch.setattr(api,'enrich_reader_entries',lambda entries, uid, **kwargs: entries)
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
         monkeypatch.setattr(api.app.state,'client',client,raising=False)
         yield upstream

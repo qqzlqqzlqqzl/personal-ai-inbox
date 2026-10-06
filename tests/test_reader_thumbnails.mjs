@@ -1,10 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {readerThumbnailProps, readerImageProps} from "../frontend-review/after/src/components/Article/reader-image-variants.js"
+import {readerThumbnailProps, readerImageProps, createThumbnailPreloader} from "../frontend-review/after/src/components/Article/reader-image-variants.js"
 
 const origin = "https://reader.example.test"
 const signed = "/mf/proxy/" + "A".repeat(43) + "=/aHR0cHM6Ly9leGFtcGxlLm9yZy9jb3Zlci5qcGc="
-const original = "https://images.example.test/cover.jpg"
+const original = "https://example.org/cover.jpg"
 
 test("native enclosure provides responsive thumbnails without mutating article or preview", () => {
   const entry = {coverSource:original, attachments:{images:[{url:signed}]}}
@@ -24,6 +24,61 @@ test("existing signed cover wins and same-origin absolute URL becomes a display 
   const result = readerThumbnailProps({coverSource:origin+signed,attachments:{images:[{url:other}]}},origin)
   assert.equal(result.src,signed+"?reader_width=480")
   assert.equal(result.originalSrc,origin+signed)
+})
+
+test("AI cover proxy must represent the selected cover, never a different attachment", () => {
+  const entry = {coverSource:original, ai:{cover_proxy_url:signed}}
+  assert.equal(readerThumbnailProps(entry,origin).src,signed+"?reader_width=480")
+  const other = {...entry,coverSource:"https://example.org/different.jpg",attachments:{images:[{url:signed}]}}
+  assert.deepEqual(readerThumbnailProps(other,origin),{src:other.coverSource,originalSrc:other.coverSource})
+})
+
+test("cover lookahead has six slots, shared variants and no repeated requests", () => {
+  const images=[];let settled=0
+  const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image},()=>settled++)
+  const entries=Array.from({length:20},(_,id)=>{
+    const url=`https://example.org/cover-${id}.jpg`
+    const proxy="/mf/proxy/"+"A".repeat(43)+"=/"+btoa(url)
+    return {id,coverSource:url,ai:{cover_proxy_url:proxy}}
+  })
+  loader.warm(entries,2,320,origin,2)
+  assert.equal(images.length,6)
+  assert.equal(images[0].src,readerThumbnailProps(entries[3],origin).src)
+  assert.equal(images[0].srcset,readerThumbnailProps(entries[3],origin).srcSet)
+  assert.equal(images[0].sizes,"320px")
+  loader.warm(entries,12,320,origin,2)
+  assert.equal(images.length,6,"in-flight work is bounded even after a fast scroll")
+  for (const image of images) image.onerror()
+  assert.equal(settled,6)
+  loader.warm(entries,2,320,origin,2)
+  assert.equal(images.length,6,"failed prefetch does not loop or retry originals")
+  loader.warm(entries,12,320,origin,2)
+  assert.equal(images.length,12)
+  loader.dispose()
+  loader.warm(entries,0,480,origin,1)
+  assert.equal(images.length,12,"retired component cannot issue more work")
+  assert.ok(images.every(image=>image.onerror===null))
+  const invalid=createThumbnailPreloader(()=>{throw new Error("invalid prefetch")})
+  invalid.warm([{coverSource:original},{coverSource:"javascript:alert(1)"}],0,320,origin)
+  invalid.warm(entries,-1,320,origin)
+  invalid.warm(entries,0,0,origin)
+  invalid.dispose()
+})
+
+test("complete Today list warms only its chosen raw covers, at most two in flight", () => {
+  const today={more:false,entries:Array.from({length:13},(_,id)=>({id,coverSource:`https://example.org/today-${id}.jpg`}))}
+  const images=[]
+  const loader=createThumbnailPreloader(()=>{const image={};images.push(image);return image})
+  loader.warm(today.entries,2,320,origin,2)
+  assert.deepEqual(images.map(image=>image.src),today.entries.slice(3,5).map(entry=>entry.coverSource))
+  assert.ok(images.every(image=>image.fetchPriority==='low' && image.srcset===undefined))
+  loader.warm(today.entries,8,320,origin,2)
+  assert.equal(images.length,2,"raw work cannot overwhelm the other four image slots")
+  images[0].onerror();images[1].onload()
+  loader.warm(today.entries,2,640,origin,1)
+  assert.deepEqual(images.slice(2).map(image=>image.src),today.entries.slice(5,7).map(entry=>entry.coverSource))
+  assert.equal(images.length,4,"same raw URL is not retried after failure or width changes")
+  loader.dispose()
 })
 
 test("external, credentialed, malformed, queried and fragment URLs remain untouched", () => {

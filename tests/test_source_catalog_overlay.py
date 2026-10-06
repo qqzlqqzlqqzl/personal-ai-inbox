@@ -98,6 +98,13 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_variants).hexdigest(), reviewed_variants)
         self.assertNotIn(variants, old)
         old[variants] = [reviewed_variants]
+        # #147 upgrades the exact deployed thumbnail helper, preserving old pins.
+        deployed_variants = "ec75521da6aeae56af43e635c504fc270ade7d76502780ac70361eea236d7491"
+        prior_variants = subprocess.check_output(
+            ['git', 'show', 'bccac49365810b75d914460d5ce201a2e8fbc3ae:frontend-review/after/' + variants], cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_variants).hexdigest(), deployed_variants)
+        self.assertNotIn(deployed_variants, old[variants])
+        old[variants].append(deployed_variants)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):

@@ -130,6 +130,37 @@ async def test_invalid_entry_identifier_is_400(browser_api, path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("native_image, expected_proxy", [
+    ("https://example.org/cover.jpg", True),
+    ("https://example.org/different.jpg", False),
+    (None, False),
+])
+async def test_selected_ai_cover_reuses_only_its_native_proxy(browser_api, entry, model_result, native_image, expected_proxy):
+    import base64
+    original = "https://example.org/cover.jpg"
+    proxy = ("/mf/proxy/" + "A" * 43 + "=/" + base64.urlsafe_b64encode(native_image.encode()).decode()) if native_image else None
+    entry["content"] = f'<p>Native article.</p><img src="http://127.0.0.1:8092{proxy}">' if proxy else "<p>No native image.</p>"
+    core.discover([entry])
+    core.update(1, state="done", score=8, result=json.dumps({**model_result,
+        "cover_proxy_url": "/mf/proxy/invented-by-model/wrong-image"}),
+        cover_url=original, cover_source="extracted_content")
+    headers = {"X-Auth-Token": "test-session"}
+    compact = await browser_api.get("/mf/v1/entries?ai_view=recommended&ai_min=8", headers=headers)
+    assert compact.status_code == 200, compact.text
+    item = compact.json()["entries"][0]
+    assert item["content"] == "" and item["content_deferred"] is True
+    assert item["ai"]["cover_url"] == original
+    assert item["ai"].get("cover_proxy_url") == (proxy if expected_proxy else None)
+    detailed = await browser_api.get("/mf/v1/entries/1", headers=headers)
+    assert detailed.status_code == 200, detailed.text
+    assert detailed.json()["ai"]["cover_url"] == original
+    assert detailed.json()["ai"].get("cover_proxy_url") == (proxy if expected_proxy else None)
+    with core.connect() as c:
+        stored = c.execute("SELECT result FROM analyses WHERE entry_id=1").fetchone()[0]
+    assert json.loads(stored)["cover_proxy_url"] == "/mf/proxy/invented-by-model/wrong-image"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "query", ["ai_view=unknown", "ai_view=recommended&status=unknown"]
 )

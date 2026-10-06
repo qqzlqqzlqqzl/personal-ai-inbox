@@ -127,7 +127,7 @@ def status_fixture(tmp_path, monkeypatch, *, active=True, ledger=True):
     monkeypatch.setattr(month_control,'STAGE',stage)
     monkeypatch.setattr(month_control,'KEYS',('primary',))
     monkeypatch.setattr(month_control,'effective_enabled_lanes',lambda:[])
-    monkeypatch.setattr(month_control,'quota_status',lambda:{'checked_at':100,'lanes':{}})
+    monkeypatch.setattr(month_control,'quota_status',lambda **kwargs:{'checked_at':100,'lanes':{}})
     def local_service(args,**kwargs):
         assert args[:3]==['systemctl','--user','show']
         return SimpleNamespace(stdout='')
@@ -164,3 +164,32 @@ def test_missing_ledger_stays_unknown_and_is_never_created(tmp_path, monkeypatch
     assert value['quarantine']=={'batches':None,'claims':None}
     assert 'outstanding' not in value
     assert not (lane/'batches.sqlite3').exists()
+
+
+def test_ui_quota_refresh_returns_stale_cache_without_waiting_or_duplicate_threads(tmp_path,monkeypatch):
+    import threading
+    monkeypatch.setattr(month_control,'ROOT',tmp_path)
+    monkeypatch.setattr(month_control,'KEYS',('primary',))
+    monkeypatch.setattr(month_control,'effective_enabled_lanes',lambda:['primary'])
+    folder=tmp_path/'state/kaggle-month-dispatch';folder.mkdir(parents=True)
+    cached={'checked_at':100,'lanes':{'primary':{'state':'ok','gpu':{'remaining_hours':12}}}}
+    (folder/'quota-status.json').write_text(json.dumps(cached))
+    monkeypatch.setattr(month_control,'_quota_refresh_lock',threading.Lock())
+    started=[]
+    class DeferredThread:
+        def __init__(self,*,target,daemon,name):self.target=target
+        def start(self):started.append(self)
+    monkeypatch.setattr(month_control.threading,'Thread',DeferredThread)
+    first=month_control.quota_status(now=1000,background=True)
+    second=month_control.quota_status(now=1000,background=True)
+    assert len(started)==1
+    assert first==second and first['checked_at']==100
+    assert first['lanes']['primary']['state']=='stale'
+    assert first['lanes']['primary']['gpu']['remaining_hours']==12
+    from kaggle_batch.quota_guard import admission
+    assert not admission(first['lanes']['primary'],checked_at=first['checked_at'],now=1000)['allowed']
+    assert json.loads((folder/'quota-status.json').read_text())==cached
+    monkeypatch.setattr(month_control,'quota_status',lambda **kwargs:None)
+    started[0].target()
+    assert month_control._quota_refresh_lock.acquire(blocking=False)
+    month_control._quota_refresh_lock.release()

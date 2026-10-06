@@ -10,6 +10,7 @@ KEYS=('primary','secondary','third','fourth','fifth')
 router=APIRouter(prefix='/internal/kaggle-month')
 _QUOTA_TTL=300
 _quota_lock=threading.Lock()
+_quota_refresh_lock=threading.Lock()
 
 
 def _hours(value):
@@ -75,7 +76,7 @@ def effective_enabled_lanes():
         return []
 
 
-def quota_status(now=None,ttl=_QUOTA_TTL):
+def quota_status(now=None,ttl=_QUOTA_TTL,*,background=False):
     now=float(time.time() if now is None else now)
     folder=ROOT/'state/kaggle-month-dispatch'
     cache=folder/'quota-status.json'
@@ -93,6 +94,22 @@ def quota_status(now=None,ttl=_QUOTA_TTL):
     folder.mkdir(parents=True,exist_ok=True)
     if now-float(cached.get('checked_at',0) or 0)<ttl and all(k in cached.get('lanes',{}) for k in KEYS):
         return cached
+    if background:
+        # UI observes the last quota without waiting for five remote CLI calls.
+        # The regular refresher still enforces schedule/config guards and bounds.
+        if _quota_refresh_lock.acquire(blocking=False):
+            def refresh():
+                try:quota_status(ttl=ttl)
+                finally:_quota_refresh_lock.release()
+            try:threading.Thread(target=refresh,daemon=True,name='kaggle-quota-refresh').start()
+            except BaseException:
+                _quota_refresh_lock.release()
+                raise
+        previous=cached.get('lanes',{})
+        lanes={key:{**(previous.get(key,{}) if isinstance(previous,dict) else {}),
+                    'state':'stale','stale':True,'error':'quota_refreshing'}
+               for key in KEYS}
+        return {**cached,'lanes':lanes,'refreshing':True}
     with _quota_lock:
         cached=load()
         if now-float(cached.get('checked_at',0) or 0)<ttl and all(k in cached.get('lanes',{}) for k in KEYS):
@@ -144,7 +161,7 @@ def status():
         values=dict(line.split('=',1) for line in block.splitlines() if '=' in line)
         if values.get('Id'):services[values['Id']]=values
     enabled_lanes=effective_enabled_lanes()
-    quotas=quota_status()
+    quotas=quota_status(background=True)
     for key in KEYS:
         folder=ROOT/'state'/('kaggle-month-'+key)
         report=folder/'cycle-status.json'

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import useLoadMore from "@/hooks/useLoadMore"
 import { contentState, filteredEntriesState } from "@/store/contentState"
 import { nextWindow, prefetchDecision } from "@/utils/reading-session"
+import { createThumbnailPreloader } from "@/components/Article/reader-image-variants"
 
 /** Append at the first quarter of each received batch, at most one batch ahead. */
 export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
@@ -19,10 +20,16 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   const inFlightRef = useRef(false)
   const aliveRef = useRef(true)
   const latest = useRef(null)
+  const thumbnailsRef = useRef(null)
+  const imageSettledRef = useRef(null)
   const [settled, setSettled] = useState(0)
-  latest.current = { isArticleListReady, loadMoreVisible, loadingMore, loadMoreError, snapshot, indexes, handleLoadMore, getEntries }
+  latest.current = { isArticleListReady, loadMoreVisible, loadingMore, loadMoreError, snapshot, indexes, entries, handleLoadMore, getEntries }
 
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false } }, [])
+  useEffect(() => {
+    thumbnailsRef.current = createThumbnailPreloader(() => new Image(), () => imageSettledRef.current?.())
+    return () => { thumbnailsRef.current.dispose(); thumbnailsRef.current = null }
+  }, [])
 
   useEffect(() => {
     if (!isArticleListReady) return
@@ -54,20 +61,28 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       frame = 0
       if (stopped || !root) return
       const s = latest.current
-      if (!s.isArticleListReady || !s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
+      if (!s.isArticleListReady) return
       const bounds = root.getBoundingClientRect()
-      const first = [...root.querySelectorAll('[data-entry-id]')].find(el => el.getBoundingClientRect().bottom > bounds.top + 1 && el.getBoundingClientRect().top < bounds.bottom)
-      const index = first ? s.indexes.get(first.dataset.entryId) : -1
-      if (index === undefined || index < 0) return
+      const visible = [...root.querySelectorAll('[data-entry-id]')].filter(el => el.getBoundingClientRect().bottom > bounds.top + 1 && el.getBoundingClientRect().top < bounds.bottom)
+      const first = visible[0]
+      const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
+      const lastVisible = Math.max(-1, ...visible.map(el => s.indexes.get(el.dataset.entryId) ?? -1))
+      const cover = root.querySelector('.grid-card-cover')
+      if (cover) thumbnailsRef.current?.warm(s.entries, lastVisible, cover.getBoundingClientRect().width, window.location.origin, window.devicePixelRatio)
+      if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
       const remaining = root.scrollHeight - root.scrollTop - root.clientHeight
-      const row = first.closest('.article-card-grid-row') || first
-      const columns = row.classList.contains('article-card-grid-row') ? row.children.length : 1
-      const rect = row.getBoundingClientRect()
-      const progress = index + Math.max(0, Math.min(1, (bounds.top - rect.top) / Math.max(1, rect.height))) * columns
+      let progress = -1
+      if (index >= 0) {
+        const row = first.closest('.article-card-grid-row') || first
+        const columns = row.classList.contains('article-card-grid-row') ? row.children.length : 1
+        const rect = row.getBoundingClientRect()
+        progress = index + Math.max(0, Math.min(1, (bounds.top - rect.top) / Math.max(1, rect.height))) * columns
+      }
       const decision = prefetchDecision(windowRef.current, progress, remaining, root.clientHeight)
       if (decision) void requestRef.current(false, { ...decision, index: Number(progress.toFixed(2)), remaining: Math.round(remaining), scrollTop: Math.round(root.scrollTop) })
     }
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(check) }
+    const schedule = () => { if (!stopped && !frame) frame = requestAnimationFrame(check) }
+    imageSettledRef.current = schedule
     const connect = () => {
       if (stopped) return
       root = scrollRootRef.current
@@ -77,7 +92,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       schedule()
     }
     connect()
-    return () => { stopped = true; cancelAnimationFrame(frame); root?.removeEventListener('scroll', schedule) }
+    return () => { stopped = true; cancelAnimationFrame(frame); root?.removeEventListener('scroll', schedule); if (imageSettledRef.current === schedule) imageSettledRef.current = null }
   }, [isArticleListReady, snapshot, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled, scrollRootRef])
 
   if (!isArticleListReady) return null
