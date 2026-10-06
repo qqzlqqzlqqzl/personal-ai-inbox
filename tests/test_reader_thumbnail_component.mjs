@@ -54,14 +54,14 @@ test('changing entry/source starts a fresh thumbnail; unproxied originals report
   } finally {await act(async()=>root.unmount())}
 })
 
-test('complete raw Today list preloads covers without requesting another page',async()=>{
+test('raw Today preloads covers; empty startup geometry cannot request a page until scrolled',async()=>{
   const entryList=Array.from({length:13},(_,id)=>({id,coverSource:`https://example.org/today-${id}.jpg`}))
   const file=fileURLToPath(new URL('../patches/ProgressiveLoadMore.jsx',import.meta.url))
   const fixtures={
     '@arco-design/web-react':'export const Button="button",Spin="span"',
     '@nanostores/react':'export const useStore=store=>store.value',
     '@/hooks/useLoadMore':'export default()=>({loadingMore:false,loadMoreError:false,handleLoadMore:get=>get()})',
-    '@/store/contentState':`export const contentState={value:{isArticleListReady:true,loadMoreVisible:false,articleListSnapshotRevision:1,articleListOffset:13,infoFrom:"today",infoId:0}};export const filteredEntriesState={value:${JSON.stringify(entryList)}}`,
+    '@/store/contentState':`export const contentState={get value(){return {isArticleListReady:true,loadMoreVisible:globalThis.__readerFixtureMore,articleListSnapshotRevision:1,articleListOffset:13,infoFrom:"today",infoId:0}}};export const filteredEntriesState={value:${JSON.stringify(entryList)}}`,
   }
   const bundled=await build({entryPoints:[file],write:false,bundle:true,platform:'node',format:'cjs',jsx:'automatic',plugins:[{name:'today-fixture',setup(b){
     b.onResolve({filter:/^react(?:\/.*)?$/},({path})=>({path:webRequire.resolve(path),external:true}))
@@ -75,14 +75,16 @@ test('complete raw Today list preloads covers without requesting another page',a
   const component=new Module(file);component._compile(bundled.outputFiles[0].text,file)
   const scroll=document.createElement('div');scroll.innerHTML='<div data-entry-id="0"></div><div data-entry-id="1"></div><div data-entry-id="2"><img class="grid-card-cover"></div>'
   scroll.getBoundingClientRect=()=>({top:0,bottom:600})
-  Object.defineProperties(scroll,{scrollHeight:{value:1800},clientHeight:{value:600}})
+  Object.defineProperties(scroll,{scrollHeight:{value:1800,configurable:true},clientHeight:{value:600}})
   for(const [i,row] of [...scroll.children].entries())row.getBoundingClientRect=()=>({top:i*200,bottom:(i+1)*200})
   scroll.querySelector('img').getBoundingClientRect=()=>({width:320})
   const oldImage=globalThis.Image,oldFrame=globalThis.requestAnimationFrame,oldCancel=globalThis.cancelAnimationFrame
+  const oldMore=globalThis.__readerFixtureMore
   const images=[];let lists=0
   globalThis.Image=class{constructor(){images.push(this)}}
   globalThis.requestAnimationFrame=callback=>setTimeout(callback,0)
   globalThis.cancelAnimationFrame=clearTimeout
+  globalThis.__readerFixtureMore=false
   const root=createRoot(document.querySelector('#root'))
   try {
     await act(async()=>{root.render(React.createElement(component.exports.default,{scrollRootRef:{current:scroll},getEntries:()=>{lists++;return Promise.resolve({entries:[]})}}))})
@@ -92,9 +94,25 @@ test('complete raw Today list preloads covers without requesting another page',a
     scroll.dispatchEvent(new dom.window.Event('scroll'))
     await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
     assert.equal(images.length,2)
+    // Same actual component, but before Virtua has mounted any visible rows.
+    globalThis.__readerFixtureMore=true
+    scroll.innerHTML='';scroll.scrollTop=0
+    Object.defineProperty(scroll,'scrollHeight',{value:600,configurable:true})
+    await act(async()=>{root.render(React.createElement(component.exports.default,{key:'empty-tail',scrollRootRef:{current:scroll},getEntries:()=>{lists++;return Promise.resolve({entries:[]})}}))})
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
+    assert.equal(lists,0,'zero unmeasured height at startup is not a pagination trigger')
+    scroll.scrollTop=60
+    Object.defineProperty(scroll,'scrollHeight',{value:660,configurable:true})
+    scroll.dispatchEvent(new dom.window.Event('scroll'))
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
+    assert.equal(lists,1,'an actually scrolled empty tail still prefetches once')
+    scroll.dispatchEvent(new dom.window.Event('scroll'))
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
+    assert.equal(lists,1,'the same batch does not request repeatedly')
   } finally {
     await act(async()=>root.unmount())
     globalThis.Image=oldImage;globalThis.requestAnimationFrame=oldFrame;globalThis.cancelAnimationFrame=oldCancel
+    if(oldMore===undefined)delete globalThis.__readerFixtureMore;else globalThis.__readerFixtureMore=oldMore
     dom.window.close()
   }
 })

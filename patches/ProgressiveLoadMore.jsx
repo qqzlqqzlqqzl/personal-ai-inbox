@@ -70,6 +70,8 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const cover = root.querySelector('.grid-card-cover')
       if (cover) thumbnailsRef.current?.warm(s.entries, lastVisible, cover.getBoundingClientRect().width, window.location.origin, window.devicePixelRatio)
       if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
+      // An unmeasured initial virtual list is not a scrolled-to empty tail.
+      if (index < 0 && root.scrollTop <= 0) return
       const remaining = root.scrollHeight - root.scrollTop - root.clientHeight
       let progress = -1
       if (index >= 0) {
