@@ -96,7 +96,7 @@ def run_case(width, height, run_name, identity, theme="light"):
     h.settings["minimum_score"] = MINIMUM
     h.feeds[0]["icon"] = {"feed_id": 7, "icon_id": 0}
     h.entries = make_entries(h.feeds[0])
-    fixture = QualityConsumerFixture(h.entries)
+    fixture = QualityConsumerFixture(h.entries, categories=h.categories, feeds=h.feeds)
     captures, views, contrasts = [], [], []
     initial = json.dumps(h.entries, sort_keys=True)
     delegated_gets = {"/mf/v1/version", "/mf/version", "/mf/v1/me", "/mf/v1/ai/settings",

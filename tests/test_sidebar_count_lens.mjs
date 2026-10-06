@@ -76,6 +76,7 @@ export {useStore} from '@nanostores/react';
 export {settingsState,updateSettings} from '@/store/settingsState';
 export {setAuth,resetAuth} from '@/store/authState';
 export {commitIdentityData,dataState,resetData} from '@/store/dataState';
+export {startSidebarScopeCounts,sidebarScopeCountsState,validateScopeCounts} from '@/store/sidebarScopeCountsState';
 export {MemoryRouter} from 'react-router';
 export {polyglotState} from '@/hooks/useLanguage';`,
     resolveDir: web,
@@ -128,6 +129,11 @@ export {polyglotState} from '@/hooks/useLanguage';`,
     },
   ],
 });
+// This component fixture does not run main.jsx's React 19 Arco render adapter.
+// Record only retirement warnings; keep the actual sidebar components intact.
+const {Notification}=webRequire('@arco-design/web-react');
+const notificationWarnings=[],originalNotificationWarning=Notification.warning;
+Notification.warning=value=>notificationWarnings.push(value);
 const app=require(output),checks=[],apiCalls=[];
 const Polyglot=webRequire('node-polyglot');
 app.polyglotState.set({polyglot:new Polyglot({phrases:JSON.parse(await readFile(web+'src/locales/zh-CN.json','utf8')),locale:'zh-CN'})});
@@ -148,12 +154,13 @@ const render=async(scope,total)=>React.act(async()=>{
 const visibleCount=node=>node?.querySelector('.arco-ellipsis-content .arco-ellipsis-text')?.textContent??'';
 const allCount=()=>visibleCount(document.querySelectorAll('.custom-menu-item .item-count')[0]);
 const todayCount=()=>visibleCount(document.querySelectorAll('.custom-menu-item .item-count')[1]);
+let stopBatch;
 try {
  await render('all',1965);equal(allCount(),'1965','active All uses the verified AI total supplied by the original owner gate');
  await render('today',0);
  console.log(JSON.stringify({case:'all_to_empty_today_same_AI_unread_lens',renderedItems:[...document.querySelectorAll('.custom-menu-item')].map(x=>x.textContent),allCount:allCount(),todayCount:todayCount(),apiCalls:apiCalls.length}));
  equal(allCount(),'','inactive All never falls back to 8088 native unread under the same AI lens');
- equal(todayCount(),'','Today zero remains local and is not borrowed by All');
+ equal(todayCount(),'0','Today zero remains local and is not borrowed by All');
  equal(apiCalls.length,0,'All to Today count rendering makes zero API requests');
  const setLens=async({mode='all',auxiliary='none',hydrated=true,status='unread',search='',date=null}={})=>React.act(async()=>{
   app.aiState.set({...app.aiState.get(),mode,auxiliary,hydrated});app.updateSettings({showStatus:status});
@@ -164,7 +171,7 @@ try {
   await setLens(lens);equal(allCount(),'',name+': inactive All has no proven matching total');
  }
  await setLens({mode:'recommended'});await render('all',null);equal(allCount(),'','pending/error active total is not replaced by native unread');
- await render('all',0);equal(allCount(),'','valid active zero stays zero-compatible and never falls back');
+ await render('all',0);equal(allCount(),'0','valid active zero is shown and never falls back');
  await render('all',17);equal(allCount(),'17','positive active owned total remains visible');
  const entityRender=async(kind,scope,total)=>React.act(async()=>root.render(React.createElement(app.MemoryRouter,{key:kind+scope,initialEntries:['/today']},React.createElement(kind==='category'?app.CategoryTitle:app.FeedMenuItem,{
   category,feed,activeScope:scope,activeScopeId:kind==='category'?1:7,activeScopeCount:total,path:'/today',homePageReady:false,homeTarget:{type:'view',id:'today'},
@@ -175,7 +182,7 @@ try {
   await setLens({mode:'recommended'});equal(count(),'',kind+': AI lens hides unmatched native unread');
   await entityRender(kind,kind,5);equal(count(),'5',kind+': active owned result remains visible');
   await entityRender(kind,kind,null);equal(count(),'',kind+': active pending does not fall back');
-  await entityRender(kind,kind,0);equal(count(),'',kind+': active zero does not fall back');
+  await entityRender(kind,kind,0);equal(count(),'0',kind+': active zero is shown and does not fall back');
  }
  equal(apiCalls.length,0,'menu/category/feed projections and lens changes add zero API requests');
  // Compose the real generated request hook, owner stores and sidebar menu.
@@ -219,8 +226,70 @@ try {
  equal(app.dynamicCountState.get(),null,'responses completing after logout cannot republish a count');
  equal(app.contentState.get().entries,[],'responses completing after logout cannot republish rows');
  equal(apiCalls.length,0,'no direct API requests or mutations from count display');
+ // The provider's batch bootstrap is independent of navigation and list totals.
+ const batches=[];
+ globalThis.sortApi=(method,path,options)=>{
+  apiCalls.push([method,path,options]);
+  assert.equal(method,'GET');assert.ok(path.startsWith('/v1/ai/scope-counts?'));
+  assert.equal(options.retry,0);assert.equal(options.timeout,15000);
+  return new Promise((resolve,reject)=>batches.push({resolve,reject,path,options}));
+ };
+ const counts={all:1965,today:0,starred:2,history:7,category:{'1':5},feed:{'7':0}};
+ await React.act(async()=>{
+  app.setAuth({server:'http://synthetic.test/mf',token:'fixture',username:'',password:''});
+  app.resetData();app.resetContent();
+  app.aiState.set({...app.aiState.get(),mode:'recommended',minimum:8,auxiliary:'none',hydrated:false});
+  app.updateSettings({showStatus:'unread'});
+  stopBatch=app.startSidebarScopeCounts();
+ });
+ await render('today',null);
+ equal(batches.length,0,'cold first open waits for identity and AI settings');
+ await React.act(async()=>app.commitIdentityData({id:1,timezone:'Asia/Shanghai'}));
+ equal(batches.length,0,'identity alone does not use unhydrated AI preferences');
+ await React.act(async()=>{
+  app.aiState.setKey('hydrated',true);
+  app.contentState.setKey('articleListRevision',app.contentState.get().articleListRevision+1);
+ });
+ equal(batches.length,1,'first ready AI lens makes one request for all scopes');
+ const initialQuery=new URL('http://synthetic.test'+batches[0].path).searchParams;
+ equal(initialQuery.get('ai_min'),'8','batch uses the same AI minimum');
+ equal(initialQuery.get('status'),'unread','batch uses the same status');
+ assert.ok(Number(initialQuery.get('today_after'))>0);
+ assert.equal(initialQuery.has('published_after'),false,'Today cutoff does not filter every other scope');
+ await release(batches[0],{scope_counts:counts});
+ equal(allCount(),'1965','first open shows inactive All without clicking it');
+ equal(todayCount(),'0','first open shows known Today zero without borrowing All');
+ await entityRender('category','today',null);
+ equal(visibleCount(document.querySelector('.unread-count')),'5','first open shows unvisited category');
+ await entityRender('feed','today',null);
+ equal(visibleCount(document.querySelector('.item-count')),'0','first open shows unvisited feed zero');
+ await render('all',null);equal(allCount(),'1965','navigation uses the verified batch');
+ equal(batches.length,1,'navigation and projections add no batch requests');
+ await React.act(async()=>app.aiState.setKey('minimum',6));const oldBatch=batches[1];
+ await React.act(async()=>app.aiState.setKey('minimum',7));const currentBatch=batches[2];
+ equal(oldBatch.options.signal.aborted,true,'a newer lens aborts the old batch');
+ await release(oldBatch,{scope_counts:{...counts,all:9999}});
+ equal(allCount(),'','a late old lens remains unknown');
+ await release(currentBatch,{scope_counts:{...counts,all:17}});
+ equal(allCount(),'17','only the current lens batch publishes');
+ await React.act(async()=>app.contentState.setKey('filterDate','2026-10-05'));
+ const dateBatch=batches[3],dateQuery=new URL('http://synthetic.test'+dateBatch.path).searchParams;
+ assert.ok(Number(dateQuery.get('date_before'))>Number(dateQuery.get('date_after')));
+ equal(dateQuery.get('date_field'),app.settingsState.get().orderBy,'date order matches list settings');
+ await React.act(async()=>dateBatch.reject(Error('synthetic failed batch')));
+ equal(allCount(),'','a failed batch does not publish a false zero or native count');
+ assert.throws(()=>app.validateScopeCounts({scope_counts:{...counts,today:false}}),TypeError);
+ assert.throws(()=>app.validateScopeCounts({scope_counts:{...counts,feed:{'7':true}}}),TypeError);
+ assert.throws(()=>app.validateScopeCounts({scope_counts:{...counts,category:null}}),TypeError);
+ await React.act(async()=>app.contentState.setKey('filterDate',null));const oldAccountBatch=batches[4];
+ await React.act(async()=>{app.resetAuth();app.resetData()});
+ await release(oldAccountBatch,{scope_counts:{...counts,all:9999}});
+ equal(app.sidebarScopeCountsState.get(),null,'logout rejects the old account batch');
+ equal(batches.length,5,'logout starts no extra request');
+ equal(apiCalls.filter(([method])=>method!=='GET').length,0,'batch bootstrap makes zero writes');
+ equal(notificationWarnings.some(value=>value.title==='本地笔记草稿清理未完成'),true,'account retirement warning remains observed without the main-only renderer');
  equal(errors,[],'no runtime window errors');
  console.log(JSON.stringify({listRequests:listCalls.map(({scope,args})=>({scope,args})),extraApiCalls:apiCalls.length}));
 
  console.log(JSON.stringify({type:'actual generated Sidebar components with React/jsdom, no layout',checks},null,2));
-} finally {await React.act(async()=>root.unmount());dom.window.close();await retainTestDirectory(directory)}
+} finally {try {await React.act(async()=>{stopBatch?.();root.unmount()})} finally {Notification.warning=originalNotificationWarning;dom.window.close();await retainTestDirectory(directory)}}

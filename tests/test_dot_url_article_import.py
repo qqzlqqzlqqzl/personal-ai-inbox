@@ -202,6 +202,9 @@ class URLImportTests(unittest.TestCase):
         api_path=pathlib.Path(__file__).resolve().parents[1]/'src/api.py'
         api_text=api_path.read_text();node=next(n for n in ast.parse(api_text).body if isinstance(n,ast.AsyncFunctionDef) and n.name=='ai_entries')
         route=ast.get_source_segment(api_text,node)
+        self.assertIn('candidates = await ai_analysis_candidates(p, uid, minimum)',route)
+        query=next(n for n in ast.parse(api_text).body if isinstance(n,ast.AsyncFunctionDef) and n.name=='ai_analysis_candidates')
+        route+=chr(10)+ast.get_source_segment(api_text,query)
         self.assertIn('"state=\'done\'", "score>=?"',route)
         # Eligibility may validate a source-bound receipt, but legacy curated
         # done rows must not require a captured body to remain recommendations.

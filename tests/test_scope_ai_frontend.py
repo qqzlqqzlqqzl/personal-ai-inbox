@@ -20,6 +20,7 @@ def test_every_scope_carries_ai_query():
     assert entries.count("getAiQuery()") >= 6
     assert "get24HoursAgoTimestamp" not in entries
     assert "getTimestamp(getStartOfToday())" in entries
+    assert 'getTodayEntries(status, { ...filterParams, ...(starred ? { starred: true } : {}) })' in read("pages/Today.jsx")
 
 
 def test_ai_pagination_and_count_are_not_all_only():
@@ -65,11 +66,19 @@ def test_active_sidebar_count_uses_filtered_total_without_corrupting_native_coun
     assert "const resultCount = useStore(dynamicCountState)" in sidebar
     assert "const resultReady = useStore(articleListResultReadyState)" in sidebar
     assert "const activeScopeCount = resultReady && infoFrom === activeScope" in sidebar
-    assert "infoFrom === scope ? activeScopeCount : nativeCountsMatch ? nativeCount : null" in sidebar
+    assert "infoFrom === scope ? activeScopeCount ?? batchCounts?.[scope] ?? null" in sidebar
+    assert ": batchCounts?.[scope] ?? (nativeCountsMatch ? nativeCount : null)" in sidebar
     assert 'hydrated === true && mode === "all" && auxiliary === "none"' in sidebar
     assert 'showStatus === "unread" && !filterDate && !filterString' in sidebar
-    assert ": nativeCountsMatch ? unreadCount : null" in sidebar
-    assert ": nativeCountsMatch ? feed.unreadCount : null" in sidebar
+    assert ": batchCounts?.category[category.id] ?? (nativeCountsMatch ? unreadCount : null)" in sidebar
+    assert ": batchCounts?.feed[feed.id] ?? (nativeCountsMatch ? feed.unreadCount : null)" in sidebar
+    assert "{count ?? \"\"}" in sidebar
+    assert "{displayCount != null && (" in sidebar
+    scope_counts = read("store/sidebarScopeCountsState.js")
+    assert "/v1/ai/scope-counts?" in scope_counts
+    assert "retry: 0, timeout: 15000, signal: pending.signal" in scope_counts
+    assert "requestSnapshot().key === current.key" in scope_counts
+    assert "useEffect(startSidebarScopeCounts, [])" in read("components/AppDataProvider.jsx")
     assert 'contentState.setKey("articleListResultOwner", { requestKey, sessionRevision: requestSessionRevision })' in article_list
     assert 'if (filterString || filterDate)' in read("store/contentState.js")
     assert 'count={scopedCount("today", unreadTodayCount)}' in sidebar

@@ -69,6 +69,10 @@ class Harness:
             if method=='PUT':self.settings.update(request.post_data_json or {})
             body=self.settings
         elif path.endswith('/ai/status'):body=self.status
+        elif path=='/mf/v1/ai/scope-counts' and method=='GET':
+            # Custom list transports may own a larger set than these detail rows.
+            # No complete batch snapshot is declared by this generic fixture.
+            route.fulfill(status=503,json={'error_message':'Fixture scope-count metadata is unavailable'},headers={'Cache-Control':'no-store'});return
         elif path.endswith('/ai/catalog'):body=self.catalog
         elif path.endswith('/ai/x/roster'):body={'counts':{'total':0},'sources':[]}
         elif path.endswith('/me'):body={'id':1,'username':'fixture-owner','is_admin':True}

@@ -45,6 +45,29 @@ class QualityFixtureControls(unittest.TestCase):
         ids = self.fixture.select({'ai_view': ['recommended'], 'ai_min': ['8']}, ids=True)
         self.assertEqual(ids, {'total': 2, 'entry_ids': [706, 704]})
 
+    def test_scope_count_batch_uses_recommendation_lens_and_keeps_known_zeros(self):
+        entries = deepcopy(self.entries)
+        for entry in entries:
+            entry['feed']['category'] = {'id': 1}
+        fixture = QualityConsumerFixture(entries, categories=[{'id': 1}, {'id': 2}], feeds=[{'id': 7}, {'id': 8}])
+        query = {'ai_view': ['recommended'], 'ai_min': ['8'], 'today_after': ['1791160000'], 'globally_visible': ['true']}
+        status, body = fixture.respond('/mf/v1/ai/scope-counts', 'GET', query)
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {'scope_counts': {'all': 2, 'today': 0, 'starred': 0, 'history': 2,
+                                               'category': {'1': 2, '2': 0}, 'feed': {'7': 2, '8': 0}}})
+        unread = fixture.respond('/mf/v1/ai/scope-counts', 'GET', {**query, 'status': ['unread']})[1]['scope_counts']
+        self.assertEqual((unread['all'], unread['history'], unread['feed']['7']), (0, 2, 0))
+        self.assertEqual(fixture.entries, entries)
+
+    def test_scope_count_batch_rejects_invalid_queries_and_mutations(self):
+        valid = {'ai_view': ['recommended'], 'today_after': ['1791160000']}
+        for query in ({}, {**valid, 'today_after': ['-1']}, {**valid, 'today_after': ['x']},
+                      {**valid, 'today_after': ['1', '2']}, {**valid, 'ai_view': ['all']},
+                      {**valid, 'unknown': ['x']}, {**valid, 'limit': ['24']}, {**valid, 'status': ['broken']}):
+            with self.subTest(query=query), self.assertRaises((ValueError, TypeError)):
+                self.fixture.respond('/mf/v1/ai/scope-counts', 'GET', query)
+        self.assertIsNone(self.fixture.respond('/mf/v1/ai/scope-counts', 'POST', valid, {}))
+
     def test_versioned_recommendation_pages_and_changed_results(self):
         query = {'ai_view': ['recommended'], 'ai_min': ['8'], 'limit': ['1'], 'ai_revision': ['initial']}
         first = self.fixture.select(query)

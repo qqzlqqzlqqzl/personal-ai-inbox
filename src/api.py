@@ -638,46 +638,8 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
     return {"total": total, "entries": result}
 
 
-async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_retry=True):
-    p = request.query_params
-    expected_revision = p.get("ai_revision")
-    if expected_revision is not None and expected_revision != "initial" and not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
-        raise HTTPException(400, "Invalid AI list revision")
-    try:
-        changed_bounds = notes_metadata.changed_bounds(p)
-    except (ValueError, OverflowError):
-        raise HTTPException(400, "Invalid date filter")
-    if p.get("ai_view") not in ["recommended", "pending", "notes"]:
-        raise HTTPException(400, "Invalid AI view")
-    if p.get("status") and p["status"] not in ["read", "unread"]:
-        raise HTTPException(400, "Invalid status")
-    try:
-        minimum = p.get("ai_min")
-        if minimum is None:
-            minimum = (await reader_work.run(settings))["minimum_score"]
-        minimum = float(minimum)
-        limit = max(1, min(100, int(p.get("limit", 40))))
-        offset = max(0, int(p.get("offset", 0)))
-        if not 0 <= minimum <= 10:
-            raise ValueError()
-    except ValueError:
-        raise HTTPException(400, "Invalid AI filter")
+async def ai_analysis_candidates(p, uid, minimum):
     has_note = p.get("has_note")
-    if has_note not in (None, "true", "false"):
-        raise HTTPException(400, "Invalid note filter")
-    upstream_headers = await list_upstream_headers(request, uid)
-    allowed_ids = await readable_entry_ids(request, upstream_headers)
-    if p.get("ai_view") == "notes":
-        if has_note == "false":
-            return {"total": 0, "entries": []}
-        return await note_entries(
-            request,
-            uid,
-            allowed_ids,
-            upstream_headers,
-            feed_id=feed_id,
-            category_id=category_id,
-        )
     where = ["user_id=?"]
     values = [uid]
     # Respect the same date bounds as the native reader.
@@ -770,6 +732,50 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
         + f" {sql_direction},entry_id {sql_direction}",
         values,
     )
+    return candidates
+
+
+async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_retry=True):
+    p = request.query_params
+    expected_revision = p.get("ai_revision")
+    if expected_revision is not None and expected_revision != "initial" and not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
+        raise HTTPException(400, "Invalid AI list revision")
+    try:
+        changed_bounds = notes_metadata.changed_bounds(p)
+    except (ValueError, OverflowError):
+        raise HTTPException(400, "Invalid date filter")
+    if p.get("ai_view") not in ["recommended", "pending", "notes"]:
+        raise HTTPException(400, "Invalid AI view")
+    if p.get("status") and p["status"] not in ["read", "unread"]:
+        raise HTTPException(400, "Invalid status")
+    try:
+        minimum = p.get("ai_min")
+        if minimum is None:
+            minimum = (await reader_work.run(settings))["minimum_score"]
+        minimum = float(minimum)
+        limit = max(1, min(100, int(p.get("limit", 40))))
+        offset = max(0, int(p.get("offset", 0)))
+        if not 0 <= minimum <= 10:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(400, "Invalid AI filter")
+    has_note = p.get("has_note")
+    if has_note not in (None, "true", "false"):
+        raise HTTPException(400, "Invalid note filter")
+    upstream_headers = await list_upstream_headers(request, uid)
+    allowed_ids = await readable_entry_ids(request, upstream_headers)
+    if p.get("ai_view") == "notes":
+        if has_note == "false":
+            return {"total": 0, "entries": []}
+        return await note_entries(
+            request,
+            uid,
+            allowed_ids,
+            upstream_headers,
+            feed_id=feed_id,
+            category_id=category_id,
+        )
+    candidates = await ai_analysis_candidates(p, uid, minimum)
     feeds_response = await app.state.client.get(
         MF + "/v1/feeds", headers=upstream_headers
     )
@@ -895,6 +901,119 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
     if revision is not None:
         result['ai_revision'] = revision
     return result
+
+
+async def scope_count_entry_ids(upstream_headers, status, starred):
+    """Bound complete ID enumeration; a truncated snapshot must stay unknown."""
+    from sidebar_scope_counts import decode_id_page
+    seen, total = set(), None
+    for _ in range(10):
+        params = {"status": status, "limit": notes_metadata.MAX_IDS, "offset": len(seen)}
+        if starred is not None:
+            params["starred"] = starred
+        response = await app.state.client.get(MF + "/v1/entries/ids",
+            headers=upstream_headers, params=params, timeout=8)
+        response.raise_for_status()
+        ids, total = await reader_work.run(decode_id_page, response.content, len(seen), seen, total)
+        seen.update(ids)
+        if len(seen) == total:
+            return seen
+    raise ValueError("Readable-ID page limit exceeded")
+
+
+async def ai_scope_counts(request, uid):
+    import sidebar_scope_counts as counts
+    from content_quality import public_for_row
+
+    p = dict(request.query_params)
+    counts.validate_params(p)
+    minimum = p.get("ai_min")
+    if minimum is None:
+        minimum = (await reader_work.run(settings))["minimum_score"]
+    minimum = float(minimum)
+    if not 0 <= minimum <= 10:
+        raise HTTPException(400, "Invalid AI filter")
+    upstream_headers = await list_upstream_headers(request, uid)
+    status, starred = p.get("status"), p.get("starred")
+    statuses = [status] if status else ["read", "unread"]
+    # History is always read, even when the ordinary sidebar lens is unread.
+    groups = {(st, starred) for st in [*statuses, "read"]}
+    if starred != "false":
+        groups.update((st, "true") for st in statuses)
+    groups = sorted(groups, key=lambda group: (group[0], group[1] or ""))
+    tasks = [asyncio.create_task(call) for call in (
+        app.state.client.get(MF + "/v1/feeds", headers=upstream_headers, timeout=8),
+        app.state.client.get(MF + "/v1/categories", headers=upstream_headers, timeout=8),
+        *(scope_count_entry_ids(upstream_headers, *group) for group in groups),
+    )]
+    try:
+        replies = await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    for response in replies[:2]:
+        response.raise_for_status()
+    feeds = await reader_work.run(notes_metadata.decode_feeds, replies[0].content, uid)
+    categories = await reader_work.run(counts.decode_categories, replies[1].content, uid)
+    for feed in feeds.values():
+        category = categories.get(feed["category"]["id"])
+        if category is None or category["hide_globally"] != feed["category"]["hide_globally"]:
+            raise ValueError("Feed/category snapshot changed")
+    ids_by_group = dict(zip(groups, replies[2:]))
+    for filter_starred in {group[1] for group in groups}:
+        if ids_by_group.get(("read", filter_starred), set()) & ids_by_group.get(("unread", filter_starred), set()):
+            raise ValueError("Entry status snapshot changed")
+    main_ids = set().union(*(ids_by_group[(st, starred)] for st in statuses))
+    history_ids = ids_by_group[("read", starred)]
+    starred_ids = (set().union(*(ids_by_group[(st, "true")] for st in statuses))
+                   if starred != "false" else set())
+    if not starred_ids <= main_ids:
+        raise ValueError("Entry starred snapshot changed")
+    allowed_ids = main_ids | history_ids
+    if p["ai_view"] == "notes":
+        candidates = ([] if p.get("has_note") == "false" else await reader_work.run(
+            reader_rows, "SELECT entry_id,note FROM entry_notes WHERE user_id=? AND length(trim(note))>0", (uid,)))
+    else:
+        candidates = await ai_analysis_candidates(p, uid, minimum)
+    candidates = {row["entry_id"]: row for row in candidates if row["entry_id"] in allowed_ids}
+    ids, body = await reader_work.run(notes_metadata.request_body, list(candidates.values()), allowed_ids)
+    entries = []
+    if ids:
+        response = await app.state.client.post(MF + "/v1/entries/metadata",
+            headers={**upstream_headers, "Content-Type": "application/json"}, content=body, timeout=8)
+        response.raise_for_status()
+        if response.headers.get("X-Reader-Entry-Metadata") != "1":
+            raise ValueError("Metadata capability unavailable")
+        entries = await reader_work.run(notes_metadata.decode_metadata, response.content, uid, ids,
+            require_changed=bool(notes_metadata.changed_bounds(p) or p.get("date_after") is not None))
+        if p["ai_view"] == "recommended":
+            entries = await reader_work.run(lambda: [entry for entry in entries
+                if public_for_row(candidates[entry["id"]], current_entry=entry)["recommendation_eligible"] is not False])
+    result = await reader_work.run(counts.aggregate, entries, feeds, categories, candidates,
+                                  main_ids, history_ids, starred_ids, p)
+    return {"scope_counts": result}
+
+
+@app.get("/mf/v1/ai/scope-counts")
+async def get_ai_scope_counts(request: Request):
+    try:
+        # Keep the complete batch within the frontend's 15-second request window.
+        async with asyncio.timeout(14):
+            uid = await authorize(request)
+            try:
+                from sidebar_scope_counts import validate_params
+                validate_params(request.query_params)
+                if request.query_params.get("ai_min") is not None:
+                    minimum = float(request.query_params["ai_min"])
+                    if not 0 <= minimum <= 10:
+                        raise ValueError("Invalid AI filter")
+            except (ValueError, KeyError, OverflowError):
+                raise HTTPException(400, "Invalid AI sidebar filter")
+            return JSONResponse(await ai_scope_counts(request, uid), headers={"Cache-Control": "no-store"})
+    except (httpx.HTTPError, ValueError, TypeError, KeyError, OverflowError, OSError, TimeoutError):
+        raise HTTPException(503, "AI 侧栏计数暂时无法完整确认，请稍后重试")
 
 
 @app.post("/mf/v1/ai/feedback")
