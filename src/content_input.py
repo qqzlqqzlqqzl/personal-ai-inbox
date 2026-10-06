@@ -102,7 +102,9 @@ def select_cover_from_page(raw_html, final_url, title="", prefer_social=False):
         urls = [img.get("data-src"), img.get("data-lazy-src"), img.get("src")]
         srcset = str(img.get("srcset") or "").strip()
         if srcset:
-            urls.append(srcset.split(",")[-1].strip().split()[0])
+            srcset_candidates = [candidate.split() for candidate in srcset.split(",") if candidate.strip()]
+            if srcset_candidates:
+                urls.append(srcset_candidates[-1][0])
         src = next((u for candidate in urls if (u := _safe_image_url(candidate, final_url))
                     and not _image_is_decorative(img, u)), None)
         if not src:

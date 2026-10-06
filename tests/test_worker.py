@@ -143,6 +143,45 @@ async def test_paper_abstract_never_claimed_as_full_paper(
     assert not after["result"]
 
 
+@pytest.mark.parametrize("srcset", [
+    "https://example.org/hero.jpg 1x,",
+    "/small.jpg 1x, /hero.jpg 2x",
+    "/small.jpg 1x, /hero.jpg 2x,   ",
+    " , /small.jpg 1x, , /hero.jpg 2x, , ",
+])
+def test_cover_srcset_uses_last_nonempty_candidate(srcset):
+    html = f'<main><img srcset="{srcset}"></main>'
+    assert content_input.select_cover_from_page(html, "https://example.org/article") == (
+        "https://example.org/hero.jpg", "page_first_image")
+
+
+@pytest.mark.parametrize("srcset", ["", "   ", ",", ", ,   ,"])
+def test_cover_empty_srcset_keeps_social_fallback(srcset):
+    html = f'<meta property="og:image" content="/social.jpg"><main><img srcset="{srcset}"></main>'
+    assert content_input.select_cover_from_page(html, "https://example.org/article") == (
+        "https://example.org/social.jpg", "social_meta")
+
+
+@pytest.mark.parametrize("attributes,expected", [
+    ('data-src="/data.jpg" data-lazy-src="/lazy.jpg" src="/src.jpg"', "/data.jpg"),
+    ('data-lazy-src="/lazy.jpg" src="/src.jpg"', "/lazy.jpg"),
+    ('src="/src.jpg"', "/src.jpg"),
+])
+def test_cover_srcset_keeps_existing_attribute_priority(attributes, expected):
+    html = f'<main><img {attributes} srcset="/srcset.jpg 2x,"></main>'
+    assert content_input.select_cover_from_page(html, "https://example.org/article") == (
+        "https://example.org" + expected, "page_first_image")
+
+
+@pytest.mark.parametrize("candidate", [
+    "javascript:alert(1)", "https://user:pass@example.org/photo.jpg", "/avatar.jpg",
+])
+def test_cover_srcset_retains_url_safety_and_decoration_filters(candidate):
+    html = f'<meta property="og:image" content="/social.jpg"><main><img srcset="{candidate} 2x,"></main>'
+    assert content_input.select_cover_from_page(html, "https://example.org/article") == (
+        "https://example.org/social.jpg", "social_meta")
+
+
 def test_cover_selection_rejects_small_decorative_image():
     html = """
     <html><head><meta property="og:image" content="/og/social.png"></head><body>
