@@ -289,7 +289,8 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(bilingual._repair_tokens('[[t3]]链接[[/t3]][[t1]]加粗[[/t1]]', nested))
 
     async def test_technical_names_remain_verbatim_once_in_both_modes(self):
-        for literal in ('EmbeddingGemma2', '@vasqu', 'key = HKDF-SHA256(master, salt = BE32(day))'):
+        for literal in ('EmbeddingGemma2', '@vasqu', 'Atmp', '$ chronyc authdata',
+                        'key = HKDF-SHA256(master, salt = BE32(day))'):
             self.entry['content'] = '<p>' + literal + '</p>'
             bilingual.enqueue(self.entry)
             def response(request):
