@@ -49,8 +49,11 @@ view stays `done`. Original-only Chinese articles are `native`.
 
 Paragraphs, headings, list text, quotations, table cells and captions are extracted
 without overlapping parent/child text. Chinese and code are not sent for translation.
-Immutable markers preserve source inline structure; responses with missing or changed
-markers are retried. Images occur once in each output mode. All model-provided text
+Immutable markers preserve source inline structure. A mini response that repeats an
+opening marker instead of its closing marker is normalized from the exact source
+IDs; reordered sibling links must retain source nesting and all IDs/counts. Missing
+or unknown markers are retried. Technical names, account handles and code formulas
+may remain verbatim and render once. Images occur once in each output mode. All model-provided text
 is HTML-escaped; only sanitized original-source formatting markers become markup.
 Chinese-only partial views retain untranslated original sections instead of blanking
 them. JSON responses accept top-level `items`, `blocks` or `translations`, all with
