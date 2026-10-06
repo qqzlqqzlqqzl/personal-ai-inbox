@@ -421,8 +421,10 @@ def _repair_tokens(text, source):
 
 def _technical_literal(text):
     text = text.strip()
-    return bool((re.fullmatch(r'[@#]?[A-Za-z0-9_.:/+-]+', text) and
-                 re.search(r'[\d@#_.:/+-]|[a-z][A-Z]|^[A-Z0-9]+$', text)) or
+    # Unchanged short names/table labels and shell commands are useful verbatim.
+    # The caller requires an exact source match; natural sentences still need Chinese.
+    return bool(re.fullmatch(r'[@#]?[A-Za-z0-9_.:/+-]{1,64}', text) or
+                re.fullmatch(r'[$#]\s+\S[^\r\n]*', text) or
                 re.fullmatch(r'[A-Za-z_]\w*\s*=\s*[A-Z][A-Za-z0-9_-]*\(.*\)', text))
 
 
