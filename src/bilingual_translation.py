@@ -335,6 +335,41 @@ def source_hash(html, model=None):
     return core.hash_text(json.dumps([VERSION, PROMPT, model or config()['model'], html], ensure_ascii=False))
 
 
+
+def _image_independent_source(html):
+    """Ignore only image addresses; keep text, tags and other attributes exact."""
+    def fingerprint(node):
+        if isinstance(node, str):
+            return node
+        image_link = node.tag == 'a' and not _plain(node).strip() and any(
+            isinstance(child, Node) and child.tag in {'img', 'picture'} for child in node.children)
+        ignored = {'src', 'srcset'} if node.tag in {'img', 'source'} else ({'href'} if image_link else set())
+        attrs = sorted((key, '<image-address>' if key in ignored else value) for key, value in node.attrs)
+        return node.tag, attrs, [fingerprint(child) for child in node.children]
+    return fingerprint(BodyParser(html).root)
+
+
+def _completed_image_variant(db, user_id, entry_id, html, model):
+    candidates = db.execute("""SELECT * FROM bilingual_articles
+      WHERE user_id=? AND entry_id=? AND model=? AND version=? AND status='done'
+      ORDER BY updated_at DESC LIMIT 5""", (user_id, entry_id, model, _version())).fetchall()
+    if not candidates:
+        return None, []
+    fingerprint = _image_independent_source(html)
+    expected = [(item['id'], item['text']) for item in extract(html)[2]]
+    for row in candidates:
+        if (source_hash(row['source_html'], model) != row['source_hash']
+                or _image_independent_source(row['source_html']) != fingerprint):
+            continue
+        blocks = db.execute("""SELECT block_id,source_text,translated FROM bilingual_blocks
+          WHERE user_id=? AND entry_id=? AND source_hash=? ORDER BY block_id""",
+          (user_id, entry_id, row['source_hash'])).fetchall()
+        if ([(item['block_id'], item['source_text']) for item in blocks] == expected
+                and blocks and all(item['translated'] is not None for item in blocks)):
+            return row, blocks
+    return None, []
+
+
 def migrate(*, admission=None):
     check(admission)
     with core.connect() as db:
@@ -412,6 +447,9 @@ def enqueue(entry, priority=0, admission=None):
         # The score/owner may change while a large source body is parsed.
         if not _eligible(db, *key[:2], entry):
             return False
+        if row is None and _completed_image_variant(db, *key[:2], html, model)[0] is not None:
+            # No alias rows or another paid job for expiring image addresses.
+            return False
         now = time.time()
         inserted = db.execute('''INSERT OR IGNORE INTO bilingual_articles
           (user_id,entry_id,source_hash,source_html,model,status,priority,published_at,updated_at,version,requested_at)
@@ -453,6 +491,8 @@ def attach(entry, user_id):
                              (user_id, entry['id'], digest)).fetchone()
             blocks = db.execute('SELECT block_id,translated FROM bilingual_blocks WHERE user_id=? AND entry_id=? AND source_hash=? ORDER BY block_id',
                                 (user_id, entry['id'], digest)).fetchall() if row else []
+            if not row and _eligible(db, user_id, entry['id'], entry):
+                row, blocks = _completed_image_variant(db, user_id, entry['id'], html, cfg['model'])
         if not row:
             with core.connect() as db:
                 eligible = _eligible(db, user_id, entry['id'], entry)

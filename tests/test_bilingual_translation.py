@@ -91,6 +91,33 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM usage').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT actual FROM bilingual_usage').fetchone()[0], 77)
 
+    async def test_image_address_rotation_reuses_done_without_new_rows_or_calls(self):
+        self.entry['content'] += '<p><a href="https://image.invalid/old"><img src="https://image.invalid/old" alt="Diagram"></a></p>'
+        self.allow(self.entry)
+        bilingual.enqueue(self.entry)
+        await self.run_mock()
+        rotated = {**self.entry, 'content': self.entry['content'].replace('/old', '/new')}
+        value = self.attached(rotated)
+        self.assertEqual(value['status'], 'done')
+        self.assertEqual(value['source_hash'], bilingual.source_hash(rotated['content']))
+        self.assertIn('https://image.invalid/new', value['bilingual_html'])
+        self.assertNotIn('https://image.invalid/old', value['bilingual_html'])
+        self.assertFalse(bilingual.enqueue(rotated))
+        self.assertEqual((await self.run_mock())['processed'], 0)
+        self.assertEqual(len(self.calls), 1)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 1)
+        for changed in (
+            rotated['content'].replace('original paragraph', 'changed paragraph'),
+            rotated['content'].replace('<h2>', '<h3>').replace('</h2>', '</h3>'),
+            rotated['content'].replace('Diagram', 'Changed diagram'),
+            rotated['content'] + '<p><a href="https://source.invalid/new">An ordinary link.</a></p>',
+        ):
+            self.assertIsNone(self.attached({**rotated, 'content': changed})['bilingual_html'])
+        self.assertIsNone(self.attached(rotated, user=4)['bilingual_html'])
+        with patch.dict('os.environ', {'BILINGUAL_MODEL': 'different-model'}):
+            self.assertIsNone(self.attached(rotated)['bilingual_html'])
+
     async def test_user_and_exact_body_version_isolation_and_restore(self):
         bilingual.enqueue(self.entry)
         await self.run_mock()
