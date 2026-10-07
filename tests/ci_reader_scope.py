@@ -27,8 +27,6 @@ IMAGE_HISTORY_FILES = {
     IMAGE_KEY: IMAGE_HELPER,
     'src/components/Article/ReaderThumbnail.jsx':
         'frontend-review/after/src/components/Article/ReaderThumbnail.jsx',
-    'src/components/Article/ArticleDetail.jsx':
-        'frontend-review/after/src/components/Article/ArticleDetail.jsx',
 }
 IMAGES = {
     IMAGE_HELPER, IMAGE_HISTORY, 'src/reader_image_proxy.py',
@@ -52,18 +50,6 @@ IMAGE_CI_SUPPORT = {
     'tests/ci_reader_scope.py', 'tests/test_ci_reader_scope.py',
     '.github/workflows/reader-regression.yml',
 }
-TRANSLATION = {
-    'src/bilingual_translation.py', 'src/api.py', 'src/patch_frontend.py',
-    'patches/BilingualReading.jsx', 'patches/BilingualReading.css',
-    'frontend-review/after/src/components/Article/ArticleDetail.jsx', IMAGE_HISTORY,
-    'tests/test_bilingual_translation.py', 'tests/test_bilingual_reading.mjs',
-    'tests/test_bilingual_reading_component.mjs', 'tests/test_bilingual_reading_install.py',
-    'tests/test_api.py', 'tests/test_frontend_overlay_rebuild.py',
-    'tests/test_source_catalog_overlay.py',
-    'docs/research/reader-pretranslation-20261007/outline.yaml',
-    'docs/research/reader-pretranslation-20261007/fields.yaml',
-}
-TRANSLATION_ANCHORS = {'src/bilingual_translation.py', 'patches/BilingualReading.jsx', 'patches/BilingualReading.css'}
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
     'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -82,12 +68,6 @@ INTERFACES = NATIVE | {
 PIN_FILE = 'tests/dev_fixture_workspace_browser_acceptance.py'
 PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
-    'translation': [
-        'tests/test_bilingual_translation.py', 'tests/test_api.py',
-        'tests/test_bilingual_reading_install.py',
-        'tests/test_ci_reader_scope.py', 'tests/test_frontend_overlay_rebuild.py',
-        'tests/test_source_catalog_overlay.py',
-    ],
     'performance': [
         'tests/test_reader_product_ab_profile.py',
         'tests/test_reader_loading_ab_ci.py',
@@ -134,6 +114,33 @@ def pin_only(before, after, base_src, head_src):
             == after[:right.start(1)] + after[right.end(1):])
 
 
+# Retirement is safe to focus only when runtime src/ exactly matches the
+# previously deployed image-cache release, and every dedicated feature file
+# is removed together. Unknown deletions/mixed runtime changes still run full.
+RETIRED_TRANSLATION = {
+    'src/bilingual_translation.py', 'patches/BilingualReading.jsx',
+    'patches/BilingualReading.css', 'tests/test_bilingual_translation.py',
+    'tests/test_bilingual_reading.mjs', 'tests/test_bilingual_reading_component.mjs',
+    'tests/test_bilingual_reading_install.py', 'docs/ops/BILINGUAL-READER.md',
+}
+RETIREMENT_EDITS = {
+    'src/api.py', 'src/patch_frontend.py', 'tests/test_api.py', PIN_FILE,
+    'frontend-review/after/src/components/Article/ArticleDetail.jsx',
+    'frontend-review/after/src/components/Ai/ReadingControls.jsx',
+    'frontend-review/after/src/components/Ai/ReviewWorkflows.css',
+} | IMAGE_CI_SUPPORT
+
+
+def retirement_scope(changes, src_tree, verified_pin):
+    deleted = {row['path'] for row in changes if row['status'] == 'D'}
+    paths = {row['path'] for row in changes
+             if not (row['path'].startswith('docs/') and row['path'].endswith('.md'))}
+    return (verified_pin and src_tree == '37cf05313e1652ca093609025bfbc1e268092daf'
+            and deleted == RETIRED_TRANSLATION
+            and all(row['status'] in {'A', 'M', 'D'} for row in changes)
+            and paths <= RETIRED_TRANSLATION | RETIREMENT_EDITS)
+
+
 def classify(changes, verified_pin=False, verified_image_history=False):
     if not changes or any(row['status'] not in {'A', 'M'} for row in changes):
         return 'full'
@@ -152,8 +159,6 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         return 'fulltext'
     if paths and paths <= BACKUP:
         return 'backup'
-    if paths & TRANSLATION_ANCHORS and paths <= TRANSLATION | IMAGE_CI_SUPPORT:
-        return 'translation' if IMAGE_HISTORY not in paths or verified_image_history else 'full'
     if paths - IMAGE_CI_SUPPORT and paths <= IMAGES | IMAGE_CI_SUPPORT:
         return 'images' if IMAGE_HISTORY not in paths or verified_image_history else 'full'
     if paths and paths <= INTERFACES:
@@ -220,11 +225,11 @@ def select(root, event_name, event, expected_head):
                 verified_history &= isinstance(previous, list) and updated == previous + [old_helper]
                 appended = True
             verified_history &= appended and before == after
-        scope = classify(changes, verified, verified_history)
+        retirement = retirement_scope(changes, git(root, 'rev-parse', head+':src').decode().strip(), verified)
+        scope = 'images' if retirement else classify(changes, verified, verified_history)
         return {**result, 'scope': scope, 'base': base, 'comparison_base': comparison,
                 'changes': changes, 'verified_src_pin_only': verified,
-                'native': bool({row['path'] for row in changes} &
-                               (NATIVE - {'src/api.py'} if scope == 'translation' else NATIVE)),
+                'native': bool({row['path'] for row in changes} & (NATIVE - {'src/api.py'} if retirement else NATIVE)),
                 'reason': ('documentation_only' if scope == 'docs' else
                            'related_files' if scope != 'full' else 'unknown_mixed_or_structural_change')}
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
