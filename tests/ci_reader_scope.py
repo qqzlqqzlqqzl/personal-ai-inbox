@@ -88,7 +88,7 @@ ENRICHMENT_TESTS = {
     'tests/test_processing_observation.py', 'tests/test_processing_status.py',
     'tests/test_reader_work.py', 'tests/test_worker.py',
     'tests/test_content_quality.py', 'tests/test_content_quality_flow.py',
-    'tests/test_quality_current_identity.py', 'tests/test_notes_metadata.py',
+    'tests/test_quality_current_identity.py', 'tests/test_quality_api.py', 'tests/test_notes_metadata.py',
     'tests/test_bilingual_translation.py',
 }
 ENRICHMENT = ENRICHMENT_RUNTIME | ENRICHMENT_TESTS

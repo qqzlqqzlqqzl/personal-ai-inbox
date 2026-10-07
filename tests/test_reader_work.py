@@ -124,6 +124,8 @@ def trace_workers(monkeypatch, loop, *, writing=None):
     '/mf/v1/entries/1',
 ])
 async def test_cached_page_completes_with_writer_held_and_no_dml(db, entry, monkeypatch, route):
+    import bilingual_translation
+    bilingual_translation.migrate()
     entries = [{**entry, 'id': i, 'title': f'Article {i}'} for i in range(1, 25)]
     seed(entries)
     if 'pending' in route:
