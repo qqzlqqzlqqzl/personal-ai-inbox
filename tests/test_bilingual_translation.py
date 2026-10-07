@@ -91,6 +91,33 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM usage').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT actual FROM bilingual_usage').fetchone()[0], 77)
 
+    async def test_image_address_rotation_reuses_done_without_new_rows_or_calls(self):
+        self.entry['content'] += '<p><a href="https://source.invalid/old">An ordinary link.</a></p><p><a href="https://image.invalid/old"><img src="https://image.invalid/old" alt="Diagram"></a></p>'
+        self.allow(self.entry)
+        bilingual.enqueue(self.entry)
+        await self.run_mock()
+        rotated = {**self.entry, 'content': self.entry['content'].replace('https://image.invalid/old', 'https://image.invalid/new')}
+        value = self.attached(rotated)
+        self.assertEqual(value['status'], 'done')
+        self.assertEqual(value['source_hash'], bilingual.source_hash(rotated['content']))
+        self.assertIn('https://image.invalid/new', value['bilingual_html'])
+        self.assertNotIn('https://image.invalid/old', value['bilingual_html'])
+        self.assertFalse(bilingual.enqueue(rotated))
+        self.assertEqual((await self.run_mock())['processed'], 0)
+        self.assertEqual(len(self.calls), 1)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 1)
+        for changed in (
+            rotated['content'].replace('original paragraph', 'changed paragraph'),
+            rotated['content'].replace('<h2>', '<h3>').replace('</h2>', '</h3>'),
+            rotated['content'].replace('Diagram', 'Changed diagram'),
+            rotated['content'].replace('https://source.invalid/old', 'https://source.invalid/new'),
+        ):
+            self.assertIsNone(self.attached({**rotated, 'content': changed})['bilingual_html'])
+        self.assertIsNone(self.attached(rotated, user=4)['bilingual_html'])
+        with patch.dict('os.environ', {'BILINGUAL_MODEL': 'different-model'}):
+            self.assertIsNone(self.attached(rotated)['bilingual_html'])
+
     async def test_user_and_exact_body_version_isolation_and_restore(self):
         bilingual.enqueue(self.entry)
         await self.run_mock()
@@ -465,6 +492,49 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict('os.environ', {'BILINGUAL_DAILY_REQUESTS': '3'}):
             self.assertTrue((await self.run_mock())['budget_paused'])
         self.assertEqual(len(self.calls), 3)
+
+    async def test_hundred_concurrent_batches_have_distinct_claims(self):
+        active, peak = 0, 0
+        started, release = asyncio.Event(), asyncio.Event()
+        async def respond(request):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            if active == 100:
+                started.set()
+            await release.wait()
+            active -= 1
+            return self.reply(request)
+        with patch.dict('os.environ', {
+            'BILINGUAL_CONCURRENCY': '100',
+            'BILINGUAL_DAILY_REQUESTS': '1000',
+            'BILINGUAL_DAILY_TOKENS': '1000000',
+        }):
+            for index in range(100, 200):
+                entry = {**self.entry, 'id': index}
+                self.allow(entry)
+                bilingual.enqueue(entry)
+            client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+            with patch.object(bilingual.httpx, 'AsyncClient', return_value=client) as factory:
+                work = asyncio.create_task(bilingual.run_once())
+                try:
+                    await asyncio.wait_for(started.wait(), timeout=15)
+                    self.assertEqual(peak, 100)
+                finally:
+                    release.set()
+                    result = await asyncio.wait_for(work, timeout=15)
+            self.assertEqual(factory.call_args.kwargs['limits'].max_connections, 100)
+            self.assertEqual(factory.call_args.kwargs['limits'].max_keepalive_connections, 100)
+            self.assertEqual(result['processed'], 200)
+            self.assertEqual(len(self.calls), 100)
+            with core.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(DISTINCT entry_id) FROM bilingual_usage').fetchone()[0], 100)
+                self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], 1)
+            with patch.object(bilingual, '_translate', side_effect=AssertionError('idle task')):
+                self.assertEqual((await self.run_mock())['processed'], 0)
+        for value, expected in [('0', 1), ('101', 100), ('invalid', 3)]:
+            with patch.dict('os.environ', {'BILINGUAL_CONCURRENCY': value}):
+                self.assertEqual(bilingual.config()['concurrency'], expected)
 
     async def test_enqueue_from_thread_wakes_idle_worker(self):
         idle, woke = asyncio.Event(), asyncio.Event()
