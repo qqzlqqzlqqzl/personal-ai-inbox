@@ -32,3 +32,21 @@ Cost research (2026-10-07, estimates rather than billed totals):
   for gpt-4o-mini. Credit-to-cash conversion depends on the user's purchase price.
 - gpt-4.1-mini is 2.67 times these rates. Flex/Batch/peak-offpeak savings must not be assumed to pass
   through a Chat Completions relay. On-demand first reading uses the normal endpoint.
+
+Deployment completed 2026-10-07 17:59:02 Asia/Shanghai:
+- PR #166 merged as 9f80a2744d8657ea297a0be540da911f005f6a03.
+- Reader CI 37603741588: 141 Python tests, 110 subtests, 14 JS/React tests passed;
+  locked frontend build passed. Metadata compatibility 37603741649 passed.
+- Tested head 1c419e24512d55f55958bab7a0f81eeacb634e61, src tree c27d6521f80851ec937d12082ff194b50438a5d2.
+- Exact CI build 11474091866 is live; public index SHA256
+  2287b8e54d5b8f8ae9889c74e0424d73c78a998c3ba33b12f26550f35e05c1e8.
+- Production before explicit POST: 0 requested articles; detail/status GET added no calls/tokens.
+- One real eligible English article #8644 completed in 8.48 seconds with 1104 total actual tokens.
+  Repeat POST reused done content in 0.17 seconds with no new call/token.
+- Windows Edge verified completed bilingual body and original/bilingual mode switching.
+- Original 56 completed rows remain; 57 completed rows after the probe. Cancelled unfinished rows stay dormant.
+- Existing native Miniflux PID 1230783 unchanged; health 200; shared image cache remains <=1 GiB.
+- Existing private New API token reused server-side; model gpt-4o-mini.
+  Global guardrail: at most 1000 batch requests / 1,000,000 reserved-or-actual tokens per UTC day.
+  This is a ceiling, not a daily translation target. No article-library backfill.
+- Costs above remain estimates. Cash conversion is unknown; upstream balance uses credits (symbol lightning).
