@@ -92,11 +92,11 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT actual FROM bilingual_usage').fetchone()[0], 77)
 
     async def test_image_address_rotation_reuses_done_without_new_rows_or_calls(self):
-        self.entry['content'] += '<p><a href="https://image.invalid/old"><img src="https://image.invalid/old" alt="Diagram"></a></p>'
+        self.entry['content'] += '<p><a href="https://source.invalid/old">An ordinary link.</a></p><p><a href="https://image.invalid/old"><img src="https://image.invalid/old" alt="Diagram"></a></p>'
         self.allow(self.entry)
         bilingual.enqueue(self.entry)
         await self.run_mock()
-        rotated = {**self.entry, 'content': self.entry['content'].replace('/old', '/new')}
+        rotated = {**self.entry, 'content': self.entry['content'].replace('https://image.invalid/old', 'https://image.invalid/new')}
         value = self.attached(rotated)
         self.assertEqual(value['status'], 'done')
         self.assertEqual(value['source_hash'], bilingual.source_hash(rotated['content']))
@@ -111,7 +111,7 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             rotated['content'].replace('original paragraph', 'changed paragraph'),
             rotated['content'].replace('<h2>', '<h3>').replace('</h2>', '</h3>'),
             rotated['content'].replace('Diagram', 'Changed diagram'),
-            rotated['content'] + '<p><a href="https://source.invalid/new">An ordinary link.</a></p>',
+            rotated['content'].replace('https://source.invalid/old', 'https://source.invalid/new'),
         ):
             self.assertIsNone(self.attached({**rotated, 'content': changed})['bilingual_html'])
         self.assertIsNone(self.attached(rotated, user=4)['bilingual_html'])
