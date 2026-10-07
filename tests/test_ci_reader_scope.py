@@ -131,6 +131,21 @@ class ScopeTests(unittest.TestCase):
         self.assertIn('tests/test_warm_reader_covers.py', PYTHON_TESTS['article-cache'])
         self.assertIn('tests/test_api.py', PYTHON_TESTS['article-cache'])
 
+    def test_bilingual_is_scoped_to_feature_api_and_frontend(self):
+        paths = ['src/bilingual_translation.py', 'src/api.py', 'patches/BilingualReading.jsx',
+                 'src/patch_frontend.py', 'tests/test_bilingual_translation.py',
+                 'tests/test_ci_reader_scope.py', '.github/workflows/reader-regression.yml']
+        for path in paths:
+            self.write(path, '# changed on-demand translation\n')
+        result = self.pr(self.commit(rebind=True))
+        self.assertEqual(result['scope'], 'bilingual')
+        self.assertFalse(result['native'])
+        self.assertTrue(result['verified_src_pin_only'])
+        self.assertIn('tests/test_api.py', PYTHON_TESTS['bilingual'])
+        for extra in ('src/core.py', 'src/notes_metadata.py', 'src/warm_reader_covers.py'):
+            self.assertEqual(classify([{'path': p, 'status': 'M'} for p in paths + [extra]]), 'full')
+        self.assertEqual(classify([{'path': p, 'status': 'D'} for p in paths]), 'full')
+
     def test_documentation_and_mixed_code_from_complete_event_diff(self):
         self.assertEqual(PYTHON_TESTS['images'], [
             'tests/test_reader_image_proxy.py', 'tests/test_reader_image_cache.py',
@@ -394,7 +409,7 @@ class WiringTests(unittest.TestCase):
         full = text[text.index('  full-regression:'):text.index('    runs-on:')]
         self.assertIn("needs.scope-job.result != 'success'", full)
         accepted = json.loads(re.search(r"fromJSON\('([^']+)'\)", full)[1])
-        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'article-cache'})
+        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'article-cache', 'bilingual'})
         self.assertIn('!contains(', full)
 
     def test_original_required_gate_rejects_failed_skipped_or_cancelled_selected_job(self):
@@ -433,11 +448,12 @@ class WiringTests(unittest.TestCase):
                     with self.assertRaises(AssertionError): exec(code, {})
         with patch.dict(os.environ, {**docs, 'NATIVE_REQUIRED': 'true'}, clear=True):
             with self.assertRaises(AssertionError): exec(code, {})
-        image = {**docs, 'SELECT_SCOPE': 'images', 'IMAGE_RESULT': 'success'}
-        with patch.dict(os.environ, image, clear=True): exec(code, {})
-        for outcome in ('failure', 'skipped', 'cancelled', ''):
-            with patch.dict(os.environ, {**image, 'IMAGE_RESULT': outcome}, clear=True):
-                with self.assertRaises(AssertionError): exec(code, {})
+        for scope in ('images', 'bilingual'):
+            image = {**docs, 'SELECT_SCOPE': scope, 'IMAGE_RESULT': 'success'}
+            with patch.dict(os.environ, image, clear=True): exec(code, {})
+            for outcome in ('failure', 'skipped', 'cancelled', ''):
+                with patch.dict(os.environ, {**image, 'IMAGE_RESULT': outcome}, clear=True):
+                    with self.assertRaises(AssertionError): exec(code, {})
 
 
 class RetirementTests(unittest.TestCase):

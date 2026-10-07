@@ -28,6 +28,7 @@ from worker import run_worker, MF
 from preview_worker import run_preview_worker, run_discovery_worker
 from content_input import first_image_src
 from card_translation import enqueue as enqueue_cards, run_translation_worker
+import bilingual_translation
 from reader_work import reader_work
 import notes_metadata
 
@@ -37,6 +38,7 @@ async def lifespan(app):
     init_db()
     init_usage()
     migrate()
+    bilingual_translation.migrate()
     # Only the legacy worker may recover its old work at web startup.
     # Live Kaggle preparations are managed by their own claim ledger.
     if settings().get("enabled"):
@@ -52,12 +54,14 @@ async def lifespan(app):
     preview_task = asyncio.create_task(run_preview_worker())
     discovery_task = asyncio.create_task(run_discovery_worker())
     translation_task = asyncio.create_task(run_translation_worker())
+    bilingual_task = asyncio.create_task(bilingual_translation.run_worker())
     yield
     task.cancel()
     preview_task.cancel()
     discovery_task.cancel()
     translation_task.cancel()
-    for background_task in (task, preview_task, discovery_task, translation_task):
+    bilingual_task.cancel()
+    for background_task in (task, preview_task, discovery_task, translation_task, bilingual_task):
         with contextlib.suppress(asyncio.CancelledError):
             await background_task
     await app.state.client.aclose()
@@ -391,6 +395,10 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False,
     for entry in entries:
         item = decorate(entry, uid if uid is not None else entry["user_id"],
                         include_source_fallback=detail, processing_evidence=processing_evidence)
+        if detail:
+            # Hover/prefetch may read details. Only the explicit POST below queues
+            # paid body translations; detail GET can reuse a completed cache.
+            item = bilingual_translation.attach(item, uid if uid is not None else entry["user_id"])
         if recommended:
             ai = item.setdefault("ai", {})
             if not ai.get("cover_url"):
@@ -1120,6 +1128,41 @@ async def reading_session(request: Request):
             ),
         )
     return {"saved": True}
+
+
+async def bilingual_article(entry_id, request, *, request_translation=False):
+    uid = await authorize(request)
+    eid = positive_id(entry_id)
+    entry = await require_readable_entry(request, uid, eid)
+    entry = {**entry, "user_id": uid}
+    # Use exactly the current Reader body, including saved full-text repairs.
+    # This route never fetches a publisher website or accepts browser-supplied HTML.
+    decorated = await reader_work.run(decorate, entry, uid, include_source_fallback=True)
+    ai = decorated.get("ai") or {}
+    if request_translation:
+        try:
+            eligible = ai.get("state") == "done" and float(ai.get("score") or 0) >= 8
+        except (TypeError, ValueError, OverflowError):
+            eligible = False
+        if not eligible or (ai.get("content_quality") or {}).get("recommendation_eligible") is False:
+            raise HTTPException(409, "Only current score >=8 eligible articles can be translated")
+        await reader_work.run(bilingual_translation.enqueue, decorated, priority=100)
+    attached = await reader_work.run(bilingual_translation.attach, decorated, uid)
+    translation = dict(attached.get("translation") or {})
+    for key in ("bilingual_html", "chinese_html"):
+        if isinstance(translation.get(key), str):
+            translation[key] = translation[key].replace("http://127.0.0.1:8092/mf", "/mf")
+    return {"entry_id": eid, "translation": translation}
+
+
+@app.get("/mf/v1/ai/translation/{entry_id}")
+async def get_bilingual_article(entry_id: int, request: Request):
+    return await bilingual_article(entry_id, request)
+
+
+@app.post("/mf/v1/ai/translation/{entry_id}")
+async def request_bilingual_article(entry_id: int, request: Request):
+    return await bilingual_article(entry_id, request, request_translation=True)
 
 
 @app.get("/mf/v1/ai/notes/{entry_id}")

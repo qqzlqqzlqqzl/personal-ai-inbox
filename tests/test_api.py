@@ -5,6 +5,66 @@ import api, core
 
 
 @pytest.mark.asyncio
+async def test_bilingual_get_detail_and_prefetch_never_queue(browser_api, entry, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a read-only request queued paid body translation")
+    monkeypatch.setattr(api.bilingual_translation, "enqueue", forbidden)
+    headers = {"X-Auth-Token": "test-session"}
+    result = await browser_api.get("/mf/v1/ai/translation/1", headers=headers)
+    assert result.status_code == 200 and result.json()["entry_id"] == 1
+    # The same detail endpoint is used by hover/article prefetch.
+    detail = await browser_api.get("/mf/v1/entries/1", headers=headers)
+    assert detail.status_code == 200 and detail.json()["content"] == entry["content"]
+    assert "translation" in detail.json()
+
+
+@pytest.mark.asyncio
+async def test_bilingual_post_uses_owned_current_reader_body(browser_api, entry, model_result, monkeypatch):
+    entry["content"] = "<p>" + "A complete engineering article describes a useful local cache. " * 25 + "</p>"
+    core.discover([entry])
+    core.update(1, state="done", score=8, result=json.dumps(model_result))
+    calls = []
+    def queue(item, priority=0):
+        calls.append((item["id"], item["user_id"], item["content"], priority))
+    def attach(item, uid):
+        return {**item, "translation": {"status": "done", "source_hash": "owned-body",
+            "bilingual_html": '<p>Translated</p><img src="http://127.0.0.1:8092/mf/proxy/signed">'}}
+    monkeypatch.setattr(api.bilingual_translation, "enqueue", queue)
+    monkeypatch.setattr(api.bilingual_translation, "attach", attach)
+    response = await browser_api.post("/mf/v1/ai/translation/1",
+        headers={"X-Auth-Token": "test-session"}, json={"content": "browser content must be ignored"})
+    assert response.status_code == 200
+    assert calls == [(1, 1, entry["content"], 100)]
+    assert 'src="/mf/proxy/signed"' in response.json()["translation"]["bilingual_html"]
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state,score", [("pending", 9), ("done", 7.9), ("done", None)])
+async def test_bilingual_post_rejects_ineligible_current_analysis(browser_api, entry, model_result, monkeypatch, state, score):
+    core.discover([entry])
+    core.update(1, state=state, score=score, result=json.dumps({**model_result, "score": score}))
+    def forbidden(*args, **kwargs):
+        raise AssertionError("an ineligible article queued translation")
+    monkeypatch.setattr(api.bilingual_translation, "enqueue", forbidden)
+    response = await browser_api.post("/mf/v1/ai/translation/1", headers={"X-Auth-Token": "test-session"})
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_bilingual_routes_require_auth_and_current_ownership(browser_api, entry, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("an unauthorized article queued translation")
+    monkeypatch.setattr(api.bilingual_translation, "enqueue", forbidden)
+    for method in ("GET", "POST"):
+        assert (await browser_api.request(method, "/mf/v1/ai/translation/1")).status_code == 401
+    entry["user_id"] = 2
+    for method in ("GET", "POST"):
+        result = await browser_api.request(method, "/mf/v1/ai/translation/1", headers={"X-Auth-Token": "test-session"})
+        assert result.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_article_image_uses_warmed_original_without_origin(browser_api, monkeypatch, tmp_path):
     import io
     from PIL import Image
