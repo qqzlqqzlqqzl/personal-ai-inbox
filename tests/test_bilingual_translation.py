@@ -511,5 +511,79 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
 
 
 
+class TechnicalLiteralTests(unittest.TestCase):
+    """Pure validator regressions; no database, provider, or optional parser."""
+    LABELS = (
+        'Windows PowerShell', 'macOS, Linux, WSL:', 'Homebrew (macOS/Linux):',
+        'Windows CMD:', 'Ubuntu x64 (CPU)', 'Ubuntu arm64 (CPU)',
+        'Ubuntu s390x (CPU)', 'Ubuntu x64 (Vulkan)', 'Ubuntu arm64 (Vulkan)',
+        'Ubuntu x64 (ROCm 10.0)', 'Ubuntu x64 (OpenVINO)', 'Ubuntu x64 (SYCL FP16)',
+        'Android arm64 (CPU)', 'Windows arm64 (CPU)', 'Windows arm64 (OpenCL Adreno)',
+        'Windows arm64 (CUDA 13) - CUDA 13.4 DLLs', 'Windows x64 (SYCL)',
+        'Windows arm64 (Vulkan)', 'openEuler x86 (310p)', 'Core i9-14900K ($550)',
+        'iOS XCFramework', 'Ubuntu x64 (SYCL FP32)',
+        'Windows x64 (CUDA 12) - CUDA 12.4 DLLs', 'openEuler aarch64 (310p)',
+        'NVIDIA MIG', 'Zen 5 X3D', 'Ryzen 9 7950X3D ($700)',
+        'Core Ultra 7 270K Plus ($300)', 'Raptor Lake Refresh', 'Arrow Lake Refresh',
+        'GeForce GTX 970, 980, 980 Ti; GTX TITAN X (Maxwell).',
+        'GeForce GTX 1060 (3/5/6 GB), 1070, 1070 Ti, 1080, 1080 Ti; TITAN X (Pascal), TITAN Xp.',
+        'Quadro M4000, M5000, M6000, M6000 24GB; P2000, P2200, P4000, P5000, P6000.',
+    )
+
+    def validate(self, source, target):
+        return bilingual._validate(json.dumps({'items': [{'id': 1, 'text': target}]}),
+                                   [{'block_id': 1, 'source_text': source}])
+
+    def test_exact_platform_product_and_gpu_labels_are_accepted(self):
+        for label in self.LABELS:
+            with self.subTest(label=label):
+                self.assertTrue(bilingual._technical_literal(label))
+                self.assertEqual(self.validate(label, label), {1: label})
+
+    def test_changed_labels_and_untranslated_prose_are_rejected(self):
+        for label in self.LABELS:
+            with self.subTest(changed=label):
+                self.assertEqual(self.validate(label, label + ' Pro'), {})
+        for sentence in (
+            'This natural sentence must be translated.', 'Short words.',
+            'Windows PowerShell Is Better', 'Windows PowerShell installation guide',
+            'Windows PowerShell is fast.', 'A New Era For Windows',
+            'NVIDIA MIG Improves Performance', 'NVIDIA MIG is available.',
+            'Ryzen 9 7950X3D Is Faster', 'Raptor Lake Refresh Benchmarks',
+            'GeForce GTX 970 supports the latest features.',
+            'GeForce GTX 970 Versus Quadro M4000', 'The Future Of Computing',
+            'Paul Graham:', 'Windows PowerShell\nWindows PowerShell',
+        ):
+            with self.subTest(prose=sentence):
+                self.assertFalse(bilingual._technical_literal(sentence))
+                self.assertEqual(self.validate(sentence, sentence), {})
+        self.assertFalse(bilingual._technical_literal('GeForce GTX ' + '970, ' * 80))
+
+    def test_label_exception_keeps_marker_identity_and_markup_safety(self):
+        for label in self.LABELS:
+            marked = '[[t1]]' + label + '[[/t1]]'
+            with self.subTest(label=label):
+                self.assertEqual(self.validate(marked, marked), {1: marked})
+                self.assertEqual(self.validate(marked, label), {})
+                self.assertEqual(self.validate(marked, marked.replace('t1', 't9')), {})
+                self.assertEqual(self.validate(marked, '[[t1]]' + label), {})
+                self.assertEqual(self.validate(label, '<b>' + label + '</b>'), {})
+        nested = '[[t1]]NVIDIA [[t3]]MIG[[/t3]][[/t1]]'
+        self.assertEqual(self.validate(nested, '[[t3]]NVIDIA [[t1]]MIG[[/t1]][[/t3]]'), {})
+
+    def test_labels_render_verbatim_once_without_changing_source_markup(self):
+        for label in self.LABELS:
+            html = '<p><a href="https://source.invalid/docs">' + label + '</a></p>'
+            _, _, blocks = bilingual.extract(html)
+            raw = json.dumps({'items': blocks})
+            rows = [{'block_id': block['id'], 'source_text': block['text']} for block in blocks]
+            translated = bilingual._validate(raw, rows)
+            with self.subTest(label=label):
+                self.assertEqual(len(translated), 1)
+                for body in bilingual.render(html, translated):
+                    self.assertEqual(body.count(label), 1)
+                    self.assertIn('href="https://source.invalid/docs"', body)
+
+
 if __name__ == '__main__':
     unittest.main()

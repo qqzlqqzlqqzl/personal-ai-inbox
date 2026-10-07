@@ -511,9 +511,40 @@ def _technical_literal(text):
     text = text.strip()
     # Unchanged short names/table labels and shell commands are useful verbatim.
     # The caller requires an exact source match; natural sentences still need Chinese.
-    return bool(re.fullmatch(r'[@#]?[A-Za-z0-9_.:/+-]{1,64}', text) or
-                re.fullmatch(r'[$#]\s+\S[^\r\n]*', text) or
-                re.fullmatch(r'[A-Za-z_]\w*\s*=\s*[A-Z][A-Za-z0-9_-]*\(.*\)', text))
+    if (re.fullmatch(r'[@#]?[A-Za-z0-9_.:/+-]{1,64}', text) or
+            re.fullmatch(r'[$#]\s+\S[^\r\n]*', text) or
+            re.fullmatch(r'[A-Za-z_]\w*\s*=\s*[A-Z][A-Za-z0-9_-]*\(.*\)', text)):
+        return True
+    # Recognize bounded product/platform syntax, never arbitrary Title Case.
+    # Qualifiers contain only technical identifiers, versions and prices; prose
+    # such as "Windows PowerShell Is Better" must still be translated.
+    if len(text) > 256:
+        return False
+    version = r'\d{1,2}(?:\.\d{1,2})?'
+    price = r'(?: \(\$\d{1,5}(?:\.\d{2})?\))?'
+    platform = r'(?:macOS|Linux|WSL)'
+    label = (
+        r'(?:Windows (?:PowerShell|CMD)|'
+        + platform + r'(?:, ' + platform + r')+|'
+        r'Homebrew \(' + platform + r'(?:/' + platform + r')*\)|'
+        r'iOS XCFramework|'
+        r'(?:Ubuntu|Windows|Android) (?:x64|arm64|s390x)'
+        r'(?: \((?:CPU|Vulkan|OpenVINO|SYCL(?: FP(?:16|32|64))?|'
+        r'OpenCL Adreno|ROCm ' + version + r'|CUDA ' + version + r')\))?'
+        r'(?: - CUDA ' + version + r' DLLs)?|'
+        r'openEuler (?:aarch64|x86) \(\d{3}p\)|NVIDIA MIG|Zen [1-9]\d?(?: X3D)?|'
+        r'Ryzen [3579] \d{4,5}[A-Z0-9]{0,6}' + price + r'|'
+        r'Core i[3579]-\d{4,5}[A-Z]{0,3}' + price + r'|'
+        r'Core Ultra [3579] \d{3}[A-Z]{0,2}(?: Plus)?' + price + r'|'
+        r'(?:Raptor|Arrow) Lake(?: Refresh)?):?'
+    )
+    if re.fullmatch(label, text):
+        return True
+    # GPU compatibility tables use comma/semicolon-separated model lists.
+    # Every word is a known model-family token, not a generic capitalized word.
+    gpu_token = r'(?:GeForce|GTX|TITAN|X|Xp|Ti|GB|Maxwell|Pascal|Quadro|[MP]?\d{1,4}(?:GB)?)'
+    return bool(re.match(r'(?:GeForce GTX |GTX |TITAN |Quadro )', text) and
+                re.fullmatch(gpu_token + r'(?:[ ,;()./]+' + gpu_token + r')*\)?\.?', text))
 
 
 def _validate(raw, rows):
