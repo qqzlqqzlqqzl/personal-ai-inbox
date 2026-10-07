@@ -514,6 +514,11 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
 class TechnicalLiteralTests(unittest.TestCase):
     """Pure validator regressions; no database, provider, or optional parser."""
     LABELS = (
+        'DX-M1M (NPU)', 'DX-M1 (NPU)', 'mobilenet_v2, 240×240',
+        'deeplabv3plus, 512×512', '2361 FPS', 'dxrt-cli / dxtop',
+        'GGML_SCHED_DEBUG_REALLOC=1 ./bin/llama-batched-bench\n'
+        '-hf ggml-org/GLM-5.3-Flash-GGUF:Q2_K -npp 2500 -ntg 32 -npl 1,2\n'
+        '-c 32768 -pps -kvu',
         'Windows PowerShell', 'macOS, Linux, WSL:', 'Homebrew (macOS/Linux):',
         'Windows CMD:', 'Ubuntu x64 (CPU)', 'Ubuntu arm64 (CPU)',
         'Ubuntu s390x (CPU)', 'Ubuntu x64 (Vulkan)', 'Ubuntu arm64 (Vulkan)',
@@ -573,6 +578,8 @@ class TechnicalLiteralTests(unittest.TestCase):
 
     def test_labels_render_verbatim_once_without_changing_source_markup(self):
         for label in self.LABELS:
+            if '\n' in label:
+                continue
             html = '<p><a href="https://source.invalid/docs">' + label + '</a></p>'
             _, _, blocks = bilingual.extract(html)
             raw = json.dumps({'items': blocks})

@@ -520,6 +520,10 @@ def _technical_literal(text):
     # such as "Windows PowerShell Is Better" must still be translated.
     if len(text) > 256:
         return False
+    # Environment-prefixed relative executable commands remain copyable verbatim.
+    if re.fullmatch(r'(?:[A-Z][A-Z0-9_]{0,63}=[A-Za-z0-9_.+-]+\s+)*'
+                    r'\./[A-Za-z0-9_./-]+(?:\s+[A-Za-z0-9_./,:=+-]+)*', text):
+        return True
     version = r'\d{1,2}(?:\.\d{1,2})?'
     price = r'(?: \(\$\d{1,5}(?:\.\d{2})?\))?'
     platform = r'(?:macOS|Linux|WSL)'
@@ -527,7 +531,9 @@ def _technical_literal(text):
         r'(?:Windows (?:PowerShell|CMD)|'
         + platform + r'(?:, ' + platform + r')+|'
         r'Homebrew \(' + platform + r'(?:/' + platform + r')*\)|'
-        r'iOS XCFramework|'
+        r'iOS XCFramework|[A-Z]{2,8}-[A-Z0-9]{1,16} \((?:CPU|GPU|NPU|TPU)\)|'
+        r'\d{1,8}(?:\.\d+)? FPS|[A-Za-z0-9_.-]{1,32}, \d{1,5}[×x]\d{1,5}|'
+        r'[a-z][a-z0-9_-]{0,31}-cli / [a-z][a-z0-9_-]{0,31}|'
         r'(?:Ubuntu|Windows|Android) (?:x64|arm64|s390x)'
         r'(?: \((?:CPU|Vulkan|OpenVINO|SYCL(?: FP(?:16|32|64))?|'
         r'OpenCL Adreno|ROCm ' + version + r'|CUDA ' + version + r')\))?'
