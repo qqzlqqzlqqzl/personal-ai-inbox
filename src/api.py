@@ -1404,6 +1404,18 @@ async def proxy(path: str, request: Request):
         if path.startswith("proxy/") and "reader_width" in request.query_params:
             from reader_image_proxy import proxy_reader_image
             return await proxy_reader_image(path, request, MF)
+        original_image = (
+            request.method == "GET" and path.startswith("proxy/")
+            and not request.query_params and "range" not in request.headers
+            and (request.headers.get("sec-fetch-dest") == "image"
+                 or request.headers.get("accept", "").lower().startswith("image/"))
+        )
+        if original_image:
+            from reader_image_proxy import original_cache_get, original_cache_put, NATIVE_IMAGE_ACCEPT
+            cached = await reader_work.run(original_cache_get, MF, path,
+                                           request.headers.get("cache-control", ""))
+            if cached is not None:
+                return cached
         if request.method not in ("GET", "HEAD", "OPTIONS") and path.startswith(("v1/feeds", "v1/import")):
             await authorize(request, admin=True)
         ai_scope = None
@@ -1442,6 +1454,10 @@ async def proxy(path: str, request: Request):
             ]
         }
         headers["host"] = request.headers.get("host", "127.0.0.1:8092")
+        if original_image:
+            # Match the server warmer's representation. Other signed media,
+            # HEAD, range and query-bearing requests retain the native route.
+            headers["accept"] = NATIVE_IMAGE_ACCEPT
         r = await app.state.client.request(
             request.method,
             MF + "/" + path,
@@ -1451,6 +1467,10 @@ async def proxy(path: str, request: Request):
         )
         content = r.content
         content_type = r.headers.get("content-type", "application/octet-stream")
+        if original_image:
+            await reader_work.run(original_cache_put, MF, path, content,
+                                  dict(r.headers), r.status_code,
+                                  request.headers.get("cache-control", ""))
         if (
             r.status_code == 200
             and content_type.startswith("application/json")

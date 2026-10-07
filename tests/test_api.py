@@ -4,6 +4,103 @@ import pytest, pytest_asyncio
 import api, core
 
 
+@pytest.mark.asyncio
+async def test_article_image_uses_warmed_original_without_origin(browser_api, monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    import reader_image_proxy as images
+    from reader_image_cache import ImageCache, variant_key
+    from stabilize_media import signed_url
+
+    key = "test-only-article-image-key"
+    target = "https://example.org/article-body.png"
+    path = signed_url(target, key)
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), "blue").save(buf, format="PNG")
+    body = buf.getvalue()
+    cache = ImageCache(tmp_path / "cache")
+    monkeypatch.setattr(images, "image_cache", cache)
+    monkeypatch.setattr(images, "media_proxy_key", lambda: key)
+    cache.put(variant_key(api.MF, target, 0, images.NATIVE_IMAGE_ACCEPT), body,
+              {"content-type": "image/png", "cache-control": "public, max-age=3600"})
+
+    def origin(request):
+        raise AssertionError("a warmed body image must not contact the origin")
+
+    await api.app.state.client.aclose()
+    api.app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(origin))
+    result = await browser_api.get(path, headers={"Sec-Fetch-Dest": "image", "Accept": "image/avif,image/webp,image/*"})
+    assert result.status_code == 200 and result.content == body
+    assert result.headers["content-type"] == "image/png"
+    assert "age" in result.headers
+
+
+@pytest.mark.asyncio
+async def test_article_image_miss_populates_same_original_cache(browser_api, monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    import reader_image_proxy as images
+    from reader_image_cache import ImageCache
+    from stabilize_media import signed_url
+
+    key = "test-only-article-image-key"
+    path = signed_url("https://example.org/article-body.png", key)
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), "green").save(buf, format="PNG")
+    body, calls = buf.getvalue(), []
+    monkeypatch.setattr(images, "image_cache", ImageCache(tmp_path / "cache"))
+    monkeypatch.setattr(images, "media_proxy_key", lambda: key)
+
+    def origin(request):
+        calls.append(request)
+        if request.url.path != path:
+            return httpx.Response(403, headers={"cache-control": "no-store"})
+        return httpx.Response(200, content=body,
+                              headers={"content-type": "image/png", "cache-control": "public, max-age=3600"})
+
+    await api.app.state.client.aclose()
+    api.app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(origin))
+    first = await browser_api.get(path, headers={"Accept": "image/*"})
+    second = await browser_api.get(path, headers={"Accept": "image/avif,image/webp,image/*"})
+    assert first.content == second.content == body
+    assert len(calls) == 1
+    assert calls[0].headers["accept"] == images.NATIVE_IMAGE_ACCEPT
+    assert "age" in second.headers
+    # A tampered signature cannot disclose the already cached image.
+    denied = await browser_api.get(path.replace("/proxy/", "/proxy/A", 1), headers={"Accept": "image/*"})
+    assert denied.status_code == 403 and "age" not in denied.headers and len(calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,query,headers", [
+    ("HEAD", "", {"Accept": "image/*"}),
+    ("GET", "", {"Accept": "image/*", "Range": "bytes=0-3"}),
+    ("GET", "?download=1", {"Accept": "image/*"}),
+    ("GET", "", {"Accept": "video/*"}),
+])
+async def test_article_cache_leaves_other_media_on_native_route(browser_api, monkeypatch, method, query, headers):
+    import reader_image_proxy as images
+    from stabilize_media import signed_url
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("non-image/native-only request entered image cache")
+
+    monkeypatch.setattr(images, "original_cache_get", forbidden)
+    monkeypatch.setattr(images, "original_cache_put", forbidden)
+    calls = []
+
+    def origin(request):
+        calls.append(request)
+        return httpx.Response(206, content=b"native", headers={"content-type": "video/mp4"})
+
+    await api.app.state.client.aclose()
+    api.app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(origin))
+    path = signed_url("https://example.org/media", "test-only-key")
+    result = await browser_api.request(method, path + query, headers=headers)
+    assert result.status_code == 206 and len(calls) == 1
+    assert calls[0].method == method and calls[0].headers["accept"] == headers["Accept"]
+
+
 @pytest_asyncio.fixture
 async def browser_api(db, monkeypatch, entry):
     monkeypatch.delenv("MINIFLUX_API_KEY", raising=False)
