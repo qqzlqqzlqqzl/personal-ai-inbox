@@ -260,6 +260,29 @@ patch('src/components/Article/ArticleEntry.jsx','import useEntryActions from "@/
 patch('src/components/Article/ArticleEntry.jsx','        <Presenter entry={entry} previewContent={previewContent} />','        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />')
 patch('src/components/Article/ArticleEntry.jsx','{ title: entry.title })\n    : entry.title','{ title: entry.card?.title || entry.title })\n    : (entry.card?.title || entry.title)')
 shutil.copy2(ROOT/'patches/CardLanguage.jsx', WEB/'src/components/Ai/CardLanguage.jsx')
+
+def install_bilingual_reading(root, web):
+    """Install owned controls only; reviewed ArticleDetail wires the live view."""
+    import hashlib
+    previous = {
+        'BilingualReading.jsx': {'a3c1da4485211039a62b2c8040337d180b1a8c8658aec709bc72aab8d3e84abf'},
+        'BilingualReading.css': {'bd004e430ee619002a637548614010259c3ac661c194aac58a7dfd8062a7d666'},
+    }
+    planned = []
+    for name, known in previous.items():
+        data = (root / 'patches' / name).read_bytes()
+        target = web / 'src/components/Ai' / name
+        if target.exists():
+            before = target.read_bytes()
+            if before != data and hashlib.sha256(before).hexdigest() not in known:
+                raise RuntimeError(f'Unreviewed bilingual reading helper: {name}')
+        planned.append((target, data))
+    for target, data in planned:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists() or target.read_bytes() != data:
+            target.write_bytes(data)
+
+install_bilingual_reading(ROOT, WEB)
 diffs=[]
 for original in BACK.rglob('*'):
  if original.is_file():

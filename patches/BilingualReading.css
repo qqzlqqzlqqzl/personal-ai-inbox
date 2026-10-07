@@ -1,0 +1,40 @@
+.review-reading-options.reader-bilingual-options {
+  width: min(180px, calc(100vw - 56px));
+  gap: 6px;
+  padding: 8px;
+}
+
+.reader-bilingual-options button {
+  font: inherit;
+  text-align: left;
+}
+
+.reader-bilingual-options button[aria-pressed="true"] {
+  border-color: rgb(var(--primary-6, 57, 122, 184));
+  background: var(--color-fill-2, #eef3fa);
+  color: var(--color-text-1, #1e293b);
+  font-weight: 600;
+}
+
+.review-reading-bar > .reader-bilingual-status[role="status"] {
+  position: static;
+  order: -1;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+  font-size: 12px;
+}
+
+.article-body .reader-translation-target {
+  display: block;
+  color: var(--color-text-1, #1e293b);
+}
+
+.article-body .reader-translation-original {
+  display: block;
+  margin-block-start: 0.55em;
+  color: var(--color-text-2, #475569);
+}
