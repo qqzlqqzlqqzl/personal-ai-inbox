@@ -1,10 +1,10 @@
 [Unit]
-Description=Warm useful Reader covers every ten minutes
+Description=Continue newest recommended Reader article image warming
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=10min
-AccuracySec=30s
+OnUnitInactiveSec=30s
+AccuracySec=5s
 Unit=ai-news-reader-covers.service
 
 [Install]

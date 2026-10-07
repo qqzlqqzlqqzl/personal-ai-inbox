@@ -1,5 +1,5 @@
 [Unit]
-Description=Warm newest AI recommended >=8 Reader covers
+Description=Warm covers and body images of newest AI recommended >=8 articles
 After=ai-news-miniflux.service
 
 [Service]
