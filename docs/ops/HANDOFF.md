@@ -125,3 +125,13 @@ first bounded issue. Preview source HTTP403 warnings were 670 distinct entries i
 four hours, not repeated IDs; no ownership fix or blanket retry suppression is justified.
 The live backup unit already supplies all five lane configs and paused-file.
 The completed 100-article bilingual preview stays completed; do not reseed it.
+
+Events #102 / PR #103 completed 2026-10-08 01:49 UTC+8: ten pending opens
+share one GET; related UI CI 37661501898 passed in 84 seconds. Tested
+a0d1b3e merged as 60140c8, exact app.js published, health 200, service PID unchanged.
+
+Reader #173 uses the established delivery base codex/kaggle-qwen36-batches
+(f1b564b); default main remains the earlier September branch. The focused scope
+requires all four enrichment runtime modules and retains full fallback for other
+shared changes. Redundant stub-only test scaffolding was removed; real dependency
+tests cover the same behavior.
