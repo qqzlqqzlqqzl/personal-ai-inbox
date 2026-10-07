@@ -28,6 +28,12 @@ IMAGE_HISTORY_FILES = {
     'src/components/Article/ReaderThumbnail.jsx':
         'frontend-review/after/src/components/Article/ReaderThumbnail.jsx',
 }
+BILINGUAL_HISTORY_FILES = {
+    'src/components/Article/ArticleDetail.jsx':
+        'frontend-review/after/src/components/Article/ArticleDetail.jsx',
+    'src/components/Ai/ReadingControls.jsx':
+        'frontend-review/after/src/components/Ai/ReadingControls.jsx',
+}
 IMAGES = {
     IMAGE_HELPER, IMAGE_HISTORY, 'src/reader_image_proxy.py',
     'src/reader_cover_proxy.py', 'src/reader_image_cache.py',
@@ -58,6 +64,18 @@ ARTICLE_CACHE = {
     'deploy/systemd/ai-news-reader-covers.service',
     'deploy/systemd/ai-news-reader-covers.timer',
 }
+BILINGUAL = {
+    IMAGE_HISTORY,
+    'src/bilingual_translation.py', 'src/api.py', 'tests/test_api.py',
+    'tests/test_bilingual_translation.py', 'patches/BilingualReading.jsx',
+    'patches/BilingualReading.css', 'src/patch_frontend.py',
+    'tests/test_bilingual_reading.mjs', 'tests/test_bilingual_reading_component.mjs',
+    'tests/test_bilingual_reading_install.py',
+    'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
+    'frontend-review/after/src/components/Article/ArticleDetail.jsx',
+    'frontend-review/after/src/components/Ai/ReadingControls.jsx',
+    'frontend-review/after/src/components/Ai/ReviewWorkflows.css',
+}
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
     'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -76,6 +94,11 @@ INTERFACES = NATIVE | {
 PIN_FILE = 'tests/dev_fixture_workspace_browser_acceptance.py'
 PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
+    'bilingual': [
+        'tests/test_api.py', 'tests/test_bilingual_translation.py',
+        'tests/test_bilingual_reading_install.py', 'tests/test_ci_reader_scope.py',
+        'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
+    ],
     'article-cache': [
         'tests/test_api.py', 'tests/test_reader_image_proxy.py',
         'tests/test_reader_image_cache.py', 'tests/test_reader_cover_proxy.py',
@@ -172,6 +195,9 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         return 'fulltext'
     if paths and paths <= BACKUP:
         return 'backup'
+    if (paths & {'src/bilingual_translation.py', 'patches/BilingualReading.jsx'}
+            and paths <= BILINGUAL | IMAGE_CI_SUPPORT):
+        return 'bilingual' if IMAGE_HISTORY not in paths or verified_image_history else 'full'
     if ('src/api.py' in paths and paths & {'src/reader_image_proxy.py', 'src/reader_image_cache.py', 'src/warm_reader_covers.py'}
             and paths <= ARTICLE_CACHE | IMAGE_CI_SUPPORT):
         return 'article-cache'
@@ -232,7 +258,7 @@ def select(root, event_name, event, expected_head):
             after = json.loads(git(root, 'show', head+':'+IMAGE_HISTORY))
             appended = False
             verified_history = True
-            for key, path in IMAGE_HISTORY_FILES.items():
+            for key, path in (IMAGE_HISTORY_FILES | BILINGUAL_HISTORY_FILES).items():
                 if before.get(key, []) == after.get(key, []):
                     continue
                 previous = before.pop(key, [])
@@ -245,7 +271,7 @@ def select(root, event_name, event, expected_head):
         scope = 'images' if retirement else classify(changes, verified, verified_history)
         return {**result, 'scope': scope, 'base': base, 'comparison_base': comparison,
                 'changes': changes, 'verified_src_pin_only': verified,
-                'native': bool({row['path'] for row in changes} & (NATIVE - {'src/api.py'} if retirement else NATIVE)),
+                'native': bool({row['path'] for row in changes} & (NATIVE - {'src/api.py'} if retirement or scope == 'bilingual' else NATIVE)),
                 'reason': ('documentation_only' if scope == 'docs' else
                            'related_files' if scope != 'full' else 'unknown_mixed_or_structural_change')}
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):

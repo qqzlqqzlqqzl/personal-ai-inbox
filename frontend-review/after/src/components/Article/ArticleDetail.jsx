@@ -1,6 +1,7 @@
 import AiBadge from "@/components/Ai/AiBadge"
 import ArticleNote from "@/components/Ai/ArticleNote"
 import ReadingControls from "@/components/Ai/ReadingControls"
+import BilingualReading, { getBilingualReading, useBilingualTranslation } from "@/components/Ai/BilingualReading"
 import RecoverableImage from "./ImageRecovery"
 import { Divider, Tag, Typography } from "@arco-design/web-react"
 import { useStore } from "@nanostores/react"
@@ -375,7 +376,10 @@ const ArticleDetail = forwardRef((_, ref) => {
   const prefersReducedMotion = useStore(prefersReducedMotionState)
 
   const activeContent = useStore(activeContentState)
-  const activeContentHtml = activeContent.content ?? ""
+  const [readingMode, setReadingMode] = useState("bilingual")
+  const translation = useBilingualTranslation(activeContent)
+  const bilingualReading = getBilingualReading({ ...activeContent, translation }, readingMode)
+  const activeContentHtml = bilingualReading.html
   const deferredContentHtml = useDeferredValue(activeContentHtml, "")
   const isArticleBodyPending = deferredContentHtml !== activeContentHtml
   const renderableContentHtml = isArticleBodyPending ? "" : deferredContentHtml
@@ -611,7 +615,9 @@ const ArticleDetail = forwardRef((_, ref) => {
         scrollableNodeProps={{ tabIndex: -1 }}
       >
         <FadeTransition>
-          <ReadingControls key={activeContent.id} scrollContainerRef={scrollContainerRef} />
+          <ReadingControls key={activeContent.id} scrollContainerRef={scrollContainerRef}>
+            <BilingualReading mode={bilingualReading.mode} message={bilingualReading.message} onModeChange={setReadingMode} />
+          </ReadingControls>
           <div
             className="article-header"
             style={{ maxWidth: responsiveMaxWidth, textAlign: titleAlignment }}
