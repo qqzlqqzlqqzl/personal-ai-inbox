@@ -578,7 +578,7 @@ class TechnicalLiteralTests(unittest.TestCase):
 
     def test_labels_render_verbatim_once_without_changing_source_markup(self):
         for label in self.LABELS:
-            if '\\n' in label:
+            if '\n' in label:
                 continue
             html = '<p><a href="https://source.invalid/docs">' + label + '</a></p>'
             _, _, blocks = bilingual.extract(html)
