@@ -515,6 +515,12 @@ class TechnicalLiteralTests(unittest.TestCase):
     """Pure validator regressions; no database, provider, or optional parser."""
     LABELS = (
         'Windows PowerShell', 'macOS, Linux, WSL:', 'Homebrew (macOS/Linux):',
+        'Windows CMD:', 'Ubuntu x64 (CPU)', 'Ubuntu arm64 (CPU)',
+        'Ubuntu s390x (CPU)', 'Ubuntu x64 (Vulkan)', 'Ubuntu arm64 (Vulkan)',
+        'Ubuntu x64 (ROCm 10.0)', 'Ubuntu x64 (OpenVINO)', 'Ubuntu x64 (SYCL FP16)',
+        'Android arm64 (CPU)', 'Windows arm64 (CPU)', 'Windows arm64 (OpenCL Adreno)',
+        'Windows arm64 (CUDA 13) - CUDA 13.4 DLLs', 'Windows x64 (SYCL)',
+        'Windows arm64 (Vulkan)', 'openEuler x86 (310p)', 'Core i9-14900K ($550)',
         'iOS XCFramework', 'Ubuntu x64 (SYCL FP32)',
         'Windows x64 (CUDA 12) - CUDA 12.4 DLLs', 'openEuler aarch64 (310p)',
         'NVIDIA MIG', 'Zen 5 X3D', 'Ryzen 9 7950X3D ($700)',
