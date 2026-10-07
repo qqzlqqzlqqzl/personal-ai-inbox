@@ -146,6 +146,25 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(classify([{'path': p, 'status': 'M'} for p in paths + [extra]]), 'full')
         self.assertEqual(classify([{'path': p, 'status': 'D'} for p in paths]), 'full')
 
+    def test_bilingual_history_accepts_only_exact_previous_reading_sources(self):
+        from ci_reader_scope import BILINGUAL_HISTORY_FILES
+        history = {}
+        for key, path in BILINGUAL_HISTORY_FILES.items():
+            self.write(path, 'previous reading source\n')
+            history[key] = []
+        self.write(IMAGE_HISTORY, json.dumps(history))
+        base = self.commit()
+        for key, path in BILINGUAL_HISTORY_FILES.items():
+            history[key].append(hashlib.sha256(b'previous reading source\n').hexdigest())
+            self.write(path, 'current reading source\n')
+        self.write('src/bilingual_translation.py', '# explicit-view worker\n')
+        self.write(IMAGE_HISTORY, json.dumps(history))
+        head = self.commit(rebind=True)
+        self.assertEqual(self.pr(head, base)['scope'], 'bilingual')
+        history['unrelated/component'] = ['a' * 64]
+        self.write(IMAGE_HISTORY, json.dumps(history))
+        self.assertEqual(self.pr(self.commit(), base)['scope'], 'full')
+
     def test_documentation_and_mixed_code_from_complete_event_diff(self):
         self.assertEqual(PYTHON_TESTS['images'], [
             'tests/test_reader_image_proxy.py', 'tests/test_reader_image_cache.py',

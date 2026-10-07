@@ -28,6 +28,12 @@ IMAGE_HISTORY_FILES = {
     'src/components/Article/ReaderThumbnail.jsx':
         'frontend-review/after/src/components/Article/ReaderThumbnail.jsx',
 }
+BILINGUAL_HISTORY_FILES = {
+    'src/components/Article/ArticleDetail.jsx':
+        'frontend-review/after/src/components/Article/ArticleDetail.jsx',
+    'src/components/Ai/ReadingControls.jsx':
+        'frontend-review/after/src/components/Ai/ReadingControls.jsx',
+}
 IMAGES = {
     IMAGE_HELPER, IMAGE_HISTORY, 'src/reader_image_proxy.py',
     'src/reader_cover_proxy.py', 'src/reader_image_cache.py',
@@ -59,6 +65,7 @@ ARTICLE_CACHE = {
     'deploy/systemd/ai-news-reader-covers.timer',
 }
 BILINGUAL = {
+    IMAGE_HISTORY,
     'src/bilingual_translation.py', 'src/api.py', 'tests/test_api.py',
     'tests/test_bilingual_translation.py', 'patches/BilingualReading.jsx',
     'patches/BilingualReading.css', 'src/patch_frontend.py',
@@ -190,7 +197,7 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         return 'backup'
     if (paths & {'src/bilingual_translation.py', 'patches/BilingualReading.jsx'}
             and paths <= BILINGUAL | IMAGE_CI_SUPPORT):
-        return 'bilingual'
+        return 'bilingual' if IMAGE_HISTORY not in paths or verified_image_history else 'full'
     if ('src/api.py' in paths and paths & {'src/reader_image_proxy.py', 'src/reader_image_cache.py', 'src/warm_reader_covers.py'}
             and paths <= ARTICLE_CACHE | IMAGE_CI_SUPPORT):
         return 'article-cache'
@@ -251,7 +258,7 @@ def select(root, event_name, event, expected_head):
             after = json.loads(git(root, 'show', head+':'+IMAGE_HISTORY))
             appended = False
             verified_history = True
-            for key, path in IMAGE_HISTORY_FILES.items():
+            for key, path in (IMAGE_HISTORY_FILES | BILINGUAL_HISTORY_FILES).items():
                 if before.get(key, []) == after.get(key, []):
                     continue
                 previous = before.pop(key, [])
