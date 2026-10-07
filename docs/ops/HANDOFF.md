@@ -1,3 +1,48 @@
+## 2026-10-08 03:55 UTC+8: current development base and pending closeout
+
+Reader GitHub default branch now follows codex/kaggle-qwen36-batches, the actual delivery branch. The old September main still exists as history; use the active default/delivery branch for new PRs.
+
+Reader #178 changes only the uncached/ineligible language-detection branch; existing translation cache, source identity, score gate and paid queue semantics are unchanged. Worker b18e6db based on deployed9443510 has three relevant regression cases. Main updated the exact source-tree pin; scoped CI and actual module deployment are still pending.
+
+Events #104 changes only append pagination loading feedback, after a real Edge request with temporary2.5s latency confirmed that the loading control was hidden. Network overrides were restored. No card rendering refactor.
+
+## Verified progress, 2026-10-08 03:45 UTC+8
+
+- Reader #175 closed / PR176 merged 9443510822949a39004dab13610e0369c8e3bce9.
+  Tested head 7ea029971b4056ddbc7fb85a782dfa0260d0c64a, scoped CI37671229366 passed:
+  16 frontend tests plus 176 Python tests/144 subtests and locked build.
+  Frontend actually deployed 03:08:22; artifact11504742586 SHA
+  fe0a9adf3c28ed76c62d4f80422a136943bc65091ca0cf625f5803302ecca4d2.
+  Public index SHA eae0cb81f16d18706f4942f6172ae6291bb7133fdf48b3fcd998a47504ba4507.
+  Same live Web/native PIDs retained. Edge current 32/32 images complete, zero failed.
+- Reader #173 / PR174 and Events #102 / PR103 remain actually deployed and closed.
+  Reader measured list median 623.23 -> 370.25 ms (-40.6%), same 30 IDs/order/total.
+  Events same pending detail burst 10 GETs -> one GET, same viewed/history/render effects.
+- Reader #177 was closed as not planned after correcting a runtime-path assumption.
+  DO NOT copy the older /home/ubuntu/ai-news/src mirror into production. Effective
+  month service drop-in 95-stop-admission.conf and recovery 95-current-source.conf
+  already execute canonical reader-3349cf2-source/src/kaggle_batch modules.
+  All five live month configs already point their source to canonical ROOT/src.
+  Check systemctl show/cat including drop-ins, not the unit template alone.
+  127 related Kaggle tests passed; a missing public fixture was supplied temporarily
+  and only that one case rerun. ConfigGuard and all five required ledgers/77 claims validate.
+- Primary lane has an existing inaccessible-provider cooldown. Proper credentials/proxy
+  CLI status returns404; --mine CSV pages return0 but include a blank ref row, which
+  current absence-proof parsing rejects. Do not skip ambiguous rows, release claims,
+  reset state to prepared, or treat404 as proof the remote job never existed.
+  Latest scheduler: due_unclaimed0, due_claimed76; other four lanes healthy/ready.
+  Watchdog recently exited0. No source/config/claim/state mutations were made for177.
+- Disk at03:39: 52721041408 total, 28744175616 used, 21705519104 free bytes
+  (~20.2 GiB free). Load0.18/0.22/0.21, Reader/native/Events services active.
+  Prior confirmed-unused build cleanup reclaimed103161856 allocated bytes.
+- Shared image cache:7818 variants /1073739855 bytes, under1073741824-byte cap,
+  no expired files found. Preserve the shared cap; do not add another cache/copy.
+- Active next stage: Dot reuses original Astra/xhigh workers to propose at most one
+  evidence-based Reader/runtime/cache or Events interaction candidate each; no new
+  implementation chosen yet. Keep06:15 cutoff and07:00 deadline.
+
+---
+
 > 当前仓库可见性：2026-10-06 经用户授权改为公开，以使用标准 GitHub-hosted runner 的免费 CI。下文的“私有仓库”是交接时的历史状态；生产凭据、数据库和私有运行材料仍不进入 Git。
 
 # 接手与重建说明
