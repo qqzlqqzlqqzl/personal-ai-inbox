@@ -79,6 +79,43 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   useEffect(() => {
     if (!isArticleListReady) return
     let frame = 0, stopped = false, root = null
+    let coverObserver = null, coverFrame = 0, coverTimer = 0, coverWaitFinished = false
+    const stopCoverWait = () => {
+      coverWaitFinished = true
+      coverObserver?.disconnect()
+      coverObserver = null
+      window.clearTimeout(coverTimer)
+      coverTimer = 0
+      cancelAnimationFrame(coverFrame)
+      coverFrame = 0
+    }
+    const offerCovers = () => {
+      if (stopped || !root) return false
+      const s = latest.current
+      const offered = offeredCoversRef.current
+      if (!s.isArticleListReady || s.snapshot !== snapshot || offered.snapshot !== s.snapshot) return false
+      if (offered.count >= s.entries.length) { offered.count = s.entries.length; stopCoverWait(); return true }
+      const cover = root.querySelector('.grid-card-cover, .grid-card-media')
+      const width = cover?.getBoundingClientRect().width
+      if (!(width > 0)) return false
+      const start = Math.min(offered.count, s.entries.length)
+      thumbnailsRef.current?.enqueue(s.entries.slice(start), width, window.location.origin, window.devicePixelRatio)
+      offered.count = s.entries.length
+      stopCoverWait()
+      return true
+    }
+    const waitForCovers = () => {
+      if (coverWaitFinished || coverObserver || latest.current.snapshot !== snapshot
+          || !latest.current.entries.length || typeof window.MutationObserver !== 'function') return
+      // Virtual rows may mount after the first check. This retry only warms
+      // images; it cannot trigger another page or observe indefinitely.
+      coverObserver = new window.MutationObserver(() => {
+        if (stopped || coverWaitFinished || coverFrame) return
+        coverFrame = requestAnimationFrame(() => { coverFrame = 0; offerCovers() })
+      })
+      coverObserver.observe(root, { childList: true, subtree: true })
+      coverTimer = window.setTimeout(stopCoverWait, 2000)
+    }
     const check = () => {
       frame = 0
       if (stopped || !root) return
@@ -88,14 +125,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const visible = [...root.querySelectorAll('[data-entry-id]')].filter(el => el.getBoundingClientRect().bottom > bounds.top + 1 && el.getBoundingClientRect().top < bounds.bottom)
       const first = visible[0]
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
-      const cover = root.querySelector('.grid-card-cover, .grid-card-media')
-      const width = cover?.getBoundingClientRect().width
-      if (width > 0 && offeredCoversRef.current.snapshot === s.snapshot) {
-        const offered = offeredCoversRef.current
-        const start = Math.min(offered.count, s.entries.length)
-        thumbnailsRef.current?.enqueue(s.entries.slice(start), width, window.location.origin, window.devicePixelRatio)
-        offered.count = s.entries.length
-      }
+      if (!offerCovers()) waitForCovers()
       if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
       // An unmeasured initial virtual list is not a scrolled-to empty tail.
       if (index < 0 && root.scrollTop <= 0) return
@@ -121,7 +151,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       schedule()
     }
     connect()
-    return () => { stopped = true; cancelAnimationFrame(frame); root?.removeEventListener('scroll', schedule); if (imageSettledRef.current === schedule) imageSettledRef.current = null }
+    return () => { stopped = true; stopCoverWait(); cancelAnimationFrame(frame); root?.removeEventListener('scroll', schedule); if (imageSettledRef.current === schedule) imageSettledRef.current = null }
   }, [isArticleListReady, snapshot, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled, scrollRootRef])
 
   if (!isArticleListReady) return null

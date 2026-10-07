@@ -135,3 +135,30 @@ Reader #173 uses the established delivery base codex/kaggle-qwen36-batches
 requires all four enrichment runtime modules and retains full fallback for other
 shared changes. Redundant stub-only test scaffolding was removed; real dependency
 tests cover the same behavior.
+
+## Verified progress, 2026-10-08 02:35 UTC+8
+
+- Events issue 102 closed / PR103 merged 60140c84c563672068bedf876a5acbf6e5b8f502.
+  Production static/app.js SHA 5cbf5256e0914666eca687c124183dded2cd6a0f021784f8a745e4cb1735f318;
+  same-details burst 10 requests -> 1, scoped UI CI success (84 seconds), health 200.
+- Reader issue 173 closed / PR174 merged d28242f56453a4bb37caa7298a84c424b9a48902
+  into the actual delivery branch codex/kaggle-qwen36-batches. GitHub main is an
+  old September baseline; do not use it as the release base.
+  Scoped CI 37664821562: 422 tests + 290 subtests passed. Metadata CI passed.
+  Four backend files deployed 02:23:28. Source tree 6d7432883c76c6433dffb5bac4e30569e50246a7.
+  Same 30 IDs/order/total: 5-request median 623.23 -> 370.25 ms (-40.6%).
+  Health/raw/detail 200; native Miniflux PID 1230783 unchanged.
+- Windows Edge verified Reader list and covers. 32 currently rendered images loaded,
+  zero failed; a three-viewport scroll showed already loaded covers. This is a
+  warm browser sample, not a cold-network performance guarantee.
+- Removed 13 confirmed-unused Linux web-build staging directories, kept newest two
+  and active frontend. Reclaimed 103161856 allocated bytes (~98.4 MiB); ~20 GiB free.
+- Rejected Events single-pass facet refactor: current facets only 2.03 ms median,
+  versus 75.59 ms candidate reading for 945 rows. No worthwhile user-facing benefit.
+- New finite Reader issue 175: cover warmup may miss virtual cards mounted after
+  the initial width measurement. Dot's original image worker owns only
+  patches/ProgressiveLoadMore.jsx and tests/test_reader_thumbnail_component.mjs;
+  primary owns CI, PR, deployment and handoff. Existing two-image concurrency,
+  ten-page background prefetch and shared 1 GiB cache must remain unchanged.
+- Kaggle current observation: fourth lane RUNNING, fifth submitted; no blanket
+  cancellation/unquarantine. Prior quarantined batches retain their claims.
