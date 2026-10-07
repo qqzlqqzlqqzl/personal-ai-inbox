@@ -26,7 +26,7 @@ concurrency:
 jobs:
   full-regression:
     needs: scope-job
-    if: ${{ !cancelled() && (needs.scope-job.result != 'success' || !contains(fromJSON('["docs","fulltext","backup","interfaces","images","performance","article-cache","bilingual"]'), needs.scope-job.outputs.scope)) }}
+    if: ${{ !cancelled() && (needs.scope-job.result != 'success' || !contains(fromJSON('["docs","fulltext","backup","interfaces","images","performance","article-cache","bilingual","enrichment"]'), needs.scope-job.outputs.scope)) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env: &reader_env
@@ -299,7 +299,7 @@ jobs:
 
   python-focused:
     needs: scope-job
-    if: ${{ needs.scope-job.outputs.scope == 'fulltext' || needs.scope-job.outputs.scope == 'backup' || needs.scope-job.outputs.scope == 'performance' || needs.scope-job.outputs.scope == 'article-cache' }}
+    if: ${{ needs.scope-job.outputs.scope == 'fulltext' || needs.scope-job.outputs.scope == 'backup' || needs.scope-job.outputs.scope == 'performance' || needs.scope-job.outputs.scope == 'article-cache' || needs.scope-job.outputs.scope == 'enrichment' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env: *reader_env
@@ -497,7 +497,7 @@ jobs:
               for key in ('FULL_RESULT', 'PYTHON_RESULT', 'INTERFACE_RESULT', 'IMAGE_RESULT', 'NATIVE_RESULT'):
                   assert os.environ[key] == 'skipped', key + ' unexpectedly ran for documentation'
           else:
-              key = {'fulltext': 'PYTHON_RESULT', 'backup': 'PYTHON_RESULT', 'performance': 'PYTHON_RESULT', 'article-cache': 'PYTHON_RESULT', 'interfaces': 'INTERFACE_RESULT', 'images': 'IMAGE_RESULT', 'bilingual': 'IMAGE_RESULT'}.get(scope, 'FULL_RESULT')
+              key = {'fulltext': 'PYTHON_RESULT', 'backup': 'PYTHON_RESULT', 'performance': 'PYTHON_RESULT', 'article-cache': 'PYTHON_RESULT', 'enrichment': 'PYTHON_RESULT', 'interfaces': 'INTERFACE_RESULT', 'images': 'IMAGE_RESULT', 'bilingual': 'IMAGE_RESULT'}.get(scope, 'FULL_RESULT')
               assert os.environ[key] == 'success', key + ' did not succeed'
           if os.environ['NATIVE_REQUIRED'] == 'true' and os.environ['GITHUB_EVENT_NAME'] != 'pull_request':
               assert os.environ['NATIVE_RESULT'] == 'success', 'native pair did not succeed'

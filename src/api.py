@@ -389,12 +389,21 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False,
     from reader_cover_proxy import selected_cover_proxy
     from processing_status import observe
     from month_control import ROOT as control_root
+    from core import load_reader_batch
+    from prepared_content import prepare_many
+    from card_translation import reader_excerpt_cache
+    entries = list(entries)
     processing_evidence = observe(ROOT, [entry['id'] for entry in entries], control_root=control_root)
-    enqueue_cards(entries, priority=40 if detail else 30)
+    prepared_batch = prepare_many(entries)
+    settings_snapshot = settings() if entries else {}
+    enqueue_cards(entries, priority=40 if detail else 30, prepared_batch=prepared_batch,
+                  settings_snapshot=settings_snapshot, excerpt_cache=reader_excerpt_cache)
+    batch = load_reader_batch(entries, uid, prepared_batch=prepared_batch,
+                              settings_snapshot=settings_snapshot)
     result = []
     for entry in entries:
         item = decorate(entry, uid if uid is not None else entry["user_id"],
-                        include_source_fallback=detail, processing_evidence=processing_evidence)
+                        include_source_fallback=detail, processing_evidence=processing_evidence, batch=batch)
         if detail:
             # Hover/prefetch may read details. Only the explicit POST below queues
             # paid body translations; detail GET can reuse a completed cache.

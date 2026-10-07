@@ -21,6 +21,8 @@ def set_quality(eid, paid):
 
 @pytest_asyncio.fixture
 async def quality_api(db,entry,model_result,monkeypatch):
+    import bilingual_translation
+    bilingual_translation.migrate()
     monkeypatch.setattr(api,'ROOT',db)
     monkeypatch.delenv('MINIFLUX_API_KEY',raising=False)
     entries={eid:{**copy.deepcopy(entry),'id':eid,'title':f'Article {eid}','url':f'https://example.org/article-{eid}'} for eid in range(1,5)}

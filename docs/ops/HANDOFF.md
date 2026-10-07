@@ -108,3 +108,30 @@ runtime/venv/bin/python src/audit_secrets.py
 
 真实 GPU、恢复、产品读回及限制见 [Kaggle 验收记录](kaggle/ACCEPTANCE.md)。
 
+
+## 2026-10-08 bounded overnight optimization (active)
+
+User authorized autonomous optimization through 07:00 UTC+8, with new implementation
+cut off at 06:15. Main owns GitHub issue/PR closure, scoped CI and actual deployment.
+Six Dot Astra/xhigh workers first inspected Reader lists, images, background queues,
+Events filtering, frontend interaction and storage. Keep one existing checkout/runtime,
+all private credentials server-side, existing budgets and the shared 1 GiB image cap.
+Avoid redundant full tests, copied environments and paid stress tests.
+
+Measured starting state: 19.8 GiB free of 49.1 GiB; health 200; native Reader healthy;
+30 selected entries took 679/662/540 ms. Actual enrichment profile: 179 SQLite
+connections, ~217 ms card parsing, ~396 ms enrichment. Reader list batching is the
+first bounded issue. Preview source HTTP403 warnings were 670 distinct entries in
+four hours, not repeated IDs; no ownership fix or blanket retry suppression is justified.
+The live backup unit already supplies all five lane configs and paused-file.
+The completed 100-article bilingual preview stays completed; do not reseed it.
+
+Events #102 / PR #103 completed 2026-10-08 01:49 UTC+8: ten pending opens
+share one GET; related UI CI 37661501898 passed in 84 seconds. Tested
+a0d1b3e merged as 60140c8, exact app.js published, health 200, service PID unchanged.
+
+Reader #173 uses the established delivery base codex/kaggle-qwen36-batches
+(f1b564b); default main remains the earlier September branch. The focused scope
+requires all four enrichment runtime modules and retains full fallback for other
+shared changes. Redundant stub-only test scaffolding was removed; real dependency
+tests cover the same behavior.
