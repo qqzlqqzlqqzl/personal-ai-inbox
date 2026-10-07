@@ -108,3 +108,20 @@ runtime/venv/bin/python src/audit_secrets.py
 
 真实 GPU、恢复、产品读回及限制见 [Kaggle 验收记录](kaggle/ACCEPTANCE.md)。
 
+
+## 2026-10-08 bounded overnight optimization (active)
+
+User authorized autonomous optimization through 07:00 UTC+8, with new implementation
+cut off at 06:15. Main owns GitHub issue/PR closure, scoped CI and actual deployment.
+Six Dot Astra/xhigh workers first inspected Reader lists, images, background queues,
+Events filtering, frontend interaction and storage. Keep one existing checkout/runtime,
+all private credentials server-side, existing budgets and the shared 1 GiB image cap.
+Avoid redundant full tests, copied environments and paid stress tests.
+
+Measured starting state: 19.8 GiB free of 49.1 GiB; health 200; native Reader healthy;
+30 selected entries took 679/662/540 ms. Actual enrichment profile: 179 SQLite
+connections, ~217 ms card parsing, ~396 ms enrichment. Reader list batching is the
+first bounded issue. Preview source HTTP403 warnings were 670 distinct entries in
+four hours, not repeated IDs; no ownership fix or blanket retry suppression is justified.
+The live backup unit already supplies all five lane configs and paused-file.
+The completed 100-article bilingual preview stays completed; do not reseed it.
