@@ -116,6 +116,21 @@ class ScopeTests(unittest.TestCase):
             with self.subTest(paths=paths):
                 self.assertEqual(classify([{'path': p, 'status': 'M'} for p in paths]), 'full')
 
+    def test_read_enrichment_batch_keeps_native_and_unrelated_changes_out(self):
+        from ci_reader_scope import ENRICHMENT_RUNTIME, ENRICHMENT_TESTS
+        for path in ENRICHMENT_RUNTIME | {'tests/test_reader_batch_enrichment.py'}:
+            self.write(path, '# isolated page-read batching\n')
+        result = self.pr(self.commit(rebind=True))
+        self.assertEqual(result['scope'], 'enrichment')
+        self.assertFalse(result['native'])
+        self.assertTrue(result['verified_src_pin_only'])
+        self.assertEqual(set(PYTHON_TESTS['enrichment']),
+                         ENRICHMENT_TESTS | {'tests/test_ci_reader_scope.py'})
+        for extra in ('src/worker.py', 'src/notes_metadata.py', 'src/build_frontend.py'):
+            changes = [{'path': path, 'status': 'M'} for path in ENRICHMENT_RUNTIME | {extra}]
+            self.assertEqual(classify(changes), 'full')
+        self.assertEqual(classify([{'path': 'src/core.py', 'status': 'M'}]), 'full')
+
     def test_article_cache_only_uses_api_and_cache_checks_with_native_gate(self):
         owned = ['src/api.py', 'src/reader_image_cache.py', 'src/reader_image_proxy.py',
                  'src/warm_reader_covers.py', 'tests/test_api.py', 'tests/test_ci_reader_scope.py']
@@ -428,7 +443,7 @@ class WiringTests(unittest.TestCase):
         full = text[text.index('  full-regression:'):text.index('    runs-on:')]
         self.assertIn("needs.scope-job.result != 'success'", full)
         accepted = json.loads(re.search(r"fromJSON\('([^']+)'\)", full)[1])
-        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'article-cache', 'bilingual'})
+        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'article-cache', 'bilingual', 'enrichment'})
         self.assertIn('!contains(', full)
 
     def test_original_required_gate_rejects_failed_skipped_or_cancelled_selected_job(self):

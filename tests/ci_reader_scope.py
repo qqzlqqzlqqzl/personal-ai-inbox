@@ -76,6 +76,23 @@ BILINGUAL = {
     'frontend-review/after/src/components/Ai/ReadingControls.jsx',
     'frontend-review/after/src/components/Ai/ReviewWorkflows.css',
 }
+# This isolated read optimization does not change native metadata or frontend.
+# A lone shared/core edit still falls back to full checks.
+ENRICHMENT_RUNTIME = {
+    'src/api.py', 'src/core.py', 'src/prepared_content.py', 'src/card_translation.py',
+}
+ENRICHMENT_TESTS = {
+    'tests/test_api.py', 'tests/test_core.py', 'tests/test_prepared_content.py',
+    'tests/test_card_translation.py', 'tests/test_card_cache_reads.py',
+    'tests/test_card_excerpt_cache.py', 'tests/test_reader_batch_enrichment.py',
+    'tests/test_processing_observation.py', 'tests/test_processing_status.py',
+    'tests/test_reader_work.py', 'tests/test_worker.py',
+    'tests/test_content_quality.py', 'tests/test_content_quality_flow.py',
+    'tests/test_quality_current_identity.py', 'tests/test_notes_metadata.py',
+    'tests/test_bilingual_translation.py',
+}
+ENRICHMENT = ENRICHMENT_RUNTIME | ENRICHMENT_TESTS
+
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
     'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -94,6 +111,7 @@ INTERFACES = NATIVE | {
 PIN_FILE = 'tests/dev_fixture_workspace_browser_acceptance.py'
 PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
+    'enrichment': sorted(ENRICHMENT_TESTS | {'tests/test_ci_reader_scope.py'}),
     'bilingual': [
         'tests/test_api.py', 'tests/test_bilingual_translation.py',
         'tests/test_bilingual_reading_install.py', 'tests/test_ci_reader_scope.py',
@@ -191,6 +209,8 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         if not verified_pin:
             return 'full'
         paths.remove(PIN_FILE)
+    if ENRICHMENT_RUNTIME <= paths and paths <= ENRICHMENT | IMAGE_CI_SUPPORT:
+        return 'enrichment'
     if paths and paths <= FULLTEXT:
         return 'fulltext'
     if paths and paths <= BACKUP:
@@ -271,7 +291,7 @@ def select(root, event_name, event, expected_head):
         scope = 'images' if retirement else classify(changes, verified, verified_history)
         return {**result, 'scope': scope, 'base': base, 'comparison_base': comparison,
                 'changes': changes, 'verified_src_pin_only': verified,
-                'native': bool({row['path'] for row in changes} & (NATIVE - {'src/api.py'} if retirement or scope == 'bilingual' else NATIVE)),
+                'native': bool({row['path'] for row in changes} & (NATIVE - {'src/api.py'} if retirement or scope in {'bilingual', 'enrichment'} else NATIVE)),
                 'reason': ('documentation_only' if scope == 'docs' else
                            'related_files' if scope != 'full' else 'unknown_mixed_or_structural_change')}
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
