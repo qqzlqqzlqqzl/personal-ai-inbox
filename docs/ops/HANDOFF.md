@@ -1,3 +1,44 @@
+## 2026-10-08 04:12 UTC+8: 本轮优化已实际部署
+
+本轮继续使用原 Reader / Events checkout、腾讯云既有环境和 Dot 六个 Astra/xhigh 岗位。参考 Miniflux worker pool、Karakeep architecture 和 RSSHub cache 配置后，选择已有关键路径上的有限改动，不引入新的服务或技术栈。
+
+| 工单 / PR | 已上线的改动 | 定向验证 |
+|---|---|---|
+| Reader #173 / PR174 | 列表请求复用分析数据库读取，减少重复解析 | 相同30条ID/顺序/总数，服务器列表接口中位数623.23 → 370.25ms；CI37664821562通过 |
+| Reader #175 / PR176 | 首次容器宽度未就绪时继续等待封面预加载队列启动 | CI37671229366通过16前端测试、176 Python测试/144子测试；03:08:22上线；Edge当前32/32图片完成 |
+| Reader #178 / PR179 | 无缓存且不满足翻译门槛时跳过无用正文语言解析 | CI37678194288通过151测试/292子测试；04:02:30上线；3篇真实长文attach中位数57.48/40.57/39.82 → 4.17/3.39/3.31ms，完整输出相同 |
+| Events #102 / PR103 | 合并同一活动的并行详情读取 | CI37661501898通过；01:49:52上线；10次并行GET合为1次，原浏览记录/历史/渲染效果不变 |
+| Events #104 / PR105 | 分页等待期间保留可见、禁用的加载按钮 | CI37679194333通过UI定向检查与既有桌面验收，全量后端/多设备步骤跳过；04:08:52上线；真实Edge等待时按钮可见，完成后36→72张卡片，按钮恢复 |
+
+以上时间均为UTC+8。接口和attach耗时是服务器指定步骤的对照，不代表浏览器完整首屏耗时；32张图片是当前浏览器样本，不代表所有源站图片均能立即加载。
+
+部署身份与入口：
+- Reader业务默认/交付分支为codex/kaggle-qwen36-batches；原main保留历史。最近代码合并49c1d8c，测试候选171988f。后端实际ROOT为/home/ubuntu/website-release-20261004/reader-3349cf2-source。
+- Reader最近只替换src/bilingual_translation.py，SHA256为1b8babc630f542a1123a6a7e0a49fbf8cb70a8371984c4c26cd650f754d49f1e。Web PID1979143、原生Reader PID1230783；本次原生服务未重启。
+- Reader前端仍是已通过CI并部署的PR176产物：public index SHA256 eae0cb81f16d18706f4942f6172ae6291bb7133fdf48b3fcd998a47504ba4507。
+- Events代码合并cf7b4414，测试候选fcda43b；只替换static/app.js，SHA256 cba5aa4ba3ee34e2a14a55ebad94ab484967b2c52b052285c794a18ef91a5962。PID606162未变，静态脚本响应private,no-store。健康入口/events/api/health。
+- 最新健康检查Reader/Events均200；Reader04:02:20之后61条日志中新增严重错误及Traceback均0。
+
+Kaggle已有外部异常的准确边界：
+- #177因路径判断错误而以not planned关闭；并未部署“同步旧镜像”改动。systemd有效drop-in（95-stop-admission.conf与95-current-source.conf）及五个config.source已指向canonical ROOT/src。不要仅凭旧镜像或unit模板推断任务使用旧源码。
+- canonical来源的127项相关Kaggle测试通过；所有五份必要账本和77个claim验证通过。其他四lane健康/ready，最新due_unclaimed0、due_claimed76。
+- primary已有provider inaccessible冷却。CLI status404，--mine CSV含空ref行，无法形成可靠远端不存在证明；保留既有claim和冷却，禁止盲目重新提交、跳过空行、释放claim或reset prepared。现有primary恢复冷却预计2026-10-09 03:13 UTC+8；这属于已有外部状态，并非本轮新引入的代码阻塞。
+
+资源与清理：
+- 共移除13个确认无用的旧web-build临时目录，回收103161856 allocated bytes（约98.4MiB）；保留有效venv、发布源与近两份有效构建阶段。
+- 04:07磁盘总量52721041408、已用28886355968、可用21563338752 bytes（约20.1GiB），load0.216/0.256/0.308。
+- 共享图片缓存7818 variants、1073739855 bytes，仍低于1073741824-byte上限；无额外缓存副本。未启动付费压力测试或重新翻译全库。
+- 发布文件通过内存传输、校验及原目录原子替换，异常用内存原内容回退；没有新增恢复包/源码副本/运行环境。
+
+本地详细证据在既有release/ux-feedback-20261004/optimization-20261008-*文件；保留交付证据，临时发布文件已在操作内清理。继续采用有限Issue → 定向测试/CI → PR合并 → 实际部署 → 日志/功能验收的流程；不为消耗额度继续开无收益改动。
+
+上游参考：
+- https://github.com/miniflux/v2/blob/main/internal/worker/pool.go
+- https://docs.karakeep.app/development/architecture/
+- https://github.com/DIYgod/RSSHub/blob/master/lib/config.ts
+
+---
+
 ## 2026-10-08 03:55 UTC+8: current development base and pending closeout
 
 Reader GitHub default branch now follows codex/kaggle-qwen36-batches, the actual delivery branch. The old September main still exists as history; use the active default/delivery branch for new PRs.
