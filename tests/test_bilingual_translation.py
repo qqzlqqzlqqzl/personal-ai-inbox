@@ -432,6 +432,56 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(bilingual.enqueue(self.entry))
         self.assertEqual((await self.run_mock())['processed'], 2)
 
+    def test_uncached_ineligible_attach_skips_language_detection_without_changing_fields(self):
+        entry = {**self.entry, 'content': '<p>This is the current full article body.</p>' * 4500}
+        quality = {'policy_version': 'reader-content-quality-v1', 'recommendation_eligible': False,
+                   'reason_codes': ['low_information'], 'access': 'public', 'information': 'low_information'}
+        cases = [{'score': 7.99}, {'state': 'pending'}, {'user_id': 4}, {'quality': quality}, None]
+        for case in cases:
+            with self.subTest(case=case):
+                if case is None:
+                    with core.connect() as db:
+                        db.execute('DELETE FROM analyses WHERE entry_id=?', (entry['id'],))
+                else:
+                    self.allow(entry, **case)
+                with patch.object(bilingual, '_source_language', side_effect=AssertionError('Ineligible body must not be parsed')):
+                    attached = bilingual.attach(entry, 3)
+                self.assertEqual(attached, {**entry, 'translation': {
+                    'status': 'skipped', 'language': 'zh-CN', 'model': 'gpt-4o-mini',
+                    'source_hash': bilingual.source_hash(entry['content']),
+                    'blocks_total': 0, 'blocks_done': 0, 'updated_at': None,
+                    'bilingual_html': None, 'chinese_html': None,
+                }})
+        with core.connect() as db:
+            for table in ('bilingual_articles', 'bilingual_blocks', 'bilingual_current', 'bilingual_usage'):
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0], 0)
+        self.assertEqual(self.calls, [])
+
+    def test_uncached_eligible_attach_still_classifies_current_language(self):
+        cases = [('en', '<p>This is the current English article.</p>', 'pending'),
+                 ('zh', '<p>这是一篇完整的中文原文，不需要重复翻译。</p>', 'native'),
+                 ('fr', '<p>Un article technique en français.</p>', 'skipped')]
+        for language, content, expected in cases:
+            with self.subTest(language=language):
+                entry = {**self.entry, 'language': language, 'content': content}
+                self.allow(entry)
+                with patch.object(bilingual, '_source_language', wraps=bilingual._source_language) as detect:
+                    value = self.attached(entry)
+                detect.assert_called_once_with(entry)
+                self.assertEqual(value['status'], expected)
+                self.assertEqual(value['source_hash'], bilingual.source_hash(content))
+        self.assertEqual(self.calls, [])
+
+    async def test_ineligible_current_analysis_preserves_existing_done_translation(self):
+        bilingual.enqueue(self.entry)
+        await self.run_mock()
+        expected = self.attached()
+        self.allow(self.entry, score=7)
+        with patch.object(bilingual, '_source_language', side_effect=AssertionError('Existing cache must retain its read path')):
+            self.assertEqual(self.attached(), expected)
+        self.assertEqual(expected['status'], 'done')
+        self.assertEqual(len(self.calls), 1)
+
     async def test_worker_rechecks_score_and_quality_before_spending(self):
         bilingual.enqueue(self.entry)
         self.allow(self.entry, score=7)

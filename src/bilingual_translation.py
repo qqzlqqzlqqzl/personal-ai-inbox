@@ -497,10 +497,9 @@ def attach(entry, user_id):
         if not row:
             with core.connect() as db:
                 eligible = _eligible(db, user_id, entry['id'], entry)
-            language = _source_language(entry)
             if not eligible:
                 value['status'] = 'skipped'
-            elif language != 'english':
+            elif (language := _source_language(entry)) != 'english':
                 value['status'] = language
         if row:
             translated = {block['block_id']: block['translated'] for block in blocks if block['translated'] is not None}
