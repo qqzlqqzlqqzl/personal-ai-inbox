@@ -138,6 +138,20 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_detail).hexdigest(), expected_detail)
         self.assertNotIn(expected_detail, old[detail])
         old[detail].append(expected_detail)
+        # #165 restores on-demand translation over the exact currently deployed overlays.
+        demand_base = '49edbf6af48d4c56862a36afab9bcd829690eeef'
+        subprocess.run(['git', 'merge-base', '--is-ancestor', demand_base, 'HEAD'],
+                       cwd=ROOT, check=True, timeout=15)
+        for name, expected in {
+            detail: '7f05ef9ecfe3fb368f951495b0b8b6fe800fb0b0b61cdbc704e9ecd05214db42',
+            reading: '85fa06d76bfcbdab2c485d507da5578bf6803be80e7dc8b4b970fc16bc585ab2',
+        }.items():
+            previous = subprocess.check_output(
+                ['git', 'show', demand_base + ':frontend-review/after/' + name],
+                cwd=ROOT, timeout=15)
+            self.assertEqual(hashlib.sha256(previous).hexdigest(), expected)
+            self.assertNotIn(expected, old[name])
+            old[name].append(expected)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
