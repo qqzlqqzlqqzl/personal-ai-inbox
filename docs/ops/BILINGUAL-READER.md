@@ -63,3 +63,24 @@ Bounded preview authorized 2026-10-07:
 - Any text, regular link, alt text, user, model or prompt-version change remains isolated.
 - Validate 100 concurrent batch claims and the matching HTTP connection pool offline.
   This verifies program capacity, not the external provider's sustained throughput.
+
+Completed bounded preview 2026-10-07 19:43 +0800:
+- All 100 selected current Reader bodies are readable as completed bilingual/Chinese
+  content: 3159 blocks. Initially completed 52 articles were reused;
+  the remaining 48 completed. One publisher body changed during the run (19 -> 18
+  blocks) and its current version was translated using the existing demand path.
+- Total newly recorded actual input+output usage was 266163 tokens,
+  including retries and that source update. Ledger totals do not provide a split
+  suitable for an exact cash bill.
+- 100 status reads and repeat requests for seven completed bodies produced zero
+  new upstream calls and zero new tokens; one rotated image address reused saved text.
+- Production BILINGUAL_CONCURRENCY=100; the HTTP pool allows 100 connections.
+  Empty queues do not fan out work. No sustained external 100-request load test
+  was run, and no automatic all-library seeding was enabled.
+- PR #168/#169 technical-label fixes and PR #171 image-address/concurrency fixes
+  are merged. Final tested head 6c680d3641da7e1ef467655264f37aa26570e193,
+  merge e5dba75445b73457d805c214cf325db0805e6af5, source tree b09fb874c0848bd9e8bb83a71599bbb330fe431b.
+- Related Reader CI 37615234814 passed. Backend deployed at
+  2026-10-07 19:38:52 +0800; readiness 200 and native Miniflux PID 1230783 unchanged.
+- Frontend uses the existing deployed build. Windows Edge shows Chinese followed
+  by English in the actual article; repeated opens use the completed cache.
