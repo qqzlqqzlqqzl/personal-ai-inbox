@@ -243,29 +243,88 @@ def _source_text_fallback(entry, row):
     }
 
 
-def decorate(entry, user_id, include_source_fallback=False, processing_evidence=None):
+def reader_id_batches(entries, user_id=None, size=400):
+    """Bound SQLite parameters and keep every query scoped to one owner."""
+    groups = {}
+    for entry in entries:
+        owner = user_id if user_id is not None else entry.get('user_id')
+        if type(owner) is int and type(entry.get('id')) is int:
+            groups.setdefault(owner, {})[entry['id']] = None
+    for owner, entry_ids in groups.items():
+        ids = list(entry_ids)
+        for start in range(0, len(ids), size):
+            yield owner, ids[start:start + size]
+
+
+def load_reader_batch(entries, user_id=None, *, prepared_batch, settings_snapshot):
+    """Load current page metadata after enqueue; connections stay in this worker."""
+    batch = {'prepared': prepared_batch, 'settings': settings_snapshot,
+             'analyses': {}, 'notes': {}, 'cards': {}}
+    groups = list(reader_id_batches(entries, user_id))
+    if not groups:
+        return batch
+    with connect() as c:
+        for owner, ids in groups:
+            placeholders = ','.join('?' for _ in ids)
+            rows = c.execute('''SELECT a.*,
+                CASE WHEN n.note IS NOT NULL AND length(trim(n.note))>0 THEN 1 ELSE 0 END AS has_note,
+                n.updated_at AS note_updated_at
+                FROM analyses a LEFT JOIN entry_notes n
+                ON n.entry_id=a.entry_id AND n.user_id=a.user_id
+                WHERE a.user_id=? AND a.entry_id IN (''' + placeholders + ')', (owner, *ids))
+            batch['analyses'].update(((owner, row['entry_id']), dict(row)) for row in rows)
+            missing = [eid for eid in ids if (owner, eid) not in batch['analyses']]
+            if missing:
+                rows = c.execute('SELECT entry_id,note,updated_at FROM entry_notes '
+                    'WHERE user_id=? AND entry_id IN (' + ','.join('?' for _ in missing) + ')',
+                    (owner, *missing))
+                batch['notes'].update(((owner, row['entry_id']), dict(row)) for row in rows)
+            rows = c.execute('''SELECT entry_id,status,title_zh,summary_zh,source_kind,
+                translated_at,original_title,error FROM card_translations
+                WHERE user_id=? AND entry_id IN (''' + placeholders + ')', (owner, *ids))
+            batch['cards'].update(((owner, row['entry_id']), dict(row)) for row in rows)
+    return batch
+
+
+def decorate(entry, user_id, include_source_fallback=False, processing_evidence=None, *, batch=None):
     from content_quality import public_for_row, unknown
     from processing_status import for_entry
     from prepared_content import apply as apply_prepared
-    entry = apply_prepared(entry)
+    # Unexpected identity types retain the single-entry path's existing behavior.
+    if type(user_id) is not int or type(entry.get('id')) is not int:
+        batch = None
+    entry = batch['prepared'].apply(entry) if batch is not None else apply_prepared(entry)
     from card_translation import attach
-    with connect() as c:
-        r = c.execute(
-            """SELECT a.*,
+    key = (user_id, entry['id'])
+
+    def attach_card(item):
+        if batch is None:
+            return attach(item, user_id)
+        return attach(item, user_id, row=batch['cards'].get(key), settings_snapshot=batch['settings'])
+
+    if batch is not None:
+        r = batch['analyses'].get(key)
+    else:
+        with connect() as c:
+            r = c.execute(
+                """SELECT a.*,
                       CASE WHEN n.note IS NOT NULL AND length(trim(n.note))>0 THEN 1 ELSE 0 END AS has_note,
                       n.updated_at AS note_updated_at
                FROM analyses a
                LEFT JOIN entry_notes n ON n.entry_id=a.entry_id AND n.user_id=a.user_id
                WHERE a.entry_id=? AND a.user_id=?""",
-            (entry["id"], user_id),
-        ).fetchone()
-    if not r:
-        with connect() as c:
-            note = c.execute(
-                "SELECT note,updated_at FROM entry_notes WHERE user_id=? AND entry_id=?",
-                (user_id, entry["id"]),
+                (entry["id"], user_id),
             ).fetchone()
-        return attach(
+    if not r:
+        if batch is not None:
+            note = batch['notes'].get(key)
+        else:
+            with connect() as c:
+                note = c.execute(
+                    "SELECT note,updated_at FROM entry_notes WHERE user_id=? AND entry_id=?",
+                    (user_id, entry["id"]),
+                ).fetchone()
+        return attach_card(
             {
                 **entry,
                 "ai": {
@@ -276,7 +335,6 @@ def decorate(entry, user_id, include_source_fallback=False, processing_evidence=
                     "note_updated_at": note["updated_at"] if note else None,
                 },
             },
-            user_id,
         )
     row = dict(r)
     if include_source_fallback:
@@ -311,7 +369,7 @@ def decorate(entry, user_id, include_source_fallback=False, processing_evidence=
         "has_note": has_note,
         "note_updated_at": note_updated_at,
     }
-    return attach({**entry, "ai": {**result, **metadata}}, user_id)
+    return attach_card({**entry, "ai": {**result, **metadata}})
 
 
 def hash_text(value):

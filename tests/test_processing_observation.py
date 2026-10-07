@@ -78,11 +78,16 @@ def test_reader_uses_header_control_root_with_shared_state(tmp_path, monkeypatch
     fn=next(node for node in source_ast.body if isinstance(node,ast.FunctionDef)
             and node.name=='enrich_reader_entries')
     captured=[]
-    def decorate(entry, user_id, *, include_source_fallback, processing_evidence):
+    def decorate(entry, user_id, *, include_source_fallback, processing_evidence, batch):
         captured.append(processing_evidence)
         return {'state':'waiting_model', 'processing':for_entry(
             {'entry_id':entry['id'],'state':'waiting_model'},processing_evidence,now=105)}
-    namespace={'ROOT':source,'enqueue_cards':lambda *_args,**_kwargs:None,'decorate':decorate}
+    import core
+    import prepared_content
+    monkeypatch.setattr(core, 'load_reader_batch', lambda *args, **kwargs: None)
+    monkeypatch.setattr(prepared_content, 'prepare_many', lambda entries: None)
+    namespace={'ROOT':source,'enqueue_cards':lambda *_args,**_kwargs:None,'decorate':decorate,
+               'settings':lambda: {}}
     exec(compile(ast.Module(body=[fn],type_ignores=[]),'<reader-entry-observation>','exec'),namespace)
     with patch('processing_status.time.time',return_value=105), \
             patch('subprocess.run',side_effect=AssertionError('No provider or service command')), \

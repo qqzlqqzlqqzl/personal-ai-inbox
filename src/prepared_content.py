@@ -2,6 +2,7 @@
 import hashlib
 import json
 import time
+from copy import deepcopy
 from bs4 import BeautifulSoup
 import core
 from work_admission import check
@@ -57,6 +58,11 @@ def apply(entry, *,admission=None):
         row = db.execute('''SELECT * FROM prepared_articles WHERE entry_id=?
           AND user_id=? AND url=? AND title=?''',
           (entry['id'], entry['user_id'], entry.get('url',''), entry.get('title',''))).fetchone()
+    return _apply_row(entry, row)
+
+
+def _apply_row(entry, row):
+    """Apply an identity-matched row using the same source invalidation rules."""
     if row is None:
         return entry
     raw = entry.get('content') or ''
@@ -76,3 +82,74 @@ def apply(entry, *,admission=None):
             'prepared_at':row['prepared_at'],
             **({'content_source_url':json.loads(row['source_receipt']).get('url'),
                 'fulltext_receipt':json.loads(row['source_receipt'])} if row['source_receipt'] else {})}
+
+
+class PreparedBatch:
+    """Request-local results only; never a cache of article bodies across requests."""
+
+    def __init__(self):
+        self._resolved = {}
+
+    @staticmethod
+    def _identity(entry):
+        # Also preserve unrelated current fields when a caller changes an entry
+        # during this request. Values are references, not copies of full HTML.
+        return dict(entry)
+
+    def remember(self, entry, prepared):
+        # Keep a reference to the exact native object, preventing object-id reuse.
+        overlay = ({key: prepared[key] for key in (
+            'content', 'prepared_source', 'prepared_at')
+            if key in prepared} if prepared is not entry else None)
+        if (overlay is not None and 'fulltext_receipt' in prepared
+                and prepared['fulltext_receipt'] is not entry.get('fulltext_receipt')):
+            # A source receipt decoded from the prepared row owns these fields.
+            # Inherited native receipt fields must instead remain current.
+            overlay['content_source_url'] = prepared.get('content_source_url')
+            overlay['fulltext_receipt'] = deepcopy(prepared['fulltext_receipt'])
+        self._resolved[id(entry)] = (entry, self._identity(entry), overlay)
+
+    def apply(self, entry, *, admission=None):
+        cached = self._resolved.get(id(entry))
+        if cached is None or cached[0] is not entry or cached[1] != self._identity(entry):
+            return apply(entry, admission=admission)
+        if not entry.get('content_deferred') and 'user_id' in entry:
+            check(admission)
+        if cached[2] is None:
+            return entry
+        overlay = dict(cached[2])
+        if 'fulltext_receipt' in overlay:
+            # One caller cannot mutate a later duplicate entry's receipt.
+            overlay['fulltext_receipt'] = deepcopy(overlay['fulltext_receipt'])
+        return {**entry, **overlay}
+
+
+def prepare_many(entries, *, admission=None):
+    """Read each user's prepared rows in bounded batches, then validate once."""
+    entries = list(entries)
+    eligible = [entry for entry in entries
+                if not entry.get('content_deferred') and 'user_id' in entry
+                and type(entry.get('id')) is int and type(entry['user_id']) is int]
+    rows = {}
+    if eligible:
+        check(admission)
+        with core.connect() as db:
+            for user_id, ids in core.reader_id_batches(eligible):
+                check(admission)
+                rows.update(((row['user_id'], row['entry_id']), dict(row)) for row in db.execute(
+                    'SELECT * FROM prepared_articles WHERE user_id=? AND entry_id IN ('
+                    + ','.join('?' for _ in ids) + ')', (user_id, *ids)))
+    batch = PreparedBatch()
+    for entry in entries:
+        if (entry.get('content_deferred') or 'user_id' not in entry
+                or type(entry.get('id')) is not int or type(entry['user_id']) is not int):
+            prepared = apply(entry, admission=admission)
+        else:
+            check(admission)
+            row = rows.get((entry['user_id'], entry['id']))
+            if row is not None and (row['url'] != entry.get('url', '')
+                                    or row['title'] != entry.get('title', '')):
+                row = None
+            prepared = _apply_row(entry, row)
+        batch.remember(entry, prepared)
+    return batch

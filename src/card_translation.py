@@ -1,11 +1,15 @@
 """Cached Chinese card copy. Independent of value scoring; shared model budget."""
 import asyncio
 import fcntl
+import hashlib
 import json
 import logging
 import os
 import re
+import sys
+import threading
 import time
+from collections import OrderedDict
 import httpx
 from bs4 import BeautifulSoup
 import core
@@ -49,13 +53,72 @@ def chinese_translation(text):
     visible = len(re.sub(r'\W', '', text))
     return is_chinese(text) or (cjk >= 12 and cjk / max(1, visible) >= 0.20)
 
-def source_card(entry, model):
-    soup = BeautifulSoup((entry.get('content') or '')[:50000], 'html.parser')
+def _source_excerpt(html):
+    soup = BeautifulSoup(html, 'html.parser')
     for node in soup(['script','style','noscript','code','pre']):
         node.decompose()
     paragraphs = [p.get_text(' ',strip=True) for p in soup.find_all('p')]
     excerpt = ' '.join(p for p in paragraphs if p)[:900] or soup.get_text(' ',strip=True)[:900]
     kind = 'product_page' if soup.find(['h2','h3'], string='产品介绍（Product Hunt）') else 'source_excerpt'
+    return excerpt, kind
+
+
+class SourceExcerptCache:
+    """Bounded process-local LRU of excerpts, never complete HTML or card results.
+
+    Current input is hashed on every lookup. SHA-256 uses the same collision
+    assumption as the existing fingerprint; lengths further separate inputs.
+    User IDs isolate hits; title/model/fingerprint are deliberately not cached.
+    """
+
+    def __init__(self, max_entries=128, max_bytes=1024 * 1024):
+        self.max_entries = max_entries
+        self.max_bytes = max_bytes
+        self._items = OrderedDict()
+        self._bytes = 0
+        self._lock = threading.Lock()
+
+    def resolve(self, user_id, html):
+        if type(user_id) is not int or not isinstance(html, str):
+            return _source_excerpt(html)
+        raw = html.encode('utf-8', errors='surrogatepass')
+        key = (1, VERSION, user_id, len(html), len(raw), hashlib.sha256(raw).digest())
+        # Only the fixed-size key survives the call; raw/full HTML is not stored.
+        with self._lock:
+            cached = self._items.get(key)
+            if cached is not None:
+                self._items.move_to_end(key)
+                return cached[0]
+        value = _source_excerpt(html)
+        size = (sys.getsizeof(key) + sum(sys.getsizeof(part) for part in key)
+                + sys.getsizeof(value) + sum(sys.getsizeof(part) for part in value) + 256)
+        if self.max_entries <= 0 or size > self.max_bytes:
+            return value
+        with self._lock:
+            cached = self._items.get(key)
+            if cached is not None:
+                self._items.move_to_end(key)
+                return cached[0]
+            self._items[key] = (value, size)
+            self._bytes += size
+            while len(self._items) > self.max_entries or self._bytes > self.max_bytes:
+                _, (_, removed_size) = self._items.popitem(last=False)
+                self._bytes -= removed_size
+        return value
+
+    def clear(self):
+        with self._lock:
+            self._items.clear()
+            self._bytes = 0
+
+
+reader_excerpt_cache = SourceExcerptCache()
+
+
+def source_card(entry, model, *, excerpt_cache=None):
+    html = (entry.get('content') or '')[:50000]
+    excerpt, kind = (_source_excerpt(html) if excerpt_cache is None
+                     else excerpt_cache.resolve(entry.get('user_id'), html))
     title = str(entry.get('title') or '')[:600]
     fingerprint = core.hash_text(json.dumps([VERSION,model,title,excerpt],ensure_ascii=False))
     return title, excerpt, kind, fingerprint
@@ -103,7 +166,8 @@ def _enqueue_card(db, entry, source, model, now, priority, *,admission=None):
       'native' if native else 'pending',priority,model,now,title if native else None,excerpt[:240] if native else None))
 
 
-def enqueue(entries, priority=0, *,admission=None):
+def enqueue(entries, priority=0, *,admission=None, prepared_batch=None,
+            settings_snapshot=None, excerpt_cache=None):
     from feed_consumption import summary_feed_policy, restricted_analysis_fields
     check(admission)
     # A fixed feed DTO may restrict an already queued card as well as a new one.
@@ -130,23 +194,29 @@ def enqueue(entries, priority=0, *,admission=None):
                     (error,entry['id'],entry['user_id'],entry.get('url')))
     entries=allowed
     from prepared_content import apply as apply_prepared
+    if prepared_batch is not None:
+        apply_prepared = prepared_batch.apply
     entries = [apply_prepared(e,**options(admission)) for e in entries
                if 'id' in e and 'user_id' in e and not e.get('content_deferred')]
     if not entries:
         return
     check(admission)
-    model = core.settings()['model']
+    model = (core.settings() if settings_snapshot is None else settings_snapshot)['model']
     # Parse before opening the transaction, including applicable prepared content.
-    sources = [(entry, source_card(entry, model)) for entry in entries]
+    sources = [(entry, source_card(entry, model, excerpt_cache=excerpt_cache)) for entry in entries]
     now = time.time()
     check(admission)
     with core.connect() as db:
         for entry, source in sources:
             _enqueue_card(db, entry, source, model, now, priority,**options(admission))
 
-def attach(entry, user_id):
-    with core.connect() as db:
-        row = db.execute('SELECT status,title_zh,summary_zh,source_kind,translated_at,original_title,error FROM card_translations WHERE entry_id=? AND user_id=?', (entry['id'],user_id)).fetchone()
+_UNLOADED = object()
+
+
+def attach(entry, user_id, *, row=_UNLOADED, settings_snapshot=None):
+    if row is _UNLOADED:
+        with core.connect() as db:
+            row = db.execute('SELECT status,title_zh,summary_zh,source_kind,translated_at,original_title,error FROM card_translations WHERE entry_id=? AND user_id=?', (entry['id'],user_id)).fetchone()
     card = {'status':'pending','language':None}
     if row:
         card.update(status=row['status'],source_kind=row['source_kind'],translated_at=row['translated_at'],error=row['error'])
@@ -154,7 +224,7 @@ def attach(entry, user_id):
             card.update(title=row['title_zh'],summary=row['summary_zh'],language='zh-CN')
     if card.get('status') in ('done', 'native') and card.get('language') != 'zh-CN':
         card['status'] = 'pending'  # Never advertise a stale title as translated.
-    card['enabled'] = core.settings().get('translation_enabled', True)
+    card['enabled'] = (core.settings() if settings_snapshot is None else settings_snapshot).get('translation_enabled', True)
     if not card['enabled'] and card['status'] not in ('done', 'native'):
         card['status'] = 'disabled'
     return {**entry,'card':card}

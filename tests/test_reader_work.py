@@ -138,9 +138,9 @@ async def test_cached_page_completes_with_writer_held_and_no_dml(db, entry, monk
     original_cover = api.first_image_src
     loop_thread = threading.get_ident()
 
-    def parse(*args):
+    def parse(*args, **kwargs):
         assert threading.get_ident() != loop_thread
-        return original_source(*args)
+        return original_source(*args, **kwargs)
 
     def cover(*args):
         assert threading.get_ident() != loop_thread
