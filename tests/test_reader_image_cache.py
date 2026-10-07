@@ -59,3 +59,152 @@ def test_same_image_size_and_accept_keys_and_corruption(tmp_path):
     cache.put(first, b'jpeg-bytes', HEADERS)
     (cache.root / (first + '.image')).write_bytes(b'broken header\nwrong image')
     assert cache.get(first) is None
+
+
+# These direct boundary tests also run with stdlib unittest in the existing
+# environment when the full pytest dependency set is unavailable.
+import asyncio
+import io
+import json
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import httpx
+from PIL import Image
+import reader_image_proxy as images
+from stabilize_media import signed_url
+
+
+class ArticleImageCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        from pathlib import Path
+        self.cache = ImageCache(Path(self.temp.name) / 'images')
+        self.secret = 'unit-only-key'
+        self.path = signed_url('https://example.org/image.jpg', self.secret)[4:]
+
+    def picture(self, kind='JPEG', size=(100, 80)):
+        output = io.BytesIO()
+        with Image.new('RGB', size, 'red') as image:
+            image.save(output, format=kind)
+        return output.getvalue()
+
+    def metadata(self, label):
+        return json.loads((self.cache.root / (key(label) + '.image')).read_bytes().split(b'\n')[0])
+
+    def test_latest_reference_priority_never_demotes_and_old_background_cannot_churn(self):
+        self.cache.max_files = 2
+        self.cache.put(key('old'), b'x', HEADERS, priority=100, background=True)
+        self.cache.put(key('new'), b'x', HEADERS, priority=300, background=True)
+        self.cache.get(key('old'), priority=400)
+        self.cache.get(key('old'), priority=50)
+        self.cache.put(key('old'), b'x', HEADERS, priority=0)
+        self.assertEqual(self.metadata('old')['priority'], 400)
+        self.assertFalse(self.cache.can_admit(200))
+        self.assertFalse(self.cache.put(key('too-old'), b'x', HEADERS, priority=200, background=True))
+        self.assertIsNotNone(self.cache.get(key('new')))
+        # Foreground clicks retain their normal ability to populate the cache.
+        self.assertTrue(self.cache.put(key('click'), b'x', HEADERS))
+        self.assertIsNotNone(self.cache.get(key('click')))
+        self.assertIsNotNone(self.cache.get(key('old')))
+
+    def test_newer_background_evicts_oldest_publication_not_recent_access(self):
+        self.cache.max_files = 2
+        self.cache.put(key('old'), b'x', HEADERS, priority=100)
+        self.cache.put(key('new'), b'x', HEADERS, priority=300)
+        self.cache.get(key('old'))
+        self.assertTrue(self.cache.put(key('next'), b'x', HEADERS, priority=200, background=True))
+        self.assertIsNone(self.cache.get(key('old')))
+        self.assertIsNotNone(self.cache.get(key('new')))
+
+    def test_expiry_reopens_background_admission_and_budget_includes_headers_and_temp(self):
+        now = [100.0]
+        self.cache.clock = lambda: now[0]
+        self.cache.max_files = 1
+        self.cache.put(key('one'), b'x', HEADERS, priority=100)
+        self.assertFalse(self.cache.can_admit(50))
+        now[0] = 161
+        self.assertTrue(self.cache.can_admit(50))
+        self.cache.max_bytes = 1100
+        self.cache.max_files = 2
+        (self.cache.root / '.pending-interrupted').write_bytes(b'z' * 2000)
+        for label in ('a', 'b', 'c'):
+            self.cache.put(key(label), b'x' * 250, HEADERS)
+            self.assertLessEqual(sum(p.stat().st_size for p in self.cache.root.iterdir()), 1100)
+        self.assertFalse(list(self.cache.root.glob('.pending-*')))
+
+    def test_raw_warmer_and_browser_share_key_bytes_and_etag(self):
+        body, calls = self.picture(), []
+        def native(request):
+            calls.append(request)
+            self.assertEqual(request.headers['accept'], images.NATIVE_IMAGE_ACCEPT)
+            return httpx.Response(200, content=body, headers=HEADERS)
+        def factory(**kwargs):
+            return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+        with patch.object(images, 'image_cache', self.cache), patch.object(images, 'media_proxy_key', return_value=self.secret):
+            warm = images.fetch_variant('http://native/mf', self.path, 0, 'image/*',
+                client_factory=factory, priority=100, background=True)
+            browser = images.original_cache_get('http://native/mf', self.path)
+            self.assertEqual(warm.body, body)
+            self.assertEqual(browser.body, body)
+            self.assertEqual(warm.headers['etag'], browser.headers['etag'])
+            self.assertEqual(len(calls), 1)
+            self.assertIsNone(images.original_cache_get('http://native/mf', self.path, 'no-cache'))
+            forged = self.path.replace(self.path.split('/')[1], 'A' * 43 + '=')
+            self.assertIsNone(images.original_cache_get('http://native/mf', forged))
+
+    def test_raw_put_native_status_policy_signature_and_public_cookie(self):
+        body = self.picture()
+        with patch.object(images, 'image_cache', self.cache), patch.object(images, 'media_proxy_key', return_value=self.secret):
+            for status, data, policy in ((403, body, 'public'), (200, b'<html>error</html>', 'public'),
+                    (200, body, 'no-store'), (200, body, 'private')):
+                images.original_cache_put('http://native/mf', self.path, data,
+                    {'content-type': 'image/jpeg', 'cache-control': policy}, status)
+                self.assertIsNone(images.original_cache_get('http://native/mf', self.path))
+            images.original_cache_put('http://native/mf', self.path, body,
+                {**HEADERS, 'set-cookie': 'native-session=synthetic'}, 200)
+            hit = images.original_cache_get('http://native/mf', self.path)
+            self.assertEqual(hit.body, body)
+            self.assertNotIn('set-cookie', hit.headers)
+
+    def test_original_width_does_not_resize_and_supported_animation_validates(self):
+        body = self.picture(size=(2000, 1000))
+        self.assertEqual(images.resize_image(body, 'image/jpeg', 0), (body, 'image/jpeg'))
+        output = io.BytesIO()
+        with Image.new('RGB', (20, 20), 'red') as first, Image.new('RGB', (20, 20), 'blue') as second:
+            first.save(output, format='GIF', save_all=True, append_images=[second], duration=50)
+        gif = output.getvalue()
+        self.assertTrue(images._is_cache_image(gif, 'image/gif'))
+        self.assertEqual(images.resize_image(gif, 'image/gif', 0), (gif, 'image/gif'))
+        self.assertFalse(images._is_cache_image(gif[:-10], 'image/gif'))
+        self.assertFalse(images._is_cache_image(b'<svg/>', 'image/svg+xml'))
+        self.assertFalse(images._is_cache_image(body[:-100], 'image/jpeg'))
+
+    def test_avif_when_available_is_validated_as_original(self):
+        Image.init()
+        if 'AVIF' not in Image.SAVE:
+            self.skipTest('existing Pillow has no AVIF codec')
+        body = self.picture('AVIF')
+        self.assertTrue(images._is_cache_image(body, 'image/avif'))
+        self.assertEqual(images.resize_image(body, 'image/avif', 0)[0], body)
+
+    def test_background_full_never_starts_native_and_nonimage_never_streams(self):
+        self.cache.max_files = 1
+        self.cache.put(key('protected'), b'x', HEADERS, priority=200)
+        with self.assertRaises(images.BackgroundCacheFull):
+            images.fetch_variant('http://native/mf', self.path, 0, 'image/*',
+                client_factory=lambda **_: self.fail('full cache initiated network'), cache=self.cache,
+                signature_key=self.secret, priority=100, background=True)
+        class ForbiddenStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                raise AssertionError('nonimage body streamed')
+                yield b''
+        def factory(**kwargs):
+            return httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(
+                200, headers={'content-type': 'video/mp4'}, stream=ForbiddenStream())), **kwargs)
+        self.cache.max_files = 2
+        response = images.fetch_variant('http://native/mf', self.path, 0, 'image/*',
+            client_factory=factory, cache=self.cache, signature_key=self.secret, priority=300, background=True)
+        self.assertEqual(response.status_code, 415)

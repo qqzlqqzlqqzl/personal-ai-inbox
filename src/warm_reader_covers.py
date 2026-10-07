@@ -1,9 +1,11 @@
-"""Warm the newest All / AI recommended >=8 covers, independently of page opens.
+"""Warm complete newest-first All / AI recommended >=8 article images.
 
 Only the existing signed native image proxy is used. Analysis SQLite is read-only;
 the only writes are the existing bounded image cache and one private status JSON.
 """
 import argparse
+from contextlib import contextmanager
+from html.parser import HTMLParser
 import hashlib
 import json
 import math
@@ -15,8 +17,12 @@ import stat
 import time
 from urllib.parse import urlsplit
 
-MAX_CANDIDATES = 240
-MAX_MISSES = 30
+PAGE_SIZE = 24
+MAX_PAGES = 16
+MAX_MISSES = 60
+MAX_STATE_ITEMS = 128
+MAX_ARTICLE_RECEIPTS = 512
+MAX_STATE_BYTES = 128 << 10
 NATIVE_BASE = "http://127.0.0.1:8091/mf"
 WIDTHS = (480, 960)
 
@@ -29,13 +35,17 @@ class SlowSource(Exception):
     pass
 
 
+class CacheFull(Exception):
+    pass
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, separators=(",", ":")).encode()).hexdigest()
 
 
 def version(row):
     return digest([row.get(k) for k in ("entry_id", "user_id", "url", "cover_url",
-                                       "content_hash", "content_quality", "state", "score", "updated_at")])
+                                       "content_hash", "content_quality", "state", "score", "updated_at", "published_at")])
 
 
 def select_candidates(rows, uid, quality):
@@ -47,14 +57,10 @@ def select_candidates(rows, uid, quality):
         if (type(row.get("entry_id")) is not int or row["entry_id"] <= 0
                 or row.get("user_id") != uid or row.get("state") != "done"
                 or type(score) not in (int, float) or not math.isfinite(score) or score < 8
-                or not isinstance(row.get("cover_url"), str) or not row["cover_url"]
-                or len(row["cover_url"]) > 4000
                 or quality(row).get("recommendation_eligible") is False):
             continue
         row["version"] = version(row)
         result.append(row)
-        if len(result) == MAX_CANDIDATES:
-            break
     return result
 
 
@@ -65,20 +71,73 @@ def readonly_database(path):
     return db
 
 
-def database_candidates(db, uid, quality):
-    # First ten 24-entry pages, matching the actual default publication sort.
-    rows = db.execute("""SELECT entry_id,user_id,url,feed_id,published_at,state,score,
-        content_hash,cover_url,content_quality,updated_at,
-        CASE WHEN content_quality IS NOT NULL THEN source_text END AS source_text
-        FROM analyses WHERE user_id=? AND state='done' AND score>=8
-        ORDER BY julianday(published_at) DESC,entry_id DESC LIMIT 240""", (uid,))
-    return select_candidates(rows, uid, quality)
+def database_candidates(db, uid, quality, *, after=None, limit=PAGE_SIZE):
+    """Bounded keyset page; the cursor follows scanned rows, even excluded ones."""
+    params = [uid]
+    clause = ""
+    if after is not None:
+        clause = " AND (COALESCE(julianday(published_at),0),entry_id) < (?,?)"
+        params.extend(after)
+    params.append(limit)
+    rows = list(db.execute("""SELECT *,COALESCE(julianday(published_at),0) AS published_order
+        FROM analyses WHERE user_id=? AND state='done' AND score>=8""" + clause +
+        " ORDER BY COALESCE(julianday(published_at),0) DESC,entry_id DESC LIMIT ?", params))
+    cursor = [rows[-1]["published_order"], rows[-1]["entry_id"]] if rows else after
+    return select_candidates(rows, uid, quality), cursor, len(rows) < limit
 
 
-def bind_jobs(rows, metadata, feeds, sign, verify, *, quality):
-    """Missing/removed, moved, cross-account or stale native identities cannot warm."""
+NON_IMAGES = {".svg", ".svgz", ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".m4a", ".ogg", ".wav", ".pdf"}
+
+
+def signed_image_path(value, verify):
+    from reader_cover_proxy import _native_proxy
+    proxy = _native_proxy(value, (NATIVE_BASE, "http://127.0.0.1:8092/mf"))
+    if not proxy:
+        return None
+    path = proxy[0][4:]
+    target = verify(path)
+    if not target or Path(urlsplit(target).path.lower()).suffix in NON_IMAGES:
+        return None
+    return path, target
+
+
+class BodyImages(HTMLParser):
+    """Only image-bearing HTML attributes; never video sources, links or scripts."""
+    def __init__(self, verify):
+        super().__init__(convert_charrefs=True)
+        self.verify, self.picture_depth, self.images = verify, 0, []
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag == "picture":
+            self.picture_depth += 1
+        if tag != "img" and not (tag == "source" and self.picture_depth):
+            return
+        mime = (values.get("type") or "").lower().split(";", 1)[0]
+        if mime and mime not in {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}:
+            return
+        urls = [values.get("src")]
+        urls.extend(part.strip().split()[0] for part in (values.get("srcset") or "").split(",") if part.strip())
+        for value in urls:
+            matched = signed_image_path(value, self.verify)
+            if matched:
+                self.images.append(matched)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+    def handle_endtag(self, tag):
+        if tag == "picture":
+            self.picture_depth = max(0, self.picture_depth - 1)
+
+
+def bind_jobs(rows, metadata, feeds, sign, verify, *, quality, seen=None):
+    """Current native entries may contain the exact decorated detail body."""
+    from notes_metadata import published_timestamp
     current = {entry["id"]: entry for entry in metadata}
-    jobs, seen = [], set()
+    jobs = []
+    seen = set() if seen is None else seen
     for row in rows:
         entry = current.get(row["entry_id"])
         if (not entry or any(entry.get(k) != row.get(v) for k, v in
@@ -88,31 +147,53 @@ def bind_jobs(rows, metadata, feeds, sign, verify, *, quality):
         if (not feed or feed["hide_globally"] or feed["category"]["hide_globally"]
                 or quality(row, current_entry=entry).get("recommendation_eligible") is False):
             continue
-        signed = sign(entry, row)
-        path = signed[4:] if isinstance(signed, str) and signed.startswith("/mf/proxy/") else None
-        target = verify(path) if path else None
-        if not target or target in seen:
-            continue
-        seen.add(target)
-        jobs.append({"row": row, "path": path, "key": digest([target, row["version"]]),
-                     "source": digest(urlsplit(target).hostname)})
+        images = {}
+        if isinstance(row.get("cover_url"), str) and 0 < len(row["cover_url"]) <= 4000:
+            matched = signed_image_path(sign(entry, row), verify)
+            if matched:
+                path, target = matched
+                images[target] = {"path": path, "widths": list(WIDTHS)}
+        content = entry.get("content")
+        if isinstance(content, str):
+            parser = BodyImages(verify)
+            parser.feed(content)
+            for path, target in parser.images:
+                item = images.setdefault(target, {"path": path, "widths": []})
+                if 0 not in item["widths"]:
+                    item["widths"].append(0)
+        for target, item in images.items():
+            widths = [width for width in item["widths"] if (target, width) not in seen]
+            seen.update((target, width) for width in widths)
+            if not widths:
+                continue
+            jobs.append({"row": row, "path": item["path"], "widths": widths,
+                         "priority": published_timestamp(row),
+                         "key": digest([target, row["version"]]), "source": digest(urlsplit(target).hostname)})
     return jobs
 
 
+def prune_state(state, now):
+    # Keep cross-page backoff, bounded independently of the number of articles.
+    for name in ("items", "sources"):
+        values = state.get(name, {})
+        values = {k: v for k, v in values.items() if isinstance(v, dict)
+                  and v.get("retry_at", 0) > now - 86400}
+        state[name] = dict(sorted(values.items(), key=lambda item: item[1]["retry_at"], reverse=True)[:MAX_STATE_ITEMS])
+    articles = {key: value for key, value in state.get('articles', {}).items()
+                if isinstance(value, dict) and value.get('until', 0) > now}
+    state['articles'] = dict(sorted(articles.items(), key=lambda item: item[1].get('priority', 0),
+                                   reverse=True)[:MAX_ARTICLE_RECEIPTS])
+
+
 def warm_round(jobs, state, fetch, is_current, *, clock=time.time, monotonic=time.monotonic,
-               deadline, max_misses=MAX_MISSES):
+               deadline, max_misses=MAX_MISSES, counters=None):
     """One worker; fetch's on_miss runs only when native HTTP actually starts."""
-    items = state.get("items", {})
-    sources = state.get("sources", {})
-    counters = dict(selected=len(jobs), hits=0, misses=0, fetched=0, failed=0,
-                    stale=0, deferred=0, stop="complete")
-    active_keys = {job["key"] for job in jobs}
-    active_sources = {job["source"] for job in jobs}
-    state["items"] = items = {k: v for k, v in items.items() if k in active_keys}
-    state["sources"] = sources = {k: v for k, v in sources.items() if k in active_sources}
-    # Fresh/unattempted candidates retain newest-first priority; previously slow
-    # sources cannot repeatedly consume the first 30 misses and starve later pages.
-    ordered = sorted(jobs, key=lambda job: items.get(job["key"], {}).get("attempt_at", 0))
+    items = state.setdefault("items", {})
+    sources = state.setdefault("sources", {})
+    if counters is None:
+        counters = dict(selected=0, hits=0, misses=0, fetched=0, failed=0,
+                        stale=0, deferred=0, full=0, stop="complete")
+    counters["selected"] += len(jobs)
 
     def on_miss():
         if monotonic() >= deadline:
@@ -121,7 +202,7 @@ def warm_round(jobs, state, fetch, is_current, *, clock=time.time, monotonic=tim
             raise RoundStop("miss_limit")
         counters["misses"] += 1
 
-    for job in ordered:
+    for job in jobs:
         if monotonic() >= deadline:
             counters["stop"] = "deadline"
             break
@@ -134,8 +215,10 @@ def warm_round(jobs, state, fetch, is_current, *, clock=time.time, monotonic=tim
             counters["stale"] += 1
             continue
         try:
-            for width in WIDTHS:
+            for width in job.get("widths", WIDTHS):
                 before = counters["misses"]
+                if monotonic() >= deadline:
+                    raise RoundStop("deadline")
                 ok = fetch(job["path"], width, on_miss)
                 if counters["misses"] != before:
                     item["attempt_at"] = clock()
@@ -143,10 +226,13 @@ def warm_round(jobs, state, fetch, is_current, *, clock=time.time, monotonic=tim
                 if not ok:
                     raise ValueError("image_unavailable")
                 counters["hits" if counters["misses"] == before else "fetched"] += 1
-            item.pop("retry_at", None)
-            item.pop("failures", None)
+            items.pop(job["key"], None)
         except RoundStop as exc:
             counters["stop"] = exc.args[0]
+            break
+        except CacheFull:
+            counters["full"] += 1
+            counters["stop"] = "capacity"
             break
         except Exception as exc:
             failures = min(6, item.get("failures", 0) + 1)
@@ -177,7 +263,7 @@ def json_response(client, method, suffix, *, deadline, **kwargs):
 
 def save_state(path, state):
     data = json.dumps(state, separators=(",", ":"), allow_nan=False).encode()
-    if len(data) > 128 << 10:
+    if len(data) > MAX_STATE_BYTES:
         raise ValueError("warm_state_limit")
     temporary = path.with_suffix(".new")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
@@ -195,10 +281,10 @@ def main():
     import fcntl
     import httpx
     from content_quality import public_for_row
-    from notes_metadata import decode_feeds, decode_metadata
+    from notes_metadata import decode_feeds, decode_metadata, body_matches, published_timestamp
     from reader_cover_proxy import media_proxy_key, stored_cover_proxy, verified_proxy_target
-    from reader_image_proxy import fetch_variant, FETCH_SECONDS, NATIVE_IMAGE_ACCEPT, image_cache
-    from reader_image_cache import variant_key
+    from reader_image_proxy import fetch_variant, FETCH_SECONDS, NATIVE_IMAGE_ACCEPT, image_cache, BackgroundCacheFull
+    from reader_image_cache import variant_key, cache_lifetime
     root = Path(os.environ.get("AI_NEWS_ROOT", "/home/ubuntu/ai-news"))
     folder = root / "state/reader-cover-warm"
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -220,7 +306,7 @@ def main():
     signal.alarm(115)
     try:
         if status_path.exists():
-            if status_path.stat().st_size > 128 << 10:
+            if status_path.stat().st_size > MAX_STATE_BYTES:
                 raise ValueError("warm_state_limit")
             state = json.loads(status_path.read_text())
             if not isinstance(state.get("items"), dict) or not isinstance(state.get("sources"), dict):
@@ -234,55 +320,147 @@ def main():
             uid = json.loads(body).get("id")
             if type(uid) is not int or uid <= 0:
                 raise ValueError("invalid_native_identity")
+            if state.get("owner") != digest(uid):
+                state = {"owner": digest(uid), "items": {}, "sources": {}, "cursor": None}
             db = readonly_database(root / "state/analysis.sqlite3")
             db.set_progress_handler(lambda: int(time.monotonic() >= deadline), 10000)
             try:
-                rows = database_candidates(db, uid, public_for_row)
-                body, _ = json_response(client, "GET", "/v1/feeds", deadline=deadline)
-                feeds = decode_feeds(body, uid)
-                ids = [row["entry_id"] for row in rows]
-                body, headers = json_response(client, "POST", "/v1/entries/metadata", deadline=deadline,
-                                              json={"entry_ids": ids})
-                if headers.get("X-Reader-Entry-Metadata") != "1":
-                    raise ValueError("native_metadata_required")
-                metadata = decode_metadata(body, uid, ids)
-                jobs = bind_jobs(rows, metadata, feeds,
-                    lambda entry, row: stored_cover_proxy(entry, row["cover_url"], row, uid, key, native_base=NATIVE_BASE),
-                    lambda path: verified_proxy_target(path, key), quality=public_for_row)
+                import core
+                # This CLI is a single-threaded separate process. Route every
+                # decorate dependency through this already read-only connection;
+                # no migrations, WAL setup, card enqueue or business writes occur.
+                @contextmanager
+                def read_connection():
+                    yield db
+                original_connect = core.connect
+                core.connect = read_connection
+                try:
+                    body, _ = json_response(client, "GET", "/v1/feeds", deadline=deadline)
+                    feeds = decode_feeds(body, uid)
+                    verify = lambda path: verified_proxy_target(path, key)
+                    counters = warm_round([], state, None, None, deadline=deadline)
+                    prune_state(state, time.time())
+                    seen = set()
 
-                def current(row):
-                    live = db.execute("SELECT * FROM analyses WHERE entry_id=? AND user_id=?",
-                                      (row["entry_id"], uid)).fetchone()
-                    return bool(live and version(dict(live)) == row["version"])
+                    def current(row):
+                        live = db.execute("SELECT * FROM analyses WHERE entry_id=? AND user_id=?",
+                                          (row["entry_id"], uid)).fetchone()
+                        return bool(live and version(dict(live)) == row["version"])
 
-                def fetch(path, width, on_miss):
-                    def factory(**kwargs):
-                        if time.monotonic() + FETCH_SECONDS + 1 >= deadline:
-                            raise RoundStop("deadline")
-                        on_miss()
-                        return httpx.AsyncClient(**kwargs)
-                    try:
-                        response = fetch_variant(NATIVE_BASE, path, width, "image/*", client_factory=factory)
-                    except (httpx.TimeoutException, httpx.NetworkError):
-                        raise SlowSource from None
-                    if response.status_code == 429 or response.status_code >= 500:
-                        raise SlowSource
-                    target = verified_proxy_target(path, key)
-                    # Use the exact existing key function, including canonical Accept.
-                    # A plain 200 (unsupported media or failed cache write) is not a warm hit.
-                    return bool(response.status_code == 200 and target and image_cache.get(
-                        variant_key(NATIVE_BASE, target, width, NATIVE_IMAGE_ACCEPT)))
-                counters = warm_round(jobs, state, fetch, current, deadline=deadline)
+                    def advance(cursor):
+                        if cursor is not None and (state.get("cursor") is None or tuple(cursor) < tuple(state["cursor"])):
+                            state["cursor"] = list(cursor)
+
+                    after, pages = None, 0
+                    # Every round revisits the newest page first (new arrivals and
+                    # expired originals), then resumes its persisted deeper page.
+                    while pages < MAX_PAGES and time.monotonic() < deadline:
+                        rows, page_cursor, ended = database_candidates(db, uid, public_for_row, after=after)
+                        pages += 1
+                        ids = [row["entry_id"] for row in rows]
+                        metadata = {}
+                        if ids:
+                            body, headers = json_response(client, "POST", "/v1/entries/metadata", deadline=deadline,
+                                                          json={"entry_ids": ids})
+                            if headers.get("X-Reader-Entry-Metadata") != "1":
+                                raise ValueError("native_metadata_required")
+                            metadata = {entry["id"]: entry for entry in decode_metadata(body, uid, ids)}
+                        for row in rows:
+                            entry = metadata.get(row["entry_id"])
+                            row_cursor = [row["published_order"], row["entry_id"]]
+                            detail_key = digest(["detail", row["version"]])
+                            if state["items"].get(detail_key, {}).get("retry_at", 0) > time.time():
+                                advance(row_cursor)
+                                continue
+                            try:
+                                feed = feeds.get(row["feed_id"])
+                                if (not entry or not feed or feed["hide_globally"] or feed["category"]["hide_globally"]
+                                        or any(entry.get(k) != row.get(v) for k, v in
+                                               (("id", "entry_id"), ("user_id", "user_id"), ("url", "url"), ("feed_id", "feed_id")))
+                                        or not current(row)):
+                                    counters["stale"] += 1
+                                    advance(row_cursor)
+                                    continue
+                                receipt_key = digest([row['version'], entry])
+                                if state['articles'].get(receipt_key, {}).get('until', 0) > time.time():
+                                    advance(row_cursor)
+                                    continue
+                                priority = published_timestamp(row)
+                                if not image_cache.can_admit(priority):
+                                    counters['full'] += 1
+                                    counters['stop'] = 'capacity'
+                                    break  # Never retrieve bodies/images further down a full cache.
+                                recheck_at = [time.time() + 600]
+                                body, _ = json_response(client, "GET", "/v1/entries/" + str(row["entry_id"]), deadline=deadline)
+                                native = json.loads(body)
+                                if (not isinstance(native, dict) or native.get("id") != entry["id"]
+                                        or native.get("user_id") != uid or not body_matches(native, entry, feeds, {})):
+                                    raise ValueError("native_body_identity_changed")
+                                decorated = core.decorate(native, uid, include_source_fallback=True)
+                                jobs = bind_jobs([row], [decorated], feeds,
+                                    lambda entry, row: stored_cover_proxy(entry, row.get("cover_url"), row, uid, key, native_base=NATIVE_BASE),
+                                    verify, quality=public_for_row, seen=seen)
+
+                                def fetch(path, width, on_miss):
+                                    def factory(**kwargs):
+                                        if time.monotonic() + FETCH_SECONDS + 1 >= deadline:
+                                            raise RoundStop("deadline")
+                                        on_miss()
+                                        return httpx.AsyncClient(**kwargs)
+                                    try:
+                                        response = fetch_variant(NATIVE_BASE, path, width, NATIVE_IMAGE_ACCEPT,
+                                            client_factory=factory, priority=priority, background=True)
+                                    except BackgroundCacheFull:
+                                        raise CacheFull from None
+                                    except (httpx.TimeoutException, httpx.NetworkError, TimeoutError):
+                                        raise SlowSource from None
+                                    if response.status_code == 429 or response.status_code >= 500:
+                                        raise SlowSource
+                                    target = verify(path)
+                                    hit = image_cache.get(variant_key(NATIVE_BASE, target, width, NATIVE_IMAGE_ACCEPT)) if target else None
+                                    if hit:
+                                        recheck_at[0] = min(recheck_at[0], time.time() + cache_lifetime(hit[1]))
+                                    return bool(response.status_code == 200 and hit)
+
+                                warm_round(jobs, state, fetch, current, deadline=deadline, counters=counters)
+                                if counters["stop"] != "complete":
+                                    break  # Keep this article at the continuation boundary.
+                                state["items"].pop(detail_key, None)
+                                state['articles'][receipt_key] = {'until': recheck_at[0], 'priority': priority}
+                            except RoundStop:
+                                raise
+                            except Exception:
+                                old = state["items"].get(detail_key, {})
+                                failures = min(6, old.get("failures", 0) + 1)
+                                state["items"][detail_key] = {"failures": failures,
+                                    "retry_at": time.time() + min(21600, 600 * 2 ** (failures - 1))}
+                                counters["failed"] += 1
+                            advance(row_cursor)
+                        if counters["stop"] != "complete":
+                            break
+                        advance(page_cursor)
+                        if ended:
+                            state["cursor"] = None
+                            break
+                        after = state.get("cursor")
+                    else:
+                        counters["stop"] = "deadline" if time.monotonic() >= deadline else "page_limit"
+                    counters["pages"] = pages
+                finally:
+                    core.connect = original_connect
+
             finally:
                 db.close()
         counters["seconds"] = round(time.monotonic() - started, 3)
         counters["at"] = int(time.time())
+        prune_state(state, time.time())
         save_state(status_path, state)
         print(json.dumps(counters, separators=(",", ":")))
         return 0
     except Exception as exc:
         reason = exc.args[0] if isinstance(exc, RoundStop) else "round_failed"
         state["last_run"] = {"stop": reason, "seconds": round(time.monotonic() - started, 3)}
+        prune_state(state, time.time())
         save_state(status_path, state)
         print(json.dumps(state["last_run"]))
         return 1

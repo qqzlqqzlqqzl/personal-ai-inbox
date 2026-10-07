@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -24,6 +25,15 @@ DEFAULT_TTL = 86400
 NAME = re.compile(r'[0-9a-f]{64}\.image\Z')
 CACHE_HEADERS = {'content-type', 'cache-control', 'last-modified', 'content-security-policy',
                  'etag', 'vary', 'age', 'pragma'}
+
+
+def image_priority(value):
+    """Publication time only; unknown dates and ordinary clicks have priority 0."""
+    try:
+        value = float(value)
+        return max(0, min(99999999999, value)) if math.isfinite(value) else 0
+    except (ValueError, TypeError):
+        return 0
 
 
 def cache_lifetime(headers):
@@ -79,7 +89,7 @@ class ImageCache:
         with self._mutex, self._file_lock('.index.lock'):
             yield
 
-    def get(self, key):
+    def get(self, key, *, priority=0):
         path = self.root / (key + '.image')
         with self._index():
             try:
@@ -101,6 +111,11 @@ class ImageCache:
                     return None
                 if len(body) > MAX_IMAGE_BYTES or hashlib.sha256(body).hexdigest() != meta['sha256']:
                     return None
+                # A shared image belongs to its newest reference. Neither an old
+                # article nor an ordinary foreground hit can demote it.
+                if image_priority(priority) > image_priority(meta.get('priority', 0)):
+                    meta['priority'] = image_priority(priority)
+                    self._store(key, body, meta, background=False)
                 os.utime(path, (now, meta['expires']))
                 headers = dict(meta['headers'])
                 headers['age'] = str(int(headers.get('age', '0')) + max(0, int(now - meta['created'])))
@@ -108,51 +123,95 @@ class ImageCache:
             except (OSError, ValueError, KeyError, TypeError):
                 return None
 
-    def put(self, key, body, headers):
+    def put(self, key, body, headers, *, priority=0, background=False):
         lifetime = cache_lifetime(headers)
         if not lifetime or not body or len(body) > MAX_IMAGE_BYTES:
             return
         now = self.clock()
         meta = dict(created=now, expires=now + lifetime,
+                    priority=image_priority(priority),
                     headers={name: value for name, value in headers.items() if name in CACHE_HEADERS},
                     sha256=hashlib.sha256(body).hexdigest())
+        with self._index():
+            return self._store(key, body, meta, background=background)
+
+    def _inventory(self):
+        """Called under the index lock, including while atomic writes reserve space."""
+        files, other = [], 0
+        for path in self.root.iterdir():
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode):
+                continue
+            if path.name.startswith('.pending-'):
+                path.unlink()  # No live writer can hold this same index lock.
+                continue
+            if not NAME.fullmatch(path.name):
+                other += info.st_size
+                continue
+            if info.st_mtime <= self.clock():
+                path.unlink()
+                continue
+            try:
+                with path.open('rb') as stream:
+                    meta = json.loads(stream.readline(MAX_HEADER))
+                priority = image_priority(meta.get('priority', 0))
+            except (ValueError, TypeError, AttributeError):
+                path.unlink()
+                continue
+            files.append((priority, info.st_atime, info.st_size, path))
+        return files, other
+
+    def can_admit(self, priority, *, size=MAX_IMAGE_BYTES + MAX_HEADER):
+        """Conservative background reservation before HTTP; never churn newer images.
+
+        At most one maximum-size image of headroom is left unused. Equal-date
+        images are also protected so one huge article cannot rotate its own tail.
+        Foreground requests are never subject to this background admission gate.
+        """
+        with self._index():
+            files, other = self._inventory()
+            protected = [row for row in files if row[0] >= image_priority(priority)]
+            return (other + sum(row[2] for row in protected) + min(size, self.max_bytes) <= self.max_bytes
+                    and len(protected) < self.max_files)
+
+    def _store(self, key, body, meta, *, background):
+        # Caller owns the index lock. Include headers and the temporary file in
+        # the budget; unlink selected victims before writing the replacement.
+        files, other = self._inventory()
+        existing = next((row for row in files if row[3].name == key + '.image'), None)
+        if existing:
+            meta['priority'] = max(image_priority(meta.get('priority')), existing[0])
         line = (json.dumps(meta, separators=(',', ':')) + '\n').encode()
         if len(line) >= MAX_HEADER or len(line) + len(body) > self.max_bytes:
-            return
-        with self._index():
-            files = []
-            for path in self.root.iterdir():
-                # A previous interrupted atomic write left only derived cache data.
-                if path.name.startswith('.pending-') and stat.S_ISREG(path.lstat().st_mode):
-                    path.unlink()
-                    continue
-                if not NAME.fullmatch(path.name):
-                    continue
-                info = path.lstat()
-                if not stat.S_ISREG(info.st_mode):
-                    continue
-                if info.st_mtime <= now or path.name == key + '.image':
-                    path.unlink()
-                else:
-                    files.append((info.st_atime, info.st_size, path))
-            total = sum(row[1] for row in files)
-            count = len(files)
-            for _, size, path in sorted(files):
-                if total + len(line) + len(body) <= self.max_bytes and count < self.max_files:
-                    break
-                path.unlink()
-                total -= size
-                count -= 1
-            fd, temporary = tempfile.mkstemp(prefix='.pending-', dir=self.root)
-            try:
-                with os.fdopen(fd, 'wb') as output:
-                    output.write(line)
-                    output.write(body)
-                os.utime(temporary, (now, meta['expires']))
-                os.replace(temporary, self.root / (key + '.image'))
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
+            return False
+        total, count = other + sum(row[2] for row in files), len(files)
+        victims = [existing] if existing else []
+        if existing:
+            total -= existing[2]
+            count -= 1
+        for row in sorted(files):
+            if total + len(line) + len(body) <= self.max_bytes and count < self.max_files:
+                break
+            if row == existing or (background and row[0] >= meta['priority']):
+                continue
+            victims.append(row)
+            total -= row[2]
+            count -= 1
+        if total + len(line) + len(body) > self.max_bytes or count >= self.max_files:
+            return False
+        for row in victims:
+            row[3].unlink()
+        fd, temporary = tempfile.mkstemp(prefix='.pending-', dir=self.root)
+        try:
+            with os.fdopen(fd, 'wb') as output:
+                output.write(line)
+                output.write(body)
+            os.utime(temporary, (self.clock(), meta['expires']))
+            os.replace(temporary, self.root / (key + '.image'))
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        return True
 
 
 def variant_key(native_base, target, width, accept):
