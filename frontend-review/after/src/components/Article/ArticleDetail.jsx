@@ -1,7 +1,6 @@
 import AiBadge from "@/components/Ai/AiBadge"
 import ArticleNote from "@/components/Ai/ArticleNote"
 import ReadingControls from "@/components/Ai/ReadingControls"
-import BilingualReading, { getBilingualReading, useBilingualTranslation } from "@/components/Ai/BilingualReading"
 import RecoverableImage from "./ImageRecovery"
 import { Divider, Tag, Typography } from "@arco-design/web-react"
 import { useStore } from "@nanostores/react"
@@ -376,10 +375,7 @@ const ArticleDetail = forwardRef((_, ref) => {
   const prefersReducedMotion = useStore(prefersReducedMotionState)
 
   const activeContent = useStore(activeContentState)
-  const [readingMode, setReadingMode] = useState("bilingual")
-  const translation = useBilingualTranslation(activeContent)
-  const bilingualReading = getBilingualReading({ ...activeContent, translation }, readingMode)
-  const activeContentHtml = bilingualReading.html
+  const activeContentHtml = activeContent.content ?? ""
   const deferredContentHtml = useDeferredValue(activeContentHtml, "")
   const isArticleBodyPending = deferredContentHtml !== activeContentHtml
   const renderableContentHtml = isArticleBodyPending ? "" : deferredContentHtml
@@ -583,7 +579,7 @@ const ArticleDetail = forwardRef((_, ref) => {
     return () => {
       lf.unmount()
     }
-  }, [activeContent.id, isArticleBodyPending, renderableContentHtml])
+  }, [activeContent.id, isArticleBodyPending])
 
   // Focus the scrollable area when activeContent changes
   useEffect(() => {
@@ -615,6 +611,7 @@ const ArticleDetail = forwardRef((_, ref) => {
         scrollableNodeProps={{ tabIndex: -1 }}
       >
         <FadeTransition>
+          <ReadingControls key={activeContent.id} scrollContainerRef={scrollContainerRef} />
           <div
             className="article-header"
             style={{ maxWidth: responsiveMaxWidth, textAlign: titleAlignment }}
@@ -657,12 +654,6 @@ const ArticleDetail = forwardRef((_, ref) => {
             <AiBadge entry={activeContent} detailed />
             <Divider />
           </div>
-          <ReadingControls key={activeContent.id} scrollContainerRef={scrollContainerRef} />
-          <BilingualReading
-            mode={bilingualReading.mode}
-            message={bilingualReading.message}
-            onModeChange={setReadingMode}
-          />
           <div
             key={activeContent.id}
             aria-busy={isArticleBodyPending || undefined}

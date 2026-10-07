@@ -41,20 +41,20 @@ export default function ReadingControls({scrollContainerRef}){
   anchor.current=captureReadingAnchor(scrollContainerRef?.current?.getScrollElement(),ref.current,ref.current?.closest('.article-content'))
   setFocus(value=>!value)
  }
- return <div className="review-reading-bar" ref={ref}>
+ return <div className="review-reading-bar" role="group" aria-label="阅读工具" ref={ref}>
   <details className="review-reading-controls" onKeyDownCapture={event=>{
    if(event.key!=='Escape'||event.isComposing||event.nativeEvent?.isComposing||event.keyCode===229||!event.currentTarget.open){return}
    // This Escape belongs to the open layout popup, not the article-close shortcut.
    event.preventDefault();event.stopPropagation()
    event.currentTarget.open=false
    event.currentTarget.querySelector('summary')?.focus({preventScroll:true})
-  }}><summary>阅读排版</summary><div className="review-reading-options">
+  }}><summary aria-label="阅读排版" title="阅读排版"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M4 6h4m4 0h8M4 12h10m4 0h2M4 18h2m4 0h10"/><circle cx="10" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></svg></summary><div className="review-reading-options">
    <label>字号 <output>{settings.fontSize.toFixed(2)} rem</output><input aria-label="正文字号" type="range" min="1" max="1.5" step="0.05" value={settings.fontSize} onChange={e=>updateSettings({fontSize:Number(e.target.value)})}/></label>
    <label>行距 <output>{(settings.articleLineHeight??1.8).toFixed(1)} 倍</output><input aria-label="正文行距" type="range" min="1.3" max="2.5" step="0.1" value={settings.articleLineHeight??1.8} onChange={e=>updateSettings({articleLineHeight:Number(e.target.value)})}/></label>
    <label>栏宽 <output>{settings.articleWidth} ch{isBelowMedium?' · 手机自动适配':''}</output><input aria-label="正文栏宽" disabled={isBelowMedium} type="range" min="50" max="100" step="5" value={settings.articleWidth} onChange={e=>updateSettings({articleWidth:Number(e.target.value)})}/></label>
    <button type="button" onClick={()=>{const defaults=getDefaultSettings();updateSettings({fontSize:defaults.fontSize,articleWidth:defaults.articleWidth,articleLineHeight:defaults.articleLineHeight??1.8})}}>恢复默认排版</button><small>排版保存在此浏览器，不改变收藏、已读或笔记。</small>
   </div></details>
-  <button ref={focusButton} type="button" aria-pressed={focus} onClick={toggleFocus}>{focus?'退出专注正文':'专注正文'}</button>
+  <button ref={focusButton} type="button" aria-label={focus?'退出专注正文':'专注正文'} title={focus?'退出专注正文':'专注正文'} aria-pressed={focus} onClick={toggleFocus}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 9h8M8 12h8M8 15h6"/></svg></button>
   {focus&&<span role="status">正文专注中：元信息与 AI 摘要已收起，标题、导航及原文链接仍保留。</span>}
  </div>
 }

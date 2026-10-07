@@ -379,7 +379,7 @@ class WiringTests(unittest.TestCase):
         full = text[text.index('  full-regression:'):text.index('    runs-on:')]
         self.assertIn("needs.scope-job.result != 'success'", full)
         accepted = json.loads(re.search(r"fromJSON\('([^']+)'\)", full)[1])
-        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'translation'})
+        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance'})
         self.assertIn('!contains(', full)
 
     def test_original_required_gate_rejects_failed_skipped_or_cancelled_selected_job(self):
@@ -423,21 +423,20 @@ class WiringTests(unittest.TestCase):
         for outcome in ('failure', 'skipped', 'cancelled', ''):
             with patch.dict(os.environ, {**image, 'IMAGE_RESULT': outcome}, clear=True):
                 with self.assertRaises(AssertionError): exec(code, {})
-        translation = {**image, 'SELECT_SCOPE': 'translation'}
-        with patch.dict(os.environ, translation, clear=True): exec(code, {})
-        for outcome in ('failure', 'skipped', 'cancelled', ''):
-            with patch.dict(os.environ, {**translation, 'IMAGE_RESULT': outcome}, clear=True):
-                with self.assertRaises(AssertionError): exec(code, {})
 
-    def test_bilingual_scope_is_bounded_and_unknown_changes_still_use_full(self):
-        self.assertEqual(classify([{'path': 'patches/BilingualReading.css', 'status': 'M'}]), 'translation')
-        changes = [{'path': path, 'status': 'M'} for path in (
-            'src/bilingual_translation.py', 'src/api.py', 'patches/BilingualReading.jsx',
-            '.github/workflows/reader-regression.yml')]
-        self.assertEqual(classify(changes), 'translation')
-        self.assertEqual(classify(changes + [{'path': 'src/core.py', 'status': 'M'}]), 'full')
-        self.assertEqual(classify(changes + [{'path': 'src/bilingual_translation.py', 'status': 'D'}]), 'full')
-        self.assertEqual(classify(changes + [{'path': IMAGE_HISTORY, 'status': 'M'}]), 'full')
+
+class RetirementTests(unittest.TestCase):
+    def test_only_exact_runtime_restore_and_complete_named_removal_is_focused(self):
+        from ci_reader_scope import retirement_scope, RETIRED_TRANSLATION, RETIREMENT_EDITS
+        changes = [{'path': p, 'status': 'D'} for p in RETIRED_TRANSLATION]
+        changes += [{'path': p, 'status': 'M'} for p in RETIREMENT_EDITS]
+        tree = '37cf05313e1652ca093609025bfbc1e268092daf'
+        self.assertTrue(retirement_scope(changes, tree, True))
+        self.assertFalse(retirement_scope(changes, 'a'*40, True))
+        self.assertFalse(retirement_scope(changes, tree, False))
+        self.assertFalse(retirement_scope(changes[1:], tree, True))
+        self.assertFalse(retirement_scope(changes + [{'path': 'src/core.py', 'status': 'M'}], tree, True))
+        self.assertFalse(retirement_scope(changes + [{'path': 'tests/test_notes_metadata.py', 'status': 'D'}], tree, True))
 
 
 if __name__ == '__main__':
