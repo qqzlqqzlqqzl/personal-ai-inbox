@@ -493,6 +493,49 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue((await self.run_mock())['budget_paused'])
         self.assertEqual(len(self.calls), 3)
 
+    async def test_hundred_concurrent_batches_have_distinct_claims(self):
+        active, peak = 0, 0
+        started, release = asyncio.Event(), asyncio.Event()
+        async def respond(request):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            if active == 100:
+                started.set()
+            await release.wait()
+            active -= 1
+            return self.reply(request)
+        with patch.dict('os.environ', {
+            'BILINGUAL_CONCURRENCY': '100',
+            'BILINGUAL_DAILY_REQUESTS': '1000',
+            'BILINGUAL_DAILY_TOKENS': '1000000',
+        }):
+            for index in range(100, 200):
+                entry = {**self.entry, 'id': index}
+                self.allow(entry)
+                bilingual.enqueue(entry)
+            client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+            with patch.object(bilingual.httpx, 'AsyncClient', return_value=client) as factory:
+                work = asyncio.create_task(bilingual.run_once())
+                try:
+                    await asyncio.wait_for(started.wait(), timeout=15)
+                    self.assertEqual(peak, 100)
+                finally:
+                    release.set()
+                    result = await asyncio.wait_for(work, timeout=15)
+            self.assertEqual(factory.call_args.kwargs['limits'].max_connections, 100)
+            self.assertEqual(factory.call_args.kwargs['limits'].max_keepalive_connections, 100)
+            self.assertEqual(result['processed'], 200)
+            self.assertEqual(len(self.calls), 100)
+            with core.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(DISTINCT entry_id) FROM bilingual_usage').fetchone()[0], 100)
+                self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], 1)
+            with patch.object(bilingual, '_translate', side_effect=AssertionError('idle task')):
+                self.assertEqual((await self.run_mock())['processed'], 0)
+        for value, expected in [('0', 1), ('101', 100), ('invalid', 3)]:
+            with patch.dict('os.environ', {'BILINGUAL_CONCURRENCY': value}):
+                self.assertEqual(bilingual.config()['concurrency'], expected)
+
     async def test_enqueue_from_thread_wakes_idle_worker(self):
         idle, woke = asyncio.Event(), asyncio.Event()
         count = 0

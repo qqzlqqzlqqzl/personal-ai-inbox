@@ -28,7 +28,7 @@ PART_CHARS = 3500
 BATCH_CHARS = 10000
 BATCH_ITEMS = 8
 MAX_ATTEMPTS = 4
-MAX_CONCURRENT_BATCHES = 3
+MAX_CONCURRENT_BATCHES = 100
 _WAKE_LOCK = threading.Lock()
 _WAKE_WAITERS = set()
 MAX_HTML_BYTES = 2 * 1024 * 1024
@@ -326,6 +326,7 @@ def config():
         'ready': bool(valid and os.environ.get('BILINGUAL_API_KEY')),
         'base_url': base,
         'model': os.environ.get('BILINGUAL_MODEL', DEFAULT_MODEL).strip() or DEFAULT_MODEL,
+        'concurrency': _number('BILINGUAL_CONCURRENCY', 3, 1, MAX_CONCURRENT_BATCHES),
         'daily_requests': _number('BILINGUAL_DAILY_REQUESTS', 40, 1, 1000),
         'daily_tokens': _number('BILINGUAL_DAILY_TOKENS', 250000, 1000, 10000000),
     }
@@ -748,6 +749,21 @@ async def _translate(client, cfg, admission):
     return {'processed': len(translated), 'failed': len(rows) - len(translated), 'status': status}
 
 
+def _ready_slots(cfg):
+    # Count only enough ready blocks to fill the configured capacity. An empty
+    # queue costs one query rather than starting up to 100 idle tasks.
+    with core.connect() as db:
+        return db.execute('''SELECT COUNT(*) FROM (
+          SELECT 1 FROM bilingual_blocks b
+          JOIN bilingual_current c USING(user_id,entry_id,source_hash)
+          JOIN bilingual_articles a USING(user_id,entry_id,source_hash)
+          JOIN analyses d ON d.user_id=a.user_id AND d.entry_id=a.entry_id
+          WHERE b.translated IS NULL AND b.attempts<? AND b.next_try<=?
+            AND a.requested_at>0 AND a.model=? AND a.version=?
+            AND d.state='done' AND d.score>=8 LIMIT ?)''',
+          (MAX_ATTEMPTS, time.time(), cfg['model'], _version(), cfg['concurrency'])).fetchone()[0]
+
+
 async def run_once(client=None, *, admission=None):
     cfg = config()
     if not cfg['enabled'] or not cfg['ready']:
@@ -760,7 +776,10 @@ async def run_once(client=None, *, admission=None):
             return {'processed': 0, 'busy': True}
         if client is not None:
             return await _run_batches(client, cfg, admission)
-        async with httpx.AsyncClient(trust_env=False, follow_redirects=False, timeout=75) as owned:
+        limits = httpx.Limits(max_connections=cfg['concurrency'],
+                              max_keepalive_connections=cfg['concurrency'])
+        async with httpx.AsyncClient(trust_env=False, follow_redirects=False,
+                                    timeout=75, limits=limits) as owned:
             return await _run_batches(owned, cfg, admission)
 
 
@@ -768,7 +787,7 @@ async def _run_batches(client, cfg, admission):
     # Each task reserves its distinct unfinished blocks synchronously before the
     # first network await. The reservation CAS also protects alternate callers.
     results = await asyncio.gather(*(
-        _translate(client, cfg, admission) for _ in range(MAX_CONCURRENT_BATCHES)),
+        _translate(client, cfg, admission) for _ in range(_ready_slots(cfg))),
         return_exceptions=True)
     # Keep the process lock until every request has finished or been cancelled.
     for result in results:

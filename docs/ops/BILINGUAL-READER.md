@@ -18,7 +18,9 @@ Acceptance:
   preserved technical terms/code, and no extra commentary:
   https://immersivetranslate.com/zh-Hans/docs/prompts/
 - Reuse existing bounded chunks/cache validation; wake the worker promptly on a real request.
-  At most three upstream translation batches in flight, no duplicate paid work across workers.
+  BILINGUAL_CONCURRENCY controls 1-100 upstream batches (fallback 3); the HTTP
+  connection pool uses the same capacity. Empty queues do not start idle batch tasks.
+  Claims and daily budgets still prevent duplicate or unbounded paid work.
 - Record actual API usage and safe elapsed time. No all-history paid probe or new service/environment.
 - Run focused backend/API and React tests plus the locked frontend build. Publish that tested build
   to the existing service, verify a real article and cache reuse, then merge/close this issue.
@@ -50,3 +52,14 @@ Deployment completed 2026-10-07 17:59:02 Asia/Shanghai:
   Global guardrail: at most 1000 batch requests / 1,000,000 reserved-or-actual tokens per UTC day.
   This is a ceiling, not a daily translation target. No article-library backfill.
 - Costs above remain estimates. Cash conversion is unknown; upstream balance uses credits (symbol lightning).
+
+Bounded preview authorized 2026-10-07:
+- Pretranslate the newest 100 global eligible English articles with score >=8,
+  rather than waiting for their first opens. Reuse already completed translations.
+- This explicit batch does not enable automatic all-library translation.
+- Reuse completed text when only source image addresses rotate: compare the source
+  structure, other attributes, and every text block exactly. Keep raw source hashes,
+  VERSION and PROMPT unchanged; render current images without storing alias bodies.
+- Any text, regular link, alt text, user, model or prompt-version change remains isolated.
+- Validate 100 concurrent batch claims and the matching HTTP connection pool offline.
+  This verifies program capacity, not the external provider's sustained throughput.
