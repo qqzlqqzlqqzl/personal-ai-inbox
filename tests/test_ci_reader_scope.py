@@ -94,7 +94,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_actual_date_native_pattern_keeps_interface_and_native_gates(self):
         self.assertEqual(classify([{'path': 'src/reader_image_proxy.py', 'status': 'M'},
-                                  {'path': 'src/api.py', 'status': 'M'}]), 'full')
+                                  {'path': 'src/api.py', 'status': 'M'}]), 'article-cache')
         paths = ['src/api.py', 'src/notes_metadata.py', 'tests/test_notes_metadata.py',
                  'tests/test_notes_pair_metadata_url_contract.py', 'tests/notes_pair_acceptance.py',
                  'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -115,6 +115,21 @@ class ScopeTests(unittest.TestCase):
                       ['.github/workflows/reader-regression.yml']]:
             with self.subTest(paths=paths):
                 self.assertEqual(classify([{'path': p, 'status': 'M'} for p in paths]), 'full')
+
+    def test_article_cache_only_uses_api_and_cache_checks_with_native_gate(self):
+        owned = ['src/api.py', 'src/reader_image_cache.py', 'src/reader_image_proxy.py',
+                 'src/warm_reader_covers.py', 'tests/test_api.py', 'tests/test_ci_reader_scope.py']
+        for path in owned:
+            self.write(path, '# changed article cache\n')
+        result = self.pr(self.commit(rebind=True))
+        self.assertEqual(result['scope'], 'article-cache')
+        self.assertTrue(result['native'])
+        for extra in ('src/core.py', 'src/notes_metadata.py', 'src/patch_frontend.py'):
+            changes = [{'path': p, 'status': 'M'} for p in owned + [extra]]
+            self.assertEqual(classify(changes), 'full')
+        self.assertEqual(classify([{'path': p, 'status': 'D'} for p in owned]), 'full')
+        self.assertIn('tests/test_warm_reader_covers.py', PYTHON_TESTS['article-cache'])
+        self.assertIn('tests/test_api.py', PYTHON_TESTS['article-cache'])
 
     def test_documentation_and_mixed_code_from_complete_event_diff(self):
         self.assertEqual(PYTHON_TESTS['images'], [
@@ -379,7 +394,7 @@ class WiringTests(unittest.TestCase):
         full = text[text.index('  full-regression:'):text.index('    runs-on:')]
         self.assertIn("needs.scope-job.result != 'success'", full)
         accepted = json.loads(re.search(r"fromJSON\('([^']+)'\)", full)[1])
-        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance'})
+        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'article-cache'})
         self.assertIn('!contains(', full)
 
     def test_original_required_gate_rejects_failed_skipped_or_cancelled_selected_job(self):

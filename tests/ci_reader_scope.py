@@ -50,6 +50,14 @@ IMAGE_CI_SUPPORT = {
     'tests/ci_reader_scope.py', 'tests/test_ci_reader_scope.py',
     '.github/workflows/reader-regression.yml',
 }
+ARTICLE_CACHE = {
+    'src/api.py', 'src/reader_image_proxy.py', 'src/reader_image_cache.py',
+    'src/warm_reader_covers.py', 'tests/test_api.py',
+    'tests/test_reader_image_proxy.py', 'tests/test_reader_image_cache.py',
+    'tests/test_warm_reader_covers.py',
+    'deploy/systemd/ai-news-reader-covers.service',
+    'deploy/systemd/ai-news-reader-covers.timer',
+}
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
     'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -68,6 +76,11 @@ INTERFACES = NATIVE | {
 PIN_FILE = 'tests/dev_fixture_workspace_browser_acceptance.py'
 PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
+    'article-cache': [
+        'tests/test_api.py', 'tests/test_reader_image_proxy.py',
+        'tests/test_reader_image_cache.py', 'tests/test_reader_cover_proxy.py',
+        'tests/test_warm_reader_covers.py', 'tests/test_ci_reader_scope.py',
+    ],
     'performance': [
         'tests/test_reader_product_ab_profile.py',
         'tests/test_reader_loading_ab_ci.py',
@@ -159,6 +172,9 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         return 'fulltext'
     if paths and paths <= BACKUP:
         return 'backup'
+    if ('src/api.py' in paths and paths & {'src/reader_image_proxy.py', 'src/reader_image_cache.py', 'src/warm_reader_covers.py'}
+            and paths <= ARTICLE_CACHE | IMAGE_CI_SUPPORT):
+        return 'article-cache'
     if paths - IMAGE_CI_SUPPORT and paths <= IMAGES | IMAGE_CI_SUPPORT:
         return 'images' if IMAGE_HISTORY not in paths or verified_image_history else 'full'
     if paths and paths <= INTERFACES:
