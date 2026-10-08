@@ -70,6 +70,9 @@ await build({stdin:{contents:`export {default as Content} from '${webRoot}/src/c
  }}]})
 const dtos = id => ({id,title:`性能样本 ${String(id).padStart(3,'0')}`,content:'',content_deferred:true,status:'read',feed:{id:7,site_url:'https://example.test',icon:{feed_id:7,icon_id:0}}})
 const full = id => ({...dtos(id),content_deferred:false,content:`<p id="body-${id}">Original paragraph ${id}</p><img src="/fixture-images/${id}.png">`})
+const unverified = id => ({...full(id),user_id:7,url:`https://example.test/article/${id}`,
+ ai:{body_completeness:{policy_version:'reader-body-completeness-v1',status:'unverified',reason:'original_check_failed',checked_at:123}},
+ translation:{status:'done',source_hash:'synthetic-source-v1',bilingual_html:'<p>Cached translation</p>'}})
 const reports=[]
 async function setup(name, {initialPath='/inbox/all', cold=true, strict=false, holdModule=false}={}) {
  document.body.innerHTML='<div id="root"></div>'
@@ -81,6 +84,8 @@ async function setup(name, {initialPath='/inbox/all', cold=true, strict=false, h
  class Boundary extends React.Component{state={error:null};static getDerivedStateFromError(error){return {error}};componentDidCatch(error){F.boundaryErrors.push(error)};render(){return this.state.error?React.createElement('p',{'data-module-error':true},'module failed'):this.props.children}}
  F.navigate=path=>{F.pending.push(path);F.transitions.push({kind:'navigate-request',path})}
  F.getEntry=(id,options={})=>new Promise((resolve,reject)=>F.requests.push({id:Number(id),signal:options.signal,resolve,reject,done:false}))
+ F.bodyChecks=[]
+ F.verifyBody=(path,body,options)=>new Promise((resolve,reject)=>F.bodyChecks.push({path,body,options,resolve,reject}))
  const require=createRequire(import.meta.url);delete require.cache[out]
  const {Content,ContextProvider,ContentContext}=require(out)
  function Controls(){F.actions=React.useContext(ContentContext);const info=useStore(F.info);return React.createElement(Content,{info,getEntries:F.nop,markAllAsRead:F.nop})}
@@ -99,6 +104,80 @@ async function finish(t){
 const original = id => assert.ok(F.content.get().activeContent?.content.includes('Original paragraph '+id))
 const close = async()=>act(async()=>F.actions.closeActiveContent())
 const open = async entry=>act(async()=>F.actions.handleEntryClick(entry))
+for(const deepLink of [false,true]){
+ const t=await setup('unverified-clones-show-body-before-slow-check-and-do-not-restart-'+deepLink,
+  {cold:false,initialPath:deepLink?'/inbox/all/entry/1':'/inbox/all'})
+ if(!deepLink){await open(dtos(1));await t.commit(F.pending.at(-1))}
+ await act(async()=>F.requests[0].resolve(unverified(1)))
+ assert.equal(F.bodyChecks.length,1);assert.equal(F.bodyChecks[0].path,'/v1/ai/body/1/verify')
+ assert.equal(F.bodyChecks[0].options.retry,0)
+ assert.equal(F.content.get().isArticleLoading,false,'original verification must not hold the loading screen')
+ assert.equal(document.querySelector('[data-original]').textContent,'Original paragraph 1')
+ assert.equal(F.content.get().activeContent.translation.status,'done','cached translation remains available during verification')
+ for(let i=0;i<4;i++)await act(async()=>{
+  const entry=F.content.get().activeContent
+  // ArticleNote.syncNoteMeta clones the DTO after each notes GET.
+  F.content.setKey('activeContent',{...entry,status:'unread',starred:true,ai:{...entry.ai,has_note:true,note_updated_at:456}})
+ })
+ assert.equal(F.requests.length,1);assert.equal(F.bodyChecks.length,1)
+ assert.equal(F.bodyChecks[0].options.signal.aborted,false,'same-body notes clones retain the pending owner')
+ await act(async()=>F.bodyChecks[0].resolve(unverified(1)))
+ assert.equal(F.content.get().activeContent.status,'unread');assert.equal(F.content.get().activeContent.starred,true)
+ assert.equal(F.content.get().activeContent.ai.has_note,true);assert.equal(F.content.get().activeContent.ai.note_updated_at,456)
+ for(let i=0;i<4;i++)await act(async()=>F.content.setKey('activeContent',{...F.content.get().activeContent}))
+ assert.equal(F.requests.length,1);assert.equal(F.bodyChecks.length,1)
+ assert.equal(F.content.get().activeContent.ai.body_completeness.status,'unverified','failed verification is never relabeled complete')
+ original(1);await finish(t)
+}
+{
+ const t=await setup('failed-body-check-is-once-per-body-version-not-object-reference',{cold:false})
+ await open(unverified(1));await t.commit(F.pending.at(-1))
+ assert.equal(F.requests.length,0,'already hydrated body does not need another detail GET')
+ assert.equal(F.bodyChecks.length,1)
+ await act(async()=>F.bodyChecks[0].reject(Error('synthetic original timeout')))
+ const checked=F.content.get().activeContent
+ assert.equal(checked.ai.body_completeness.status,'unverified');assert.ok(checked.ai.body_completeness.checked_at>123)
+ await act(async()=>F.content.setKey('activeContent',{...checked,ai:{...checked.ai,has_note:false}}))
+ assert.equal(F.bodyChecks.length,1)
+ await act(async()=>F.content.setKey('activeContent',{...checked,content:'<p>Changed original body</p>'}))
+ assert.equal(F.bodyChecks.length,2,'new text must not reuse the previous version check')
+ assert.equal(F.content.get().isArticleLoading,false)
+ await act(async()=>F.bodyChecks[1].reject(Error('synthetic new-body timeout')))
+ await act(async()=>F.content.setKey('activeContent',{...F.content.get().activeContent,url:'https://example.test/replaced-source'}))
+ assert.equal(F.bodyChecks.length,3,'changed native source may check again')
+ await finish(t)
+}
+{
+ const t=await setup('successful-body-replacement-uses-server-translation-source-guard',{cold:false})
+ await open(dtos(1));await t.commit(F.pending.at(-1));await act(async()=>F.requests[0].resolve(unverified(1)))
+ const checked={...unverified(1),content:'<p>Restored original structure</p>',
+  ai:{body_completeness:{policy_version:'reader-body-completeness-v1',status:'verified',checked_at:456}},
+  translation:{status:'source_changed',source_hash:'synthetic-source-v2'}}
+ await act(async()=>F.bodyChecks[0].resolve(checked))
+ assert.equal(document.querySelector('[data-original]').textContent,'Restored original structure')
+ assert.deepEqual(F.content.get().activeContent.translation,checked.translation,'old cached translation cannot be copied onto a changed source')
+ assert.equal(F.bodyChecks.length,1);await finish(t)
+}
+for(const cancel of ['close','auth','session','source','body']){
+ const t=await setup('slow-body-check-'+cancel+'-cannot-publish-retired-result',{cold:false})
+ await open(dtos(1));await t.commit(F.pending.at(-1));await act(async()=>F.requests[0].resolve(unverified(1)))
+ const pending=F.bodyChecks[0]
+ if(cancel==='close')await close()
+ else if(cancel==='auth')await act(async()=>F.auth.setKey('token','different-body-owner'))
+ else if(cancel==='session')await act(async()=>{F.content.setKey('activeContent',null);F.data.setKey('sessionRevision',2)})
+ else if(cancel==='source')await act(async()=>F.info.set({from:'feed',id:'9'}))
+ else await act(async()=>F.content.setKey('activeContent',{...F.content.get().activeContent,content:'<p>New selected body</p>'}))
+ assert.equal(pending.options.signal.aborted,true)
+ const before=F.content.get()
+ await act(async()=>pending.resolve({...unverified(1),content:'<p>Retired verification result</p>'}))
+ assert.equal(F.content.get(),before,'old completion must not modify current body or loading state')
+ if(cancel==='source'){assert.equal(F.requests.length,2);await t.complete(1,1);original(1)}
+ if(cancel==='auth'){
+  await act(async()=>F.content.setKey('activeContent',{...F.content.get().activeContent}))
+  assert.equal(F.bodyChecks.length,2,'a new auth owner cannot reuse the canceled check')
+ }
+ await finish(t)
+}
 {
  const t=await setup('rapid-same-entry-reopen-without-base-commit')
  await close();t.record.push(t.snapshot('closed-before-route-commit'));assert.equal(F.requests.length,1)
