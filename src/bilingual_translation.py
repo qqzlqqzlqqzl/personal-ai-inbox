@@ -947,6 +947,9 @@ def _rolling_candidates(user_id, now, state, cfg):
     # A completed current version is not a publisher source-change monitor.
     # A newer identity-matched body already restored by Reader can need its own
     # translation; the later native read/apply path verifies that repair again.
+    # Compare against admission, not completion: an older in-flight translation
+    # may finish after the repair. Legacy cache rows have no admission timestamp
+    # and retain the conservative completion-time guard.
     where = '''a.user_id=? AND a.state='done' AND a.score>=8
       AND julianday(a.published_at)<=julianday(?,'unixepoch')
       AND NOT EXISTS (
@@ -954,7 +957,8 @@ def _rolling_candidates(user_id, now, state, cfg):
         WHERE c.user_id=a.user_id AND c.entry_id=a.entry_id AND b.model=? AND b.version=?
           AND ((b.status IN ('done','native') AND NOT EXISTS (
             SELECT 1 FROM prepared_articles p WHERE p.entry_id=a.entry_id AND p.user_id=a.user_id
-              AND p.url=a.url AND p.kind='reader_original_html' AND p.prepared_at>b.updated_at
+              AND p.url=a.url AND p.kind='reader_original_html'
+              AND p.prepared_at>CASE WHEN b.requested_at>0 THEN b.requested_at ELSE b.updated_at END
               AND p.content<>b.source_html)) OR (b.requested_at>0
             AND b.status IN ('pending','partial','processing','budget_paused')
             AND EXISTS (SELECT 1 FROM bilingual_blocks x
