@@ -160,6 +160,63 @@ class SchedulerGuardTests(unittest.TestCase):
             self.assertTrue(lanes['primary']['ready']);self.assertTrue(lanes['fourth']['ready'])
             starts,_=scheduler.plan(lanes,60,0)
             self.assertEqual({'primary','secondary','fourth'},set(starts))
+
+    def test_cycle_shape_isolates_bad_lane_preserves_claims_and_serializes_tick(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            provider=Mock(side_effect=AssertionError('no provider call'))
+            controls={key:Controller(root/'state'/('kaggle-month-'+key),key,
+                                    client=provider,initialize=True) for key in scheduler.KEYS}
+            roots=[control.root for control in controls.values()]
+            configs={key:{'schedule_enabled':True,'state_root':str(control.root),
+                          'peer_state_roots':[str(path) for path in roots]}
+                     for key,control in controls.items()}
+            primary=controls['primary']
+            batch=primary.prepare({'runtime_source':'fixture/runtime','session_timeout':600,
+                'items':[{'id':'a','input_hash':'fixture','messages':[{'role':'user','content':'fixture'}],
+                          'source_refs':[{'entry_id':77}]}]},'MANIFEST = None\n')
+            primary._set(batch,'submit_unknown',error='inaccessible')
+            database=primary.root/'batches.sqlite3';before=database.read_bytes()
+            cycle=primary.root/'cycle-status.json'
+            cases=[([1],False,True),('invalid',False,True),(1,False,True),(True,False,True),
+                   ([],False,True),(None,False,True),(False,False,True),
+                   ({},True,False),({'state':'empty'},True,False),
+                   ({'state':'retired_missing_remote','recovery_required':True},False,False)]
+            cases=[(*case,'available') for case in cases]+[
+                (value,ready,invalid,state) for state in ('quota_reserved','quota_unknown')
+                for value,ready,invalid in (([1],False,True),({},True,False))]
+            for value,ready,invalid,quota_state in cases:
+                with self.subTest(value=value,quota_state=quota_state):
+                    cycle.write_text(json.dumps(value));cycle_before=cycle.read_bytes()
+                    run=Mock(side_effect=AssertionError('no systemctl/provider subprocess'))
+                    starter=Mock()
+                    def quota(cfg,*,authorize):
+                        authorize()
+                        return {'allowed':quota_state=='available','state':quota_state}
+                    with patch.object(scheduler,'ROOT',root),patch.object(scheduler,'STAGE',root/'stage'), \
+                         patch.object(scheduler,'lane_config',side_effect=lambda key:configs[key]), \
+                         patch.object(scheduler,'service_states',return_value={key:'inactive' for key in scheduler.KEYS}), \
+                         patch.object(scheduler,'query_config',side_effect=quota) as queries, \
+                         patch.object(scheduler,'due_entries',return_value=(set(range(100,180)),{77})), \
+                         patch.object(scheduler,'queue_summary',return_value={'next_item_retry':0,
+                             'analyses':{'waiting_model':80},'cards':{},'total':80}):
+                        report=scheduler.tick(run=run,starter=starter,now=1000)
+                    expected=set(scheduler.KEYS)-{'primary'} if quota_state=='available' else set()
+                    if ready:expected.add('primary')  # Existing-ID recovery needs no GPU quota.
+                    self.assertEqual(expected,set(report['started']))
+                    self.assertEqual(expected,{call.args[0] for call in starter.call_args_list})
+                    lane=report['lanes']['primary']
+                    self.assertEqual(ready,lane['ready'])
+                    self.assertEqual('ValueError' if invalid else None,lane['state_error'])
+                    self.assertEqual(None if invalid else value.get('state'),lane['cycle_state'])
+                    self.assertEqual('submit_unknown',primary.row(batch)['state'])
+                    self.assertEqual({77},claimed_entries(roots))
+                    self.assertEqual(before,database.read_bytes())
+                    self.assertEqual(cycle_before,cycle.read_bytes())
+                    self.assertEqual(4,queries.call_count)
+                    self.assertEqual(report,json.loads((root/'state/kaggle-month-dispatch/scheduler.json').read_text()))
+                    provider.assert_not_called();run.assert_not_called()
+
     def test_manual_observer_lock_prevents_duplicate_service_launch(self):
         import fcntl
         with tempfile.TemporaryDirectory() as tmp:

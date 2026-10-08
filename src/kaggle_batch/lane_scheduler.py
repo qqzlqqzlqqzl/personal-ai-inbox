@@ -106,7 +106,10 @@ def snapshot_lanes(now,states,configs=None):
                     except BlockingIOError:lane['active']=True
             lane['outstanding']=outstanding(root)
             lane['recovery']=read_json(root/'recovery.json',{}) or {}
-            lane['cycle']=read_json(root/'cycle-status.json',{}) or {}
+            cycle=read_json(root/'cycle-status.json',{})
+            if not isinstance(cycle,dict):
+                raise ValueError('invalid_cycle_status')
+            lane['cycle']=cycle
             lane['retry_at']=effective_retry_at(lane['recovery'])
             lane['persisted_retry_at']=float(lane['recovery'].get('retry_at',0) or 0)
             dbpath=root/'batches.sqlite3'
