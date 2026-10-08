@@ -16,18 +16,26 @@ class RequestLimits:
         if limited and len(q)>=30:
             return await JSONResponse({'error_message':'Too many authentication failures'},429,
                                       headers={'Retry-After':'300'})(scope,receive,send)
-        events=[];size=0
+        body=None
         if scope.get('method') not in ('GET','HEAD','OPTIONS'):
+            buffered=bytearray()
             while True:
                 event=await receive()
                 if event['type']=='http.disconnect':return
-                size+=len(event.get('body',b''))
-                if size>self.max_body:
+                chunk=event.get('body',b'')
+                if len(buffered)+len(chunk)>self.max_body:
                     return await JSONResponse({'error_message':'Request too large'},413)(scope,receive,send)
-                events.append(event)
+                buffered.extend(chunk)
                 if not event.get('more_body'):break
+            # ASGI consumers need the bytes, not each transport chunk's metadata.
+            # Retaining every chunk also made pop(0) replay quadratic.
+            body=bytes(buffered)
+            del buffered
         async def bounded_receive():
-            if events:return events.pop(0)
+            nonlocal body
+            if body is not None:
+                current=body;body=None
+                return {'type':'http.request','body':current,'more_body':False}
             return await receive()
         async def observe(event):
             if limited and event['type']=='http.response.start' and event['status']==401:
