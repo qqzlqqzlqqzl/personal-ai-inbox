@@ -19,11 +19,16 @@ try {
     b.onResolve({filter:/\.css$/},()=>({path:'css',namespace:'fixture'}))
     b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'',loader:'js'}))
    }}]})
- const {default:Badge,qualityLabels}=require(output),checks=[]
+ const {default:Badge,qualityLabels,bodyCompletenessLabel}=require(output),checks=[]
  const quality=(values)=>({policy_version:'reader-content-quality-v1',recommendation_eligible:null,
   reason_codes:[],access:'unknown',information:'unknown',...values})
  const render=(ai)=>renderToStaticMarkup(React.createElement(Badge,{entry:{ai},detailed:true}))
  const done={state:'done',score:8.5,technical_score:8,business_score:7,reason:'Synthetic historical analysis',tags:[]}
+ assert.match(bodyCompletenessLabel(),/完整性未验证/)
+ assert.match(bodyCompletenessLabel({policy_version:'reader-body-completeness-v1',status:'unverified',structure:'lost'}),/纯文本回退/)
+ assert.match(bodyCompletenessLabel({policy_version:'reader-body-completeness-v1',status:'verified',structure:'preserved'}),/已核对原文正文区/)
+ const card=renderToStaticMarkup(React.createElement(Badge,{entry:{ai:done},detailed:false}))
+ assert.match(card,/正文完整性未验证/)
  for(const state of ['__proto__','constructor','toString','hasOwnProperty','not_a_state']) {
   const html=render({state});assert.match(html,/处理状态待确认/);
   checks.push('prototype/unknown state is safe: '+state)

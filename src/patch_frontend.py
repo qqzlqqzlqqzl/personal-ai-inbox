@@ -70,6 +70,7 @@ def install_reader_entry_detail(root, web):
     helper = (root / 'patches/reader-entry-detail.js').read_bytes()
     target = web / 'src/utils/reader-entry-detail.js'
     previous_helper_shas = {
+        '6fd755d1c5723c70779580755cb19163ec9e8a1e798b6d05dac08d072da65016',
         '17bce4248c73d81574c82c6570edc18db786520b095785f7dc4eb1c484b6f206',
         '82cc620457d6ee140e90a1edc85523d3c39532d5b51c36d0b9d26bf1cecc9ee4',
         '4a68e34d40cc4e57d79d91cb39c89f05a06db083986232d73202ac4832ae1bb3',
@@ -265,7 +266,8 @@ def install_bilingual_reading(root, web):
     """Install owned controls only; reviewed ArticleDetail wires the live view."""
     import hashlib
     previous = {
-        'BilingualReading.jsx': {'a3c1da4485211039a62b2c8040337d180b1a8c8658aec709bc72aab8d3e84abf'},
+        'BilingualReading.jsx': {'a3c1da4485211039a62b2c8040337d180b1a8c8658aec709bc72aab8d3e84abf',
+                                '24418fbeb90e4e37048db0c115384f0807ee06cb02b3dac377d6447a8d7762c3'},
         'BilingualReading.css': {'bd004e430ee619002a637548614010259c3ac661c194aac58a7dfd8062a7d666'},
     }
     planned = []

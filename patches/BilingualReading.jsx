@@ -34,6 +34,9 @@ export function getBilingualReading(entry, requestedMode = "bilingual") {
   const original = typeof entry?.content === "string" ? entry.content : ""
   if (mode === "original") return { mode, html: original, message: "" }
   const translation = entry?.translation
+  if (translation?.status === 'source_changed') return {
+    mode, html: original, message: '正文已按原文更新；已有译文对应旧正文，当前显示原文',
+  }
   const candidate = !translation?.language || translation.language === "zh-CN"
     ? translation?.[mode === "chinese" ? "chinese_html" : "bilingual_html"] : null
   const available = typeof candidate === "string" && candidate.trim().length > 0
@@ -119,9 +122,18 @@ export function startBilingualTranslation({
   return stop
 }
 
+export function shouldRequestBilingualAutomatically(entry) {
+  // A structure-only body check cannot silently request a replacement for an
+  // old successful cache. Explicit translation POSTs remain server-authorized.
+  const body = entry?.ai?.body_completeness
+  const bodyCheckPending = body?.policy_version === 'reader-body-completeness-v1' &&
+    body.status !== 'verified' && !body.checked_at
+  return isTranslationEligible(entry) && entry?.translation?.status !== 'source_changed' && !bodyCheckPending
+}
+
 export function useBilingualTranslation(entry) {
   const entryId = entry?.id, content = entry?.content, source = entry?.translation
-  const eligible = isTranslationEligible(entry)
+  const eligible = shouldRequestBilingualAutomatically(entry)
   const current = useRef(null)
   current.current = { entryId, content, source, eligible }
   const [received, setReceived] = useState(null)
