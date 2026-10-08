@@ -76,6 +76,129 @@ import reader_image_proxy as images
 from stabilize_media import signed_url
 
 
+class HotWindowCacheTests(unittest.TestCase):
+    def setUp(self):
+        from pathlib import Path
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.now = [1800000000.0]  # A five-minute boundary.
+        self.cache = ImageCache(Path(self.temp.name) / 'images', max_bytes=65536,
+                                max_files=16, clock=lambda: self.now[0])
+        self.headers = {**HEADERS, 'cache-control': 'public, max-age=3600'}
+        self.deadline = self.now[0] + 900
+
+    def put(self, label, *, priority=0, hot_until=0, body=b'x' * 100, background=False):
+        return self.cache.put(key(label), body, self.headers, priority=priority,
+                              hot_until=hot_until, background=background)
+
+    def path(self, label):
+        return self.cache.root / (key(label) + '.image')
+
+    def hot_paths(self):
+        with self.cache._index():
+            rows, _ = self.cache._inventory()
+            hot = self.cache._protected(rows, 0, 0, 0, background=False)
+            self.assertLessEqual(sum(row[2] for row in rows if row[3] in hot),
+                                 min(128 * 1024 * 1024, self.cache.max_bytes // 8))
+            self.assertLessEqual(len(hot), self.cache.max_files // 8)
+            return hot
+
+    def test_bucketed_hits_do_not_scan_or_rewrite_and_do_not_extend_http_ttl(self):
+        self.put('shared', priority=200, hot_until=self.deadline)
+        original = self.path('shared').read_bytes()
+        for step in (30, 60, 120, 240):
+            self.now[0] = 1800000000 + step
+            with patch.object(self.cache, '_inventory', side_effect=AssertionError('hot hit scanned')):
+                self.assertIsNotNone(self.cache.get(key('shared'), hot_until=self.now[0] + 900))
+                self.assertIsNotNone(self.cache.get(key('shared'), priority=50))
+            self.assertEqual(self.path('shared').read_bytes(), original)
+        self.now[0] = 1800000300
+        with patch.object(self.cache, '_inventory', wraps=self.cache._inventory) as scan:
+            self.cache.get(key('shared'), hot_until=self.now[0] + 900)
+            self.assertEqual(scan.call_count, 1)
+        meta = json.loads(self.path('shared').read_bytes().split(b'\n')[0])
+        self.assertEqual(meta['priority'], 200)
+        self.assertEqual(meta['hot_until'], 1800001200)
+        self.assertEqual(meta['expires'], 1800003600)
+        self.now[0] = 1800003600
+        self.assertIsNone(self.cache.get(key('shared'), hot_until=self.now[0] + 900))
+
+    def test_shared_key_merges_lease_without_duplicate_quota_after_restart(self):
+        self.put('shared', priority=200, hot_until=self.deadline)
+        self.now[0] += 30
+        self.put('shared', priority=50, hot_until=0)
+        self.put('shared', priority=100, hot_until=self.deadline - 300)
+        self.cache = ImageCache(self.cache.root, max_bytes=65536, max_files=16, clock=lambda: self.now[0])
+        self.assertEqual(self.hot_paths(), {self.path('shared')})
+        meta = json.loads(self.path('shared').read_bytes().split(b'\n')[0])
+        self.assertEqual((meta['priority'], meta['hot_until']), (200, self.deadline))
+
+    def test_hot_admission_displaces_nonhot_regardless_of_date_but_deep_pages_cannot(self):
+        for index in range(16):
+            self.put(str(index), priority=100 + index)
+        self.cache.get(key('0'), hot_until=self.deadline)
+        self.assertFalse(self.cache.can_admit(101, size=512))
+        self.assertFalse(self.put('deep', priority=101, background=True))
+        self.assertTrue(self.cache.can_admit(1, size=512, hot_until=self.deadline))
+        self.assertTrue(self.put('view', priority=1, hot_until=self.deadline, background=True))
+        self.assertTrue(self.path('0').exists())
+        self.assertFalse(self.path('1').exists())
+        self.assertTrue(self.put('newest', priority=999, background=True))
+        self.assertTrue(self.path('view').exists())
+        self.assertTrue(self.path('0').exists())
+        self.assertLessEqual(sum(path.stat().st_size for path in self.cache.root.iterdir()), 65536)
+        self.assertEqual(len(list(self.cache.root.glob('*.image'))), 16)
+
+    def test_hot_expiry_returns_to_publication_order_without_expiring_the_image(self):
+        for index in range(16):
+            self.put(str(index), priority=100 + index, hot_until=self.deadline if index == 0 else 0)
+        self.now[0] = self.deadline
+        self.assertIsNotNone(self.cache.get(key('0')))
+        self.assertEqual(self.hot_paths(), set())
+        self.assertTrue(self.cache.can_admit(101, size=512))
+        self.assertTrue(self.put('replacement', priority=101, background=True))
+        self.assertFalse(self.path('0').exists())
+
+    def test_hot_byte_quota_uses_physical_sizes_and_real_access_not_inventory_reads(self):
+        self.cache.max_bytes, self.cache.max_files = 8192, 64
+        for label in ('a', 'b', 'c'):
+            self.put(label, hot_until=self.deadline, body=b'x' * 200)
+            self.now[0] += 1
+        self.assertEqual(self.hot_paths(), {self.path('b'), self.path('c')})
+        before = {path: path.stat().st_atime_ns for path in self.cache.root.glob('*.image')}
+        self.cache.can_admit(0, size=512)
+        self.assertEqual(before, {path: path.stat().st_atime_ns for path in before})
+        self.cache.get(key('a'))  # A real hit can reclaim a bounded hot slot.
+        self.assertEqual(self.hot_paths(), {self.path('a'), self.path('c')})
+        self.assertTrue(all(self.path(label).exists() for label in ('a', 'b', 'c')))
+
+    def test_get_promotion_respects_hot_file_quota(self):
+        self.cache.max_files = 8  # One protected file, even for tiny images.
+        for index in range(8):
+            self.put(str(index), priority=index)
+        self.cache.get(key('1'), hot_until=self.deadline)
+        self.now[0] += 1
+        self.cache.get(key('0'), hot_until=self.deadline)
+        self.assertEqual(self.hot_paths(), {self.path('0')})
+        self.assertTrue(self.put('newest', priority=999, background=True))
+        self.assertTrue(self.path('0').exists())
+        self.assertFalse(self.path('1').exists())
+
+    def test_invalid_and_oversized_hot_leases_fall_back_to_ordinary_policy(self):
+        from reader_image_cache import image_hot_until
+        for invalid in (None, 'bad', float('nan'), float('inf'), -1, 0, self.now[0] + 10):
+            self.assertEqual(image_hot_until(invalid, self.now[0]), 0)
+        self.assertEqual(image_hot_until(self.now[0] + 100000, self.now[0]), self.deadline)
+        self.cache.max_bytes = 4096
+        self.put('large', priority=100, hot_until=self.deadline, body=b'x' * 600)
+        self.assertEqual(self.hot_paths(), set())
+        self.assertFalse(self.cache.can_admit(0, size=4096, hot_until=self.deadline))
+        self.assertFalse(self.put('old', body=b'x' * 3500, hot_until=self.deadline, background=True))
+        for policy in ('no-store', 'private', 'no-cache'):
+            self.cache.put(key(policy), b'x', {**HEADERS, 'cache-control': policy}, hot_until=self.deadline)
+            self.assertFalse(self.path(policy).exists())
+
+
 class ArticleImageCacheTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

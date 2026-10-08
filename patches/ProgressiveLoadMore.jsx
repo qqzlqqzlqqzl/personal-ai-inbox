@@ -3,10 +3,10 @@ import { useStore } from "@nanostores/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import useLoadMore from "@/hooks/useLoadMore"
 import { contentState, filteredEntriesState } from "@/store/contentState"
-import { nextWindow, prefetchDecision, autoPrefetchDecision, scheduleAutoPrefetch } from "@/utils/reading-session"
+import { nextWindow, prefetchDecision, autoPrefetchDecision, scheduleAutoPrefetch, AUTO_PREFETCH_PAGES } from "@/utils/reading-session"
 import { createThumbnailPreloader } from "@/components/Article/reader-image-variants"
 
-/** Warm ten additional pages, then retain the existing scroll/manual policy. */
+/** Warm five additional pages, then retain the existing scroll/manual policy. */
 export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   const { isArticleListReady, loadMoreVisible, articleListSnapshotRevision, articleListOffset, infoFrom, infoId } = useStore(contentState, {
     keys: ["isArticleListReady", "loadMoreVisible", "articleListSnapshotRevision", "articleListOffset", "infoFrom", "infoId"],
@@ -158,6 +158,6 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   return <div className="load-more-container" role="status" aria-live="polite" data-prefetch-fraction="0.25" data-loaded-count={entries.length} data-more={String(loadMoreVisible)} data-cursor={articleListOffset}>
     {!loadMoreVisible ? (entries.length ? "已加载全部条目" : null) : loadMoreError ? <Button size="small" onClick={() => void request(true)}>加载失败，点击重试</Button>
       : loadingMore ? <><Spin style={{ paddingRight: 10 }} />正在提前加载下一批…</>
-      : <Button size="small" onClick={() => void request(true)}>已自动预加载前方最多 10 页 · 继续滚动或点击加载</Button>}
+      : <Button size="small" onClick={() => void request(true)}>已自动预加载前方最多 {AUTO_PREFETCH_PAGES} 页 · 继续滚动或点击加载</Button>}
   </div>
 }

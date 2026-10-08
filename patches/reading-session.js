@@ -1,6 +1,6 @@
 /** Pure per-batch prefetch policy. No network, credentials or model calls. */
 export const PREFETCH_FRACTION = 0.25
-export const AUTO_PREFETCH_PAGES = 10
+export const AUTO_PREFETCH_PAGES = 5
 
 /** Let the first page paint before starting one background page at a time. */
 export function scheduleAutoPrefetch(callback, started, clock = globalThis) {
@@ -23,7 +23,7 @@ export function scheduleAutoPrefetch(callback, started, clock = globalThis) {
   }
 }
 
-/** Ten additional pages after the initial page, independent of scroll position. */
+/** Five additional pages after the initial page, independent of scroll position. */
 export function autoPrefetchDecision(window, started) {
   if (!window || started >= AUTO_PREFETCH_PAGES) return null
   return { reason: "startup", page: started + 1 }

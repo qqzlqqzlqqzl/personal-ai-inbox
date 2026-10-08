@@ -1,6 +1,7 @@
 """Only image variant admission, native response boundaries and real codecs."""
 import asyncio
 import io
+import json
 import threading
 
 import httpx
@@ -130,13 +131,14 @@ async def test_invalid_variant_never_fetches(monkeypatch, query):
 @pytest.mark.asyncio
 async def test_cache_validator_is_applied_only_after_native_response(monkeypatch):
     calls = []
-    def worker(*args):
-        calls.append(args)
+    def worker(*args, **kwargs):
+        calls.append((args, kwargs))
         return Response(b"pixels", headers={"ETag": '"variant"', "Cache-Control": "public, max-age=259200"})
     monkeypatch.setattr(images, "fetch_variant", worker)
     result = await images.proxy_reader_image(PATH, request(headers=[(b"if-none-match", b'"variant"')]), "http://native.test/mf")
     assert len(calls) == 1 and result.status_code == 304 and result.body == b""
     assert result.headers["cache-control"] == "public, max-age=259200"
+    assert 0 < calls[0][1]['hot_until'] - images.time.time() <= 900
 
 
 @pytest.mark.asyncio
@@ -164,7 +166,7 @@ async def test_cancellation_and_timeout_keep_actual_workers_bounded(monkeypatch)
     monkeypatch.setattr(images, "image_work", pool)
     monkeypatch.setattr(images, "REQUEST_SECONDS", .08)
     entered = threading.Event(); release = threading.Event(); calls = []
-    def blocked(*args):
+    def blocked(*args, **kwargs):
         calls.append(args)
         if len(calls) == 2: entered.set()
         assert release.wait(2)
@@ -205,9 +207,9 @@ def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_
             'cache-control': 'public, max-age=60', 'set-cookie': 'native-session=synthetic; HttpOnly'})
     def factory(**kwargs):
         return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
-    def read(accept):
+    def read(accept, hot_until=0):
         return images.fetch_variant('http://native.test/mf', path, 960, accept,
-                                    client_factory=factory, cache=cache, signature_key=key)
+                                    client_factory=factory, cache=cache, signature_key=key, hot_until=hot_until)
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(read, ('image/*', 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8')))
     assert all(result.status_code == 200 for result in results)
@@ -217,6 +219,12 @@ def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_
     assert len(list(cache.root.glob('*.image'))) == 1
     assert read('image/avif,image/webp,image/*').body == results[0].body
     assert len(fetches) == len(codecs) == 1
+    until = (int(images.time.time()) // 300) * 300 + 900
+    assert read("image/*", hot_until=until).body == results[0].body
+    assert len(fetches) == len(codecs) == 1
+    meta = json.loads(next(cache.root.glob("*.image")).read_bytes().splitlines()[0])
+    assert meta["hot_until"] == until
+    assert meta["expires"] - meta["created"] == 60
     forged = path.replace(path.split('/')[1], 'A' * 43 + '=')
     denied = images.fetch_variant('http://native.test/mf', forged, 960, 'image/*',
                                   client_factory=factory, cache=cache, signature_key=key)

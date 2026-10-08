@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from warm_reader_covers import (PAGE_SIZE, MAX_MISSES, CacheFull, SlowSource, bind_jobs,
-    database_candidates, digest, prune_state, readonly_database, select_candidates, version, warm_round)
+    database_candidates, database_heads, digest, prune_state, readonly_database, select_candidates, version, warm_round)
 from reader_cover_proxy import verified_proxy_target
 from stabilize_media import signed_url
 
@@ -29,6 +29,27 @@ def job(eid, source="source", widths=(480, 960)):
 
 
 class CoverWarmTests(unittest.TestCase):
+    def test_live_sort_heads_interleave_deduplicate_and_include_new_sources(self):
+        db = sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.row_factory = sqlite3.Row
+        db.execute("CREATE TABLE analyses(entry_id INTEGER,user_id INTEGER,state TEXT,score REAL,"
+                   "technical_score REAL,business_score REAL,published_at TEXT,feed_id INTEGER)")
+        db.executemany("INSERT INTO analyses VALUES(?,1,'done',?,?,?,?,2)", [
+            (1, 10, 5, 5, '2025-01-01'), (2, 8, 10, 5, '2025-01-01'),
+            (3, 8, 5, 10, '2025-01-01'), (4, 8, 5, 5, '2026-10-07'),
+            (5, 7, 10, 10, '2026-10-08')])
+        db.execute("INSERT INTO analyses VALUES(99,2,'done',10,10,10,'2026-10-09',2)")
+        ids = lambda: [r['entry_id'] for r in database_heads(db, 1, quality, limit=1)]
+        self.assertEqual(ids(), [4, 1, 2, 3])
+        # A newly added source becomes eligible without editing a source/ID list.
+        db.execute("INSERT INTO analyses VALUES(6,1,'pending',NULL,NULL,NULL,'2026-10-08',999)")
+        self.assertEqual(ids(), [4, 1, 2, 3])
+        db.execute("UPDATE analyses SET state='done',score=9,technical_score=10,business_score=10 WHERE entry_id=6")
+        self.assertEqual(ids(), [6, 1])
+        self.assertNotIn(1, [r['entry_id'] for r in database_heads(
+            db, 1, lambda r: {'recommendation_eligible': r['entry_id'] != 1}, limit=1)])
+
     def test_threshold_quality_without_cover_and_without_240_total_cap(self):
         candidates = [row(900, score=6), row(899, state="removed"), row(898, eligible=False),
                       row(897, user_id=2), row(896, cover_url=""), *[row(i) for i in range(500, 0, -1)]]
@@ -44,6 +65,7 @@ class CoverWarmTests(unittest.TestCase):
                 db.execute("CREATE TABLE analyses(entry_id INTEGER, user_id INTEGER, state TEXT, score REAL, published_at TEXT)")
                 db.executemany("INSERT INTO analyses VALUES(?,1,'done',8,'2026-10-07T00:00:00Z')",
                                [(i,) for i in range(1, 551)])
+            db.close()
             db = readonly_database(path)
             try:
                 ids, cursor = [], None
