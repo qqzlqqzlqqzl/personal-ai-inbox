@@ -45,16 +45,24 @@ function fakeClock() {
  }
 }
 let calls=0, clock=fakeClock()
-scheduleAutoPrefetch(()=>calls++,0,clock)
+scheduleAutoPrefetch(()=>calls++,clock)
 assert.equal(calls,0)
 clock.step('frame');assert.equal(calls,0)
-clock.step('frame');assert.equal(calls,0,'first page has an independent paint before prefetch')
-clock.step('timer');assert.equal(calls,1)
+clock.step('frame');assert.equal(calls,1,'first page paints before the next page starts')
+assert.equal(clock.jobs.size,0,'startup does not wait for a timer or idle callback')
 clock=fakeClock()
-const cancel=scheduleAutoPrefetch(()=>calls++,2,clock)
-clock.step('frame');clock.step('frame');clock.step('timer')
-assert.equal(calls,1,'later pages yield to idle time')
-cancel();assert.equal(clock.jobs.size,0,'changing scope cancels queued idle work')
+const cancel=scheduleAutoPrefetch(()=>calls++,clock)
+clock.step('frame')
+const retired=[...clock.jobs.values()][0].fn
+cancel();assert.equal(clock.jobs.size,0,'changing scope cancels the pending page')
+retired();assert.equal(calls,1,'a retired frame cannot start an old page')
+for(let page=0;page<5;page++){
+ clock=fakeClock()
+ scheduleAutoPrefetch(()=>calls++,clock)
+ clock.step('frame');clock.step('frame')
+ assert.equal(clock.jobs.size,0,'all five pages advance without idle or timed waits')
+}
+assert.equal(calls,6)
 
 // Exercise the exact installer replacements on the reviewed hook's small
 // updateEntries/call shape, without running the production-path installer.

@@ -73,7 +73,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
     const decision = autoPrefetchDecision(windowRef.current, autoRef.current.started)
     if (decision) return scheduleAutoPrefetch(() => {
       if (latest.current.snapshot === snapshot) void requestRef.current(false, decision)
-    }, autoRef.current.started)
+    })
   }, [isArticleListReady, snapshot, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled])
 
   useEffect(() => {
