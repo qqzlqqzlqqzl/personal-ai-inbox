@@ -253,7 +253,7 @@ class ArticleImageCacheTests(unittest.TestCase):
                     return httpx.Response(200, content=body, headers=HEADERS)
                 def factory(**kwargs):
                     return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
-                response = images.fetch_variant('http://native/mf', self.path, 960, 'image/*',
+                response = images.fetch_variant('http://native/mf', self.path, 960, images.NATIVE_IMAGE_ACCEPT,
                     client_factory=factory, cache=self.cache, signature_key=self.secret,
                     priority=100, background=True)
                 self.assertEqual(response.body, body)
