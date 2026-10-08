@@ -3,7 +3,7 @@ import { useStore } from "@nanostores/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import useLoadMore from "@/hooks/useLoadMore"
 import { contentState, filteredEntriesState } from "@/store/contentState"
-import { nextWindow, prefetchDecision, autoPrefetchDecision, scheduleAutoPrefetch, AUTO_PREFETCH_PAGES } from "@/utils/reading-session"
+import { nextWindow, resumeStalledWindow, prefetchDecision, autoPrefetchDecision, scheduleAutoPrefetch, AUTO_PREFETCH_PAGES } from "@/utils/reading-session"
 import { createThumbnailPreloader } from "@/components/Article/reader-image-variants"
 
 /** Warm five additional pages, then retain the existing scroll/manual policy. */
@@ -78,7 +78,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
 
   useEffect(() => {
     if (!isArticleListReady) return
-    let frame = 0, stopped = false, root = null
+    let frame = 0, stopped = false, root = null, lastScrollTop = 0
     let coverObserver = null, coverFrame = 0, coverTimer = 0, coverWaitFinished = false
     const stopCoverWait = () => {
       coverWaitFinished = true
@@ -127,8 +127,10 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
       if (!offerCovers()) waitForCovers()
       if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
-      // An unmeasured initial virtual list is not a scrolled-to empty tail.
-      if (index < 0 && root.scrollTop <= 0) return
+      // Mounted short lists also look near their tail before any scrolling.
+      // At the top, only the double-RAF startup queue may fetch its five pages;
+      // mount/image checks must not bypass that budget or its read-only flag.
+      if (root.scrollTop <= 0) return
       const remaining = root.scrollHeight - root.scrollTop - root.clientHeight
       let progress = -1
       if (index >= 0) {
@@ -141,17 +143,25 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       if (decision) void requestRef.current(false, { ...decision, index: Number(progress.toFixed(2)), remaining: Math.round(remaining), scrollTop: Math.round(root.scrollTop) })
     }
     const schedule = () => { if (!stopped && !frame) frame = requestAnimationFrame(check) }
+    const onScroll = () => {
+      if (stopped || !root || latest.current.snapshot !== snapshot) return
+      const top = root.scrollTop
+      windowRef.current = resumeStalledWindow(windowRef.current, lastScrollTop, top)
+      lastScrollTop = top
+      schedule()
+    }
     imageSettledRef.current = schedule
     const connect = () => {
       if (stopped) return
       root = scrollRootRef.current
       if (!root) { frame = requestAnimationFrame(connect); return }
       frame = 0
-      root.addEventListener('scroll', schedule, { passive: true })
+      lastScrollTop = root.scrollTop
+      root.addEventListener('scroll', onScroll, { passive: true })
       schedule()
     }
     connect()
-    return () => { stopped = true; stopCoverWait(); cancelAnimationFrame(frame); root?.removeEventListener('scroll', schedule); if (imageSettledRef.current === schedule) imageSettledRef.current = null }
+    return () => { stopped = true; stopCoverWait(); cancelAnimationFrame(frame); root?.removeEventListener('scroll', onScroll); if (imageSettledRef.current === schedule) imageSettledRef.current = null }
   }, [isArticleListReady, snapshot, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled, scrollRootRef])
 
   if (!isArticleListReady) return null

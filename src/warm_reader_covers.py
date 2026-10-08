@@ -88,16 +88,22 @@ def database_candidates(db, uid, quality, *, after=None, limit=PAGE_SIZE):
     return select_candidates(rows, uid, quality), cursor, len(rows) < limit
 
 
-def database_heads(db, uid, quality, *, limit=HEAD_ENTRIES):
-    """Live, interleaved sort heads: no fixed feeds, dates or article IDs."""
+def database_heads(db, uid, quality, *, feeds, limit=HEAD_ENTRIES):
+    """Live, visible sort heads from the already validated native feed snapshot."""
+    visible = [fid for fid, feed in feeds.items()
+               if not feed['hide_globally'] and not feed['category']['hide_globally']]
+    if not visible:
+        return []
+    placeholders = ','.join('?' for _ in visible)
     columns = {"time": "julianday(published_at)", "score": "score",
                "technical": "technical_score", "business": "business_score"}
     lanes = []
     for field in HEAD_SORTS:
         rows = db.execute("SELECT *,COALESCE(julianday(published_at),0) AS published_order "
                           "FROM analyses WHERE user_id=? AND state='done' AND score>=8 "
+                          "AND feed_id IN (" + placeholders + ") "
                           "ORDER BY " + columns[field] + " DESC,entry_id DESC LIMIT ?",
-                          (uid, limit * 4)).fetchall()
+                          (uid, *visible, limit * 4)).fetchall()
         lanes.append(select_candidates(rows, uid, quality)[:limit])
     result, seen = [], set()
     for index in range(limit):
@@ -397,7 +403,7 @@ def main():
                     # this front-of-list budget. Hits reuse the same signed variants
                     # as browser requests and refresh only a shared five-minute bucket.
                     hot_until = (int(time.time()) // 300) * 300 + 900
-                    head_rows = database_heads(db, uid, public_for_row)
+                    head_rows = database_heads(db, uid, public_for_row, feeds=feeds)
                     head_jobs = []
                     for start in range(0, len(head_rows), PAGE_SIZE):
                         group = head_rows[start:start + PAGE_SIZE]

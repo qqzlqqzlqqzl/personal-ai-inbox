@@ -55,11 +55,15 @@ async def fetch_timeline(handle):
             row = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(row, dict):
+            raise ValueError("invalid X timeline row")
         if row.get("kind") == "error":
             raise httpx.HTTPError("X upstream returned an error record")
-        author = row.get("author") or {}
         if row.get("kind") != "tweet":
             continue
+        author = row.get("author", {})
+        if not isinstance(author, dict):
+            raise ValueError("invalid X timeline author")
         if str(author.get("username", "")).casefold() != handle.casefold():
             continue
         tweets.append(row)
@@ -80,7 +84,10 @@ async def timeline(handle, force=False):
         tweets = await fetch_timeline(handle)
         if not tweets and cached and cached.get("tweets"):
             return cached, "stale-empty-upstream"
-        return save_cache(handle, tweets), "live"
+        try:
+            return save_cache(handle, tweets), "live"
+        except OSError:
+            return {"fetched_at": time.time(), "handle": handle, "tweets": tweets}, "native-uncached"
     except (httpx.HTTPError, ValueError):
         if cached:
             return cached, "stale-cache"
@@ -143,7 +150,7 @@ async def x_feed(handle: str, refresh: bool = False):
     canonical = str((item or {}).get("handle") or handle)
     try:
         data, source = await timeline(canonical, force=refresh)
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(503, type(exc).__name__)
     body = render_atom(canonical, data["tweets"])
     return Response(body, media_type="application/atom+xml",

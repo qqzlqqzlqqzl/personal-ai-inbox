@@ -235,13 +235,126 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
     }
     const mountCover=width=>{
       const row=document.createElement('div');row.dataset.entryId='3'
-      row.getBoundingClientRect=()=>({top:0,bottom:100})
+      row.getBoundingClientRect=()=>({top:0,bottom:100,height:100})
       const media=document.createElement('div');media.className='grid-card-media'
       media.getBoundingClientRect=()=>({width})
       row.append(media);scroll.append(row);return media
     }
     const activeImages=()=>images.filter(image=>image.onload)
     try {
+      await t.test('mounted short first pages use only five read-only startup requests before real scrolling',async()=>{
+        for(const initialCount of [1,12]){
+          await act(async()=>root.render(null))
+          scroll.innerHTML='';scroll.scrollTop=0
+          Object.defineProperty(scroll,'scrollHeight',{value:600,configurable:true})
+          mountCover(320);scroll.firstElementChild.dataset.entryId='0'
+          const snapshot='mounted-short-'+initialCount,calls=[]
+          let active=0,maxActive=0
+          globalThis.__readerFixtureError=false
+          globalThis.__readerFixtureEntries=covers(snapshot).slice(0,initialCount)
+          globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:true,articleListSnapshotRevision:snapshot,articleListOffset:initialCount,infoFrom:'all',infoId:0}
+          const get=async options=>{
+            const cursor=globalThis.__readerFixtureContent.articleListOffset
+            calls.push({cursor,prefetch:options.prefetch})
+            active++;maxActive=Math.max(active,maxActive)
+            try {
+              await Promise.resolve()
+              const entries=covers(snapshot+'-page-'+calls.length).map((entry,index)=>({...entry,id:cursor+index}))
+              globalThis.__readerFixtureEntries=[...globalThis.__readerFixtureEntries,...entries]
+              globalThis.__readerFixtureContent={...globalThis.__readerFixtureContent,articleListOffset:cursor+entries.length,loadMoreVisible:calls.length<6}
+              paint()
+              return {entries}
+            } finally {active--}
+          }
+          const paint=()=>root.render(React.createElement(component.exports.default,{key:snapshot,scrollRootRef:{current:scroll},getEntries:get}))
+          const imagesBefore=images.length
+          await act(async()=>paint())
+          await flushFrames()
+          assert.equal(calls.length,0,'mounted short content cannot fetch on the first paint frame')
+          assert.equal(images.length-imagesBefore,Math.min(6,initialCount),'covers warm without waiting for pagination')
+          await flushFrames()
+          assert.equal(calls.length,1,'top-of-list guard must not starve double-RAF startup')
+          for(let frame=0;frame<20&&calls.length<5;frame++)await flushFrames()
+          assert.equal(calls.length,5,'all five forward pages continue without scrolling')
+          assert.ok(calls.every(call=>call.prefetch===true),'automatic requests cannot enter duplicate-to-read handling')
+          assert.equal(new Set(calls.map(call=>call.cursor)).size,5)
+          assert.equal(maxActive,1)
+          for(let frame=0;frame<4;frame++)await flushFrames()
+          const warmed=images.length
+          await act(async()=>activeImages()[0].onload());await flushFrames()
+          await act(async()=>activeImages()[0].onerror());await flushFrames()
+          assert.equal(images.length,warmed+2,'cover completion keeps draining independently')
+          assert.equal(calls.length,5,'top-of-list image checks cannot add an unbudgeted sixth page')
+          Object.defineProperty(scroll,'scrollHeight',{value:1800,configurable:true});scroll.scrollTop=1200
+          scroll.dispatchEvent(new dom.window.Event('scroll'));await flushFrames()
+          assert.equal(calls.length,6,'a real downward scroll still prefetches the next page')
+          assert.equal(calls[5].prefetch,false,'existing user-scroll behavior stays unchanged')
+          await act(async()=>root.render(null))
+        }
+      })
+
+      await t.test('a new downward scroll resumes a duplicate-only cursor once while passive checks stay stalled',async()=>{
+        await act(async()=>root.render(null))
+        scroll.innerHTML='';scroll.scrollTop=0
+        Object.defineProperty(scroll,'scrollHeight',{value:1800,configurable:true})
+        mountCover(320);scroll.firstElementChild.dataset.entryId='0'
+        const rows=start=>Array.from({length:24},(_,index)=>{
+          const id=start+index,coverSource=`https://example.org/stalled-${id}.jpg`
+          return {id,title:'entry '+id,coverSource,ai:{cover_proxy_url:'/mf/proxy/'+'A'.repeat(43)+'=/'+btoa(coverSource)}}
+        })
+        const calls=[],duplicate=Promise.withResolvers(),distinct=Promise.withResolvers()
+        let active=0,maxActive=0
+        globalThis.__readerFixtureError=false
+        globalThis.__readerFixtureEntries=rows(0)
+        globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:true,articleListSnapshotRevision:'stalled-scroll',articleListOffset:24,infoFrom:'all',infoId:0}
+        const get=async options=>{
+          const cursor=globalThis.__readerFixtureContent.articleListOffset,attempt=calls.length+1
+          calls.push({cursor,prefetch:options.prefetch});active++;maxActive=Math.max(active,maxActive)
+          try {
+            if(attempt===6)await duplicate.promise
+            else if(attempt===7)await distinct.promise
+            else await Promise.resolve()
+            const entries=rows(cursor).map((entry,index)=>attempt===6?{...entry,title:'entry '+index}:entry)
+            // Model the existing title dedupe: the raw cursor still advances.
+            const titles=new Set(globalThis.__readerFixtureEntries.map(entry=>entry.title))
+            globalThis.__readerFixtureEntries=[...globalThis.__readerFixtureEntries,...entries.filter(entry=>!titles.has(entry.title))]
+            globalThis.__readerFixtureContent={...globalThis.__readerFixtureContent,articleListOffset:cursor+entries.length,loadMoreVisible:attempt<7}
+            paint()
+            return {entries}
+          } finally {active--}
+        }
+        const paint=()=>root.render(React.createElement(component.exports.default,{key:'stalled-scroll',scrollRootRef:{current:scroll},getEntries:get}))
+        const scrollTo=async top=>{scroll.scrollTop=top;scroll.dispatchEvent(new dom.window.Event('scroll'));await flushFrames()}
+        await act(async()=>paint())
+        for(let frame=0;frame<20&&calls.length<5;frame++)await flushFrames()
+        assert.equal(calls.length,5);assert.ok(calls.every(call=>call.prefetch===true))
+        assert.equal(globalThis.__readerFixtureEntries.length,144)
+        scroll.firstElementChild.dataset.entryId='126'
+        await scrollTo(600)
+        assert.equal(calls.length,6)
+        await scrollTo(610);await scrollTo(620)
+        assert.equal(calls.length,6,'in-flight duplicate page retains the single slot')
+        await act(async()=>duplicate.resolve());await flushFrames()
+        assert.equal(globalThis.__readerFixtureEntries.length,144)
+        assert.equal(globalThis.__readerFixtureContent.articleListOffset,168)
+        await act(async()=>paint());await flushFrames()
+        await act(async()=>activeImages()[0].onload());await flushFrames()
+        await scrollTo(620);await scrollTo(610)
+        assert.equal(calls.length,6,'settled, rerender, image, unchanged and upward scroll cannot resume')
+        await scrollTo(615)
+        assert.equal(calls.length,7,'a fresh downward scroll requests the distinct tail')
+        assert.equal(calls[6].cursor,168)
+        await scrollTo(625);await scrollTo(635)
+        await act(async()=>activeImages()[0].onerror());await flushFrames()
+        assert.equal(calls.length,7,'one resumed cursor cannot start concurrent duplicates')
+        await act(async()=>distinct.resolve());await flushFrames()
+        assert.equal(globalThis.__readerFixtureEntries.length,168)
+        assert.deepEqual(globalThis.__readerFixtureEntries.slice(-24).map(entry=>entry.id),Array.from({length:24},(_,i)=>168+i))
+        assert.deepEqual(calls.map(call=>call.cursor),[24,48,72,96,120,144,168])
+        assert.equal(maxActive,1)
+        await act(async()=>root.render(null))
+      })
+
       await t.test('late grid mount warms covers without scroll or extra pages and keeps six slots',async()=>{
         scroll.innerHTML='';scroll.scrollTop=0
         Object.defineProperty(scroll,'scrollHeight',{value:1800,configurable:true})

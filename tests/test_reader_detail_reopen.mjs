@@ -130,6 +130,35 @@ for(const deepLink of [false,true]){
  original(1);await finish(t)
 }
 {
+ const t=await setup('slow-body-check-preserves-user-state-after-a-b-a-transitions',{cold:false})
+ await open(dtos(1));await t.commit(F.pending.at(-1))
+ const initial={...unverified(1),starred:false,ai:{...unverified(1).ai,has_note:false,note_updated_at:null}}
+ await act(async()=>F.requests[0].resolve(initial))
+ await act(async()=>{
+  const entry=F.content.get().activeContent
+  F.content.setKey('activeContent',{...entry,status:'unread',starred:true,ai:{...entry.ai,has_note:true,note_updated_at:200}})
+ })
+ // The server sampled B, but the user has already returned each value to A.
+ const held={...initial,status:'unread',starred:true,content:'<p>Verified replacement body</p>',
+  prepared_source:'reader_original_html',translation:{status:'source_changed',source_hash:'synthetic-source-v2'},
+  ai:{...initial.ai,has_note:true,note_updated_at:200,
+   body_completeness:{policy_version:'reader-body-completeness-v1',status:'verified',checked_at:250}}}
+ await act(async()=>{
+  const entry=F.content.get().activeContent
+  F.content.setKey('activeContent',{...entry,status:'read',starred:false,ai:{...entry.ai,has_note:false,note_updated_at:300}})
+ })
+ assert.equal(F.bodyChecks.length,1);assert.equal(F.bodyChecks[0].options.signal.aborted,false)
+ await act(async()=>F.bodyChecks[0].resolve(held))
+ const current=F.content.get().activeContent
+ assert.equal(current.status,'read');assert.equal(current.starred,false)
+ assert.equal(current.ai.has_note,false);assert.equal(current.ai.note_updated_at,300)
+ assert.equal(current.ai.body_completeness.status,'verified')
+ assert.equal(document.querySelector('[data-original]').textContent,'Verified replacement body')
+ assert.deepEqual(current.translation,held.translation,'user metadata cannot retain a translation for the replaced body')
+ assert.equal(F.requests.length,1);assert.equal(F.bodyChecks.length,1)
+ await finish(t)
+}
+{
  const t=await setup('failed-body-check-is-once-per-body-version-not-object-reference',{cold:false})
  await open(unverified(1));await t.commit(F.pending.at(-1))
  assert.equal(F.requests.length,0,'already hydrated body does not need another detail GET')

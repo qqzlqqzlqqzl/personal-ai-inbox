@@ -2,12 +2,15 @@
 import asyncio
 import contextvars
 import gc
+import json
 import sqlite3
 import threading
 from contextlib import closing, contextmanager
+from unittest.mock import patch
 
 import httpx
 import pytest
+from starlette.requests import Request
 
 import api
 import card_translation as cards
@@ -285,3 +288,144 @@ async def test_cancelled_waiters_do_not_over_admit_workers_or_leak_late_errors()
     assert counts['maximum'] == counts['finished'] == 2
     assert counts['active'] == 0
     assert not errors
+
+
+def version_request(path='v1/version', method='GET', body=b''):
+    async def receive():
+        return {'type': 'http.request', 'body': body, 'more_body': False}
+
+    return Request({
+        'type': 'http', 'method': method, 'scheme': 'http',
+        'path': '/mf/' + path, 'raw_path': ('/mf/' + path).encode(),
+        'query_string': b'probe=fixture', 'server': ('reader.test', 80),
+        'headers': [(b'host', b'reader.test'),
+                    (b'authorization', b'Basic Zml4dHVyZTpmaXh0dXJl'),
+                    (b'accept', b'application/json'),
+                    (b'cookie', b'fixture=session'),
+                    (b'if-none-match', b'"fixture"')],
+    }, receive)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', [200, 401, 403])
+@pytest.mark.parametrize('path,method,bypass', [
+    ('v1/version', 'GET', True),
+    ('v1/me', 'GET', True), ('v1/feeds', 'GET', True),
+    ('v1/categories', 'GET', True), ('v1/feeds/counters', 'GET', True),
+    ('v1/me', 'POST', False), ('v1/feeds', 'POST', False),
+    ('v1/categories', 'POST', False), ('v1/feeds/counters', 'POST', False),
+    ('v1/entries', 'GET', False), ('v1/entries/7', 'GET', False),
+    ('v1/feeds/7/entries', 'GET', False), ('v1/categories/3/entries', 'GET', False),
+])
+async def test_native_metadata_pool_admission_preserves_proxy_contract(status, path, method, bypass):
+    loop = asyncio.get_running_loop()
+    pool = ReaderWorkPool(limit=8)
+    release = threading.Event()
+    saturated = asyncio.Event()
+    upstream_returned = asyncio.Event()
+    lock = threading.Lock()
+    active = 0
+    calls, authorizations, enhanced = [], [], []
+    loop_thread = threading.get_ident()
+    local_url = 'http://127.0.0.1:8092/mf/fixture'
+    entry = {'id': 7, 'user_id': 1, 'content': '<p>Fixture ' + local_url + '</p>'}
+    values = {
+        'v1/version': {'version': '2.3.3', 'commit': 'fixture'},
+        'v1/me': {'id': 1, 'username': 'fixture'},
+        'v1/feeds': [{'id': 7, 'title': 'Fixture feed', 'site_url': local_url}],
+        'v1/categories': [{'id': 3, 'title': 'Fixture category'}],
+        'v1/feeds/counters': {'reads': {'7': 3}, 'unreads': {'7': 2}},
+    }
+    data = values.get(path, entry if path == 'v1/entries/7' else {'entries': [entry], 'total': 1})
+    payload = json.dumps(data if status == 200 else {'error_message': 'synthetic authentication failure'}, indent=2).encode() + b'\n'
+    response_headers = {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'private, max-age=0',
+        'last-modified': 'Thu, 08 Oct 2026 00:00:00 GMT',
+        'set-cookie': 'fixture=response; HttpOnly',
+        'location': local_url,
+    }
+
+    async def authorize(request, *, admin=False):
+        authorizations.append(admin)
+        return 1
+
+    def enrich(entries, **kwargs):
+        assert threading.get_ident() != loop_thread
+        enhanced.append(kwargs)
+        return [{**item, 'pool_enriched': True} for item in entries]
+
+    def hold():
+        nonlocal active
+        with lock:
+            active += 1
+            if active == 8:
+                loop.call_soon_threadsafe(saturated.set)
+        assert release.wait(10), 'worker-release watchdog expired'
+
+    async def upstream(request):
+        calls.append(request)
+        upstream_returned.set()
+        return httpx.Response(status, content=payload, headers=response_headers)
+
+    holders = []
+    pending = None
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            with patch.object(api, 'reader_work', pool), patch.object(api.app.state, 'client', client, create=True), \
+                    patch.object(api, 'authorize', authorize), patch.object(api, 'enrich_reader_entries', enrich):
+                holders = [asyncio.create_task(pool.run(hold)) for _ in range(8)]
+                await asyncio.wait_for(saturated.wait(), 5)
+                assert pool._gates[loop]()._value == 0
+                pending = asyncio.create_task(api.proxy(path, version_request(path, method, b'fixture request body')))
+                await asyncio.wait_for(upstream_returned.wait(), 5)
+                if status == 200 and not bypass:
+                    # Event ordering, not a latency threshold: the native reply
+                    # is available, but real enrichment still awaits admission.
+                    await asyncio.sleep(0)
+                    assert not pending.done()
+                    assert len(pool._gates[loop]()._waiters) == 1
+                    assert not enhanced
+                    release.set()
+                # Deadlock watchdog only: the eight real workers remain occupied.
+                result = await asyncio.wait_for(pending, 5)
+                if status != 200 or bypass:
+                    assert not release.is_set()
+                    assert pool._gates[loop]()._value == 0
+                assert result.status_code == status
+                expected = payload.replace(b'http://127.0.0.1:8092/mf', b'/mf')
+                if status != 200 or bypass:
+                    assert result.body == expected, 'native metadata bytes retain formatting'
+                else:
+                    expected = json.loads(expected)
+                    if path not in values:
+                        if 'entries' in expected:
+                            expected['entries'] = [{**item, 'pool_enriched': True} for item in expected['entries']]
+                        else:
+                            expected['pool_enriched'] = True
+                        assert len(enhanced) == 1
+                        assert enhanced[0]['reader_base'] == 'http://reader.test/mf'
+                    assert json.loads(result.body) == expected
+                if status != 200 or path in values:
+                    assert not enhanced
+                for name, value in response_headers.items():
+                    assert result.headers[name] == value.replace('http://127.0.0.1:8092/mf', '/mf')
+                assert len(calls) == 1
+                sent = calls[0]
+                assert sent.method == method
+                assert str(sent.url) == api.MF + '/' + path + '?probe=fixture'
+                assert sent.headers['authorization'] == 'Basic Zml4dHVyZTpmaXh0dXJl'
+                assert 'x-auth-token' not in sent.headers
+                assert sent.headers['host'] == 'reader.test'
+                assert sent.headers['accept'] == 'application/json'
+                assert sent.headers['cookie'] == 'fixture=session'
+                assert sent.headers['if-none-match'] == '"fixture"'
+                assert sent.content == b'fixture request body'
+                assert authorizations == ([True] if method == 'POST' and path.startswith('v1/feeds') else [])
+    finally:
+        release.set()
+        if pending is not None and not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        await asyncio.gather(*holders, return_exceptions=True)
+        pool.executor.shutdown(wait=True)

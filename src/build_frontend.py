@@ -40,8 +40,32 @@ def publish(staging: Path, live: Path, base_path: str = "/"):
         dest = live / source.relative_to(staging)
         dest.parent.mkdir(parents=True, exist_ok=True)
         temp = dest.with_name(dest.name + ".new-" + uuid.uuid4().hex)
-        shutil.copy2(source, temp)
-        os.replace(temp, dest)
+        # Reserve exclusively and hold the inode until cleanup, so a collision
+        # or replacement at this name can never be mistaken for our own file.
+        fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        try:
+            owned = os.fstat(fd)
+
+            def owns_temp():
+                try:
+                    current = temp.lstat()
+                except FileNotFoundError:
+                    return False
+                return (current.st_dev, current.st_ino) == (owned.st_dev, owned.st_ino)
+
+            try:
+                shutil.copy2(source, temp)
+                if not owns_temp():
+                    raise RuntimeError("Temporary publish file changed")
+                os.replace(temp, dest)
+            finally:
+                try:
+                    if owns_temp():
+                        temp.unlink()
+                except OSError:
+                    pass  # Cleanup failure must not mask the original publish error.
+        finally:
+            os.close(fd)
     return len(files)
 
 
