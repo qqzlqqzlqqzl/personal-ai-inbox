@@ -195,3 +195,69 @@ for (const change of ['sort', 'snapshot', 'session']) {
   }
 }
 console.log('PASS pagination owners isolate sort, snapshot and session changes, late success/error and same-view single-flight');
+
+
+// Include the real first-page layout effect: internal refreshes change the
+// request key, but cannot mint another automatic recovery attempt.
+dependencies.getDataSessionRevision=()=>1;
+dependencies.getReadingCalendarSnapshot=()=>({ready:true,key:'UTC:2026-10-09'});
+let recoveryAiQuery={ai_view:'recommended',ai_sort:'time'};
+dependencies.getAiQuery=()=>recoveryAiQuery;
+dependencies.aiState=atom({});
+dependencies.readingCalendarKeyState=atom('UTC:2026-10-09');
+delete dependencies.createArticleListRequestKey;
+dependencies.createArticleListRequestKey=evaluate('utils/article-list-request-key.js','createArticleListRequestKey');
+dependencies.articleListRequestSettingsState=dependencies.settingsState;
+let recoveryRefs=[],recoverySlot=0;
+dependencies.useRef=value=>{const slot=recoverySlot++;return recoveryRefs[slot]??(recoveryRefs[slot]={current:value})};
+dependencies.useLayoutEffect=effect=>effect();
+dependencies.useEffect=()=>{};dependencies.useCallback=callback=>callback;
+dependencies.setIsArticleListReady=value=>{state.isArticleListReady=value};
+dependencies.setArticleListError=value=>{state.articleListError=value};
+dependencies.setEntries=entries=>{state.entries=entries};
+for(const key of ['setUnreadInfo','setHistoryCount','setStarredCount','setUnreadStarredCount','setUnreadTodayCount'])dependencies[key]=()=>{};
+for(const scenario of ['unchanged','manual-retry','sort','source','view']){
+  resetDynamic();recoveryAiQuery={ai_view:'recommended',ai_sort:'time'};
+  const listRefs=[],pageRefs=[];
+  const useList=evaluate('hooks/useArticleList.js','useArticleList');
+  const usePage=evaluate('hooks/useLoadMore.js','useLoadMore');
+  let serverRevision=revisionA,firstRequests=0;
+  const first=()=>{
+    recoveryRefs=listRefs;recoverySlot=0;
+    return useList(state.infoFrom,state.infoId,async()=>{
+      firstRequests++;return{entries:base.slice(0,24),total:base.length,ai_revision:serverRevision};
+    });
+  };
+  const page=async response=>{
+    recoveryRefs=pageRefs;recoverySlot=0;
+    return usePage().handleLoadMore(async()=>response,{prefetch:true});
+  };
+  await first().fetchArticleList();
+  if(scenario!=='unchanged'){
+    serverRevision=revisionB;
+    await page({entries:[],total:base.length,ai_revision:serverRevision,ai_result_changed:true});
+    assert.equal(state.articleListAiRefreshes,1);assert.equal(state.isArticleListReady,false);
+    await first().fetchArticleList();
+    assert.equal(state.articleListAiRefreshes,1,'internal first-page effect must retain the spent recovery');
+    if(scenario==='manual-retry'){
+      serverRevision=revisionC;
+      await page({entries:[],total:base.length,ai_revision:serverRevision,ai_result_changed:true});
+      assert.equal(state.articleListRevision,1,'a second result change cannot auto-refresh again');
+      assert.equal(firstRequests,2);assert.equal(state.loadMoreError,true);
+      assert.equal(state.articleListAiRefreshRequired,true);
+      recoveryRefs=pageRefs;recoverySlot=0;
+      await usePage().handleLoadMore(()=>{throw Error('manual retry should restart the first page')});
+      assert.equal(state.articleListAiRefreshes,0);assert.equal(state.isArticleListReady,false);
+    }else{
+      if(scenario==='sort')recoveryAiQuery={...recoveryAiQuery,ai_sort:'score'};
+      if(scenario==='source'){state.infoFrom='feed';state.infoId=9}
+      if(scenario==='view')recoveryAiQuery={ai_view:'notes',ai_sort:'note_updated'};
+    }
+    await first().fetchArticleList();
+    assert.equal(state.articleListAiRefreshes,0,'explicit retry or a changed user view renews recovery');
+  }
+  await page({entries:base.slice(24,48),total:base.length,ai_revision:serverRevision});
+  assert.equal(state.articleListOffset,48);assert.equal(state.entries.length,48);
+  assert.equal(state.loadMoreError,false);
+}
+console.log('PASS real first-page effect preserves one recovery, with normal append and view/source/sort/manual reset');

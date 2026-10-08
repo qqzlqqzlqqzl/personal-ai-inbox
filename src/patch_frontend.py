@@ -183,7 +183,14 @@ def install_ai_pagination_revision(root, web):
   contentState.setKey("articleListAiRefreshRequired", false)
   contentState.setKey("articleListOffset", response.entries.length)'''),
             ('    currentRequestKey.current = automaticRequestKey', '''    currentRequestKey.current = automaticRequestKey
-    contentState.setKey("articleListAiRefreshes", 0)
+    const recoveryViewKey = JSON.stringify([getDataSessionRevision(), createArticleListRequestKey({
+      content: { ...contentSnapshot, articleListRevision: 0 },
+      settings: settingsSnapshot, info: { from: source, id: sourceId },
+    })])
+    if (contentState.get().articleListAiRecoveryViewKey !== recoveryViewKey) {
+      contentState.setKey("articleListAiRecoveryViewKey", recoveryViewKey)
+      contentState.setKey("articleListAiRefreshes", 0)
+    }
     contentState.setKey("articleListAiRefreshRequired", false)
     contentState.setKey("articleListAiRevision", null)'''),
             ('      const filterParams = content.filterString ? { search: content.filterString } : {}', '''      const filterParams = content.filterString ? { search: content.filterString } : {}
@@ -236,6 +243,16 @@ def install_ai_pagination_revision(root, web):
     for name, replacements in changes.items():
         text = (web / name).read_text()
         for before, after in replacements:
+            if name == 'src/hooks/useArticleList.js' and before == '    currentRequestKey.current = automaticRequestKey':
+                legacy = '''    currentRequestKey.current = automaticRequestKey
+    contentState.setKey("articleListAiRefreshes", 0)
+    contentState.setKey("articleListAiRefreshRequired", false)
+    contentState.setKey("articleListAiRevision", null)'''
+                if after not in text:
+                    if legacy in text:
+                        before = legacy
+                    elif 'articleListAiRefreshes' in text:
+                        raise RuntimeError(f'Unreviewed AI pagination recovery source: {name}')
             if name == 'src/hooks/useLoadMore.js' and before == '  const handleLoadMore = async (getEntries) => {':
                 # Reading-session applies later on a pristine install, but its
                 # exact prefetch signature is already present on repeat/upgrade.
