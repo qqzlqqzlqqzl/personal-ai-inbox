@@ -7,6 +7,71 @@ from cloud_cycle import drain
 from quota_guard import admission, may_start, plan_lanes, query_client, query_config
 
 
+WARNING = ("Warning: Looks like you're using an outdated `kaggle` version "
+           "(installed: 2.2.3), please consider upgrading to the latest version (2.2.4)")
+
+
+@pytest.mark.parametrize('newline',['\n','\r\n'])
+@pytest.mark.parametrize('value,allowed',[(0,False),(1,False),(1.01,True),(12,True)])
+def test_exact_official_warning_preserves_quota_boundaries(newline,value,allowed):
+    calls=[]
+    def client(args,timeout):
+        calls.append(args)
+        return WARNING+newline+json.dumps([{'resource':'GPU','remaining':f'{value}h'}])
+    result=query_client(client,now=1000)
+    assert result['allowed'] is allowed
+    assert result['state']==('available' if allowed else 'quota_reserved')
+    assert result['remaining_hours']==value
+    assert result['checked_at']==1000
+    assert calls==[['quota','--format','json']]
+
+
+@pytest.mark.parametrize('prefix',[
+    WARNING,
+    WARNING+'\n'+WARNING+'\n',
+    '\n'+WARNING+'\n',
+    ' '+WARNING+'\n',
+    'unrelated warning\n',
+    WARNING+'\nNext Page Token = synthetic-token\n',
+    WARNING.replace('Warning:','WARNING:')+'\n',
+    '\x1b[33m'+WARNING+'\n',
+    '\ufeff'+WARNING+'\n',
+])
+def test_quota_accepts_only_one_complete_official_first_line(prefix):
+    payload=prefix+'[{"resource":"GPU","remaining":"12h"}]'
+    result=query_client(lambda *args:payload,now=1000)
+    assert result['state']=='quota_unknown' and result['allowed'] is False
+    assert result['remaining_hours'] is None
+    assert 'synthetic-token' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('payload',[
+    '', 'not json', '{}', '[]',
+    '[{"resource":"TPU","remaining":"12h"}]',
+    '[{"resource":"GPU","remaining":"12h"},{"resource":"GPU","remaining":"0h"}]',
+    '[{"resource":"GPU","remaining":"NaN"}]',
+    '[{"resource":"GPU","remaining":"Infinity"}]',
+    '[{"resource":"GPU","remaining":"-1h"}]',
+    '[{"resource":"GPU","remaining":true}]',
+    '[{"resource":"GPU","remaining":"12h"}]\n'+WARNING+'\n',
+])
+def test_official_warning_does_not_relax_quota_payload_validation(payload):
+    result=query_client(lambda *args:WARNING+'\n'+payload,now=1000)
+    assert result['state']=='quota_unknown' and result['allowed'] is False
+
+
+def test_query_config_accepts_official_warning_with_one_cli_call():
+    calls=[]
+    def run(args,**kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0,
+            stdout=WARNING+'\n[{"resource":"GPU","remaining":"12h"}]')
+    result=query_config({'kaggle_python':'/synthetic/python','token_file':'/synthetic/unused'},run)
+    assert result['state']=='available' and result['allowed'] is True
+    assert calls==[['/synthetic/python','-m','kaggle','quota','--format','json']]
+    assert WARNING not in json.dumps(result)
+
+
 @pytest.mark.parametrize('value,allowed',[(0,False),(0.26,False),(1,False),(1.01,True),(30,True)])
 def test_exact_reserve_boundaries(value,allowed):
     calls=[]
