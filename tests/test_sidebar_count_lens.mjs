@@ -75,7 +75,7 @@ export {default as useArticleList} from '@/hooks/useArticleList';
 export {useStore} from '@nanostores/react';
 export {settingsState,updateSettings} from '@/store/settingsState';
 export {setAuth,resetAuth} from '@/store/authState';
-export {commitIdentityData,dataState,resetData} from '@/store/dataState';
+export {commitIdentityData,commitCountsData,dataState,resetData,setDataResourceLoadState} from '@/store/dataState';
 export {startSidebarScopeCounts,sidebarScopeCountsState,validateScopeCounts} from '@/store/sidebarScopeCountsState';
 export {MemoryRouter} from 'react-router';
 export {polyglotState} from '@/hooks/useLanguage';`,
@@ -240,6 +240,7 @@ try {
   app.resetData();app.resetContent();
   app.aiState.set({...app.aiState.get(),mode:'recommended',minimum:8,auxiliary:'none',hydrated:false});
   app.updateSettings({showStatus:'unread'});
+  app.commitCountsData({unreadInfo:{7:10}});
   stopBatch=app.startSidebarScopeCounts();
  });
  await render('today',null);
@@ -272,8 +273,51 @@ try {
  equal(allCount(),'','a late old lens remains unknown');
  await release(currentBatch,{scope_counts:{...counts,all:17}});
  equal(allCount(),'17','only the current lens batch publishes');
+ // A completed native counts refresh changes the AI batch owner even if its
+ // query is unchanged. Loading/errors alone must not create a refresh loop.
+ const nativeBefore={
+  revision:app.dataState.get().resourceRevisions.counts,
+  snapshot:app.dataState.get().loadState.counts.snapshotRevision,
+  listRevision:app.contentState.get().articleListRevision,
+  identity:app.dataState.get().currentUser,
+  batches:batches.length,apiCalls:apiCalls.length,
+ };
+ equal(app.dataState.get().unreadInfo[7],10,'native fixture starts at unread 10');
+ equal(nativeBefore.revision,1,'the real initial counts commit owns revision 1');
+ equal(nativeBefore.snapshot,1,'the real initial counts commit owns snapshot 1');
+ await React.act(async()=>app.setDataResourceLoadState('counts',{activity:'refreshing'}));
+ equal(batches.length,nativeBefore.batches,'native loading alone starts no AI batch');
+ equal(allCount(),'17','native loading retains the current AI batch');
+ await React.act(async()=>app.commitCountsData({unreadInfo:{7:11}}));
+ equal(app.dataState.get().unreadInfo[7],11,'real native commit changes unread 10 to 11');
+ equal(app.dataState.get().resourceRevisions.counts,2,'real native commit advances counts revision 1 to 2');
+ equal(app.dataState.get().loadState.counts.snapshotRevision,2,'real native commit advances snapshot 1 to 2');
+ equal(app.contentState.get().articleListRevision,nativeBefore.listRevision,'native counts do not invalidate the article list');
+ equal(app.dataState.get().currentUser,nativeBefore.identity,'native counts preserve identity');
+ equal(batches.length,nativeBefore.batches+1,'one native counts snapshot starts one AI batch');
+ equal(apiCalls.length,nativeBefore.apiCalls+1,'native refresh adds only its scope-count request');
+ equal(allCount(),'','native refresh makes old AI 17 pending without a false zero');
+ equal(app.sidebarScopeCountsState.get(),null,'old AI snapshot is no longer publishable');
+ const nativeBatch=batches.at(-1);
+ equal(nativeBatch.path,currentBatch.path,'native refresh preserves the same AI query and lens');
+ equal(currentBatch.options.signal.aborted,true,'native refresh retires the previous batch owner');
+ await release(nativeBatch,{scope_counts:{...counts,all:18}});
+ equal(allCount(),'18','fresh AI 18 renders through the real Sidebar after native refresh');
+ equal(app.sidebarScopeCountsState.get().all,18,'the real sidebar Atom owns the fresh count');
+ equal(app.dataState.get().unreadInfo[7],11,'AI completion preserves native unread');
+ equal(app.dataState.get().resourceRevisions.counts,2,'AI completion adds no native counts revision');
+ equal(app.dataState.get().loadState.counts.snapshotRevision,2,'AI completion adds no native snapshot');
+ equal(app.contentState.get().articleListRevision,nativeBefore.listRevision,'AI completion preserves list revision');
+ await React.act(async()=>{await Promise.resolve()});
+ equal(batches.length,nativeBefore.batches+1,'AI completion does not loop into another batch');
+ await React.act(async()=>app.setDataResourceLoadState('counts',{activity:'idle',error:Error('synthetic native refresh failure')}));
+ equal(batches.length,nativeBefore.batches+1,'native error without a new snapshot does not retry the AI batch');
+ equal(allCount(),'18','native error without a new snapshot retains the verified AI count');
+ await React.act(async()=>app.setDataResourceLoadState('counts',{error:null}));
+ equal(batches.length,nativeBefore.batches+1,'clearing native activity/error does not loop');
+
  await React.act(async()=>app.contentState.setKey('filterDate','2026-10-05'));
- const dateBatch=batches[3],dateQuery=new URL('http://synthetic.test'+dateBatch.path).searchParams;
+ const dateBatch=batches[4],dateQuery=new URL('http://synthetic.test'+dateBatch.path).searchParams;
  assert.ok(Number(dateQuery.get('date_before'))>Number(dateQuery.get('date_after')));
  equal(dateQuery.get('date_field'),app.settingsState.get().orderBy,'date order matches list settings');
  await React.act(async()=>dateBatch.reject(Error('synthetic failed batch')));
@@ -281,11 +325,11 @@ try {
  assert.throws(()=>app.validateScopeCounts({scope_counts:{...counts,today:false}}),TypeError);
  assert.throws(()=>app.validateScopeCounts({scope_counts:{...counts,feed:{'7':true}}}),TypeError);
  assert.throws(()=>app.validateScopeCounts({scope_counts:{...counts,category:null}}),TypeError);
- await React.act(async()=>app.contentState.setKey('filterDate',null));const oldAccountBatch=batches[4];
+ await React.act(async()=>app.contentState.setKey('filterDate',null));const oldAccountBatch=batches[5];
  await React.act(async()=>{app.resetAuth();app.resetData()});
  await release(oldAccountBatch,{scope_counts:{...counts,all:9999}});
  equal(app.sidebarScopeCountsState.get(),null,'logout rejects the old account batch');
- equal(batches.length,5,'logout starts no extra request');
+ equal(batches.length,6,'logout starts no extra request');
  equal(apiCalls.filter(([method])=>method!=='GET').length,0,'batch bootstrap makes zero writes');
  equal(notificationWarnings.some(value=>value.title==='本地笔记草稿清理未完成'),true,'account retirement warning remains observed without the main-only renderer');
  equal(errors,[],'no runtime window errors');
