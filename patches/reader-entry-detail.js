@@ -150,10 +150,10 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
         const latest = contentState.get().activeContent
         entry = { ...entry, ai: { ...entry.ai } }
         for (const field of ['status', 'starred']) {
-          if (latest[field] !== prepared[field]) entry[field] = latest[field]
+          if (Object.hasOwn(latest, field)) entry[field] = latest[field]
         }
         for (const field of ['has_note', 'note_updated_at']) {
-          if (latest.ai?.[field] !== prepared.ai?.[field]) entry.ai[field] = latest.ai?.[field]
+          if (latest.ai && Object.hasOwn(latest.ai, field)) entry.ai[field] = latest.ai[field]
         }
         const checked = prepareEntry(entry)
         if (!isCurrent()) return
