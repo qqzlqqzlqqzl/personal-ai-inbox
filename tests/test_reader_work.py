@@ -5,9 +5,11 @@ import gc
 import sqlite3
 import threading
 from contextlib import closing, contextmanager
+from unittest.mock import patch
 
 import httpx
 import pytest
+from starlette.requests import Request
 
 import api
 import card_translation as cards
@@ -285,3 +287,90 @@ async def test_cancelled_waiters_do_not_over_admit_workers_or_leak_late_errors()
     assert counts['maximum'] == counts['finished'] == 2
     assert counts['active'] == 0
     assert not errors
+
+
+def version_request():
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    return Request({
+        'type': 'http', 'method': 'GET', 'scheme': 'http',
+        'path': '/mf/v1/version', 'raw_path': b'/mf/v1/version',
+        'query_string': b'probe=fixture', 'server': ('reader.test', 80),
+        'headers': [(b'host', b'reader.test'),
+                    (b'authorization', b'Basic Zml4dHVyZTpmaXh0dXJl'),
+                    (b'accept', b'application/json'),
+                    (b'cookie', b'fixture=session'),
+                    (b'if-none-match', b'"fixture"')],
+    }, receive)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', [200, 401, 403])
+async def test_version_response_bypasses_saturated_pool_without_changing_proxy_contract(status):
+    loop = asyncio.get_running_loop()
+    pool = ReaderWorkPool(limit=8)
+    release = threading.Event()
+    saturated = asyncio.Event()
+    upstream_returned = asyncio.Event()
+    lock = threading.Lock()
+    active = 0
+    calls = []
+    payload = (b'{\n  "version": "2.3.3", "commit": "fixture"\n}\n' if status == 200
+               else b'{\n  "error_message": "synthetic authentication failure"\n}\n')
+    response_headers = {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'private, max-age=0',
+        'last-modified': 'Thu, 08 Oct 2026 00:00:00 GMT',
+        'set-cookie': 'fixture=response; HttpOnly',
+    }
+
+    def hold():
+        nonlocal active
+        with lock:
+            active += 1
+            if active == 8:
+                loop.call_soon_threadsafe(saturated.set)
+        assert release.wait(10), 'worker-release watchdog expired'
+
+    async def upstream(request):
+        calls.append(request)
+        upstream_returned.set()
+        return httpx.Response(status, content=payload, headers=response_headers)
+
+    holders = []
+    pending = None
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            with patch.object(api, 'reader_work', pool), patch.object(api.app.state, 'client', client, create=True):
+                holders = [asyncio.create_task(pool.run(hold)) for _ in range(8)]
+                await asyncio.wait_for(saturated.wait(), 5)
+                assert pool._gates[loop]()._value == 0
+                pending = asyncio.create_task(api.proxy('v1/version', version_request()))
+                await asyncio.wait_for(upstream_returned.wait(), 5)
+                # Deadlock watchdog only: the eight real workers remain occupied.
+                result = await asyncio.wait_for(pending, 5)
+                assert not release.is_set()
+                assert pool._gates[loop]()._value == 0
+                assert result.status_code == status
+                assert result.body == payload
+                for name, value in response_headers.items():
+                    assert result.headers[name] == value
+                assert len(calls) == 1
+                sent = calls[0]
+                assert sent.method == 'GET'
+                assert str(sent.url) == api.MF + '/v1/version?probe=fixture'
+                assert sent.headers['authorization'] == 'Basic Zml4dHVyZTpmaXh0dXJl'
+                assert 'x-auth-token' not in sent.headers
+                assert sent.headers['host'] == 'reader.test'
+                assert sent.headers['accept'] == 'application/json'
+                assert sent.headers['cookie'] == 'fixture=session'
+                assert sent.headers['if-none-match'] == '"fixture"'
+                assert sent.content == b''
+    finally:
+        release.set()
+        if pending is not None and not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        await asyncio.gather(*holders, return_exceptions=True)
+        pool.executor.shutdown(wait=True)
