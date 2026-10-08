@@ -38,8 +38,8 @@ def text_hash(html):
 
 def input_hash(html, kind):
     # Attribution can change without changing its visible label (e.g. "medium.com").
-    # For followed originals, any source HTML change must invalidate the saved body.
-    if kind in ('adafruit_linked_original', 'reader_original_html'):
+    # Image attributes can also change while all article text stays identical.
+    if kind in ('adafruit_linked_original', 'reader_original_html', 'body_images_repaired'):
         return hashlib.sha256((html or '').encode()).hexdigest()
     return text_hash(html)
 
@@ -94,7 +94,7 @@ def _apply_row(entry, row):
                 return entry
     else:
         from media_repair import needs_repair
-        if not needs_repair(raw) or text_hash(raw) != row['input_text_hash']:
+        if not needs_repair(raw) or input_hash(raw,row['kind']) != row['input_text_hash']:
             return entry
     return {**entry, 'content':row['content'], 'prepared_source':row['kind'],
             'prepared_at':row['prepared_at'],
