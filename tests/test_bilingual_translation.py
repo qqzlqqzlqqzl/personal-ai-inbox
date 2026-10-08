@@ -797,6 +797,112 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(self.attached()['bilingual_html'])
             self.assertEqual((await self.run_mock())['processed'], 0)
 
+    async def cancel_claim(self, attempts, *, partial=False):
+        """Cancel an actual mocked in-flight request after its durable claim."""
+        bilingual.enqueue(self.entry)
+        if partial:
+            await self.run_mock(omitted={1})
+        self.ready_retry()
+        with core.connect() as db:
+            db.execute('UPDATE bilingual_blocks SET attempts=? WHERE translated IS NULL', (attempts,))
+        started = asyncio.Event()
+        requests = []
+
+        async def blocked(request):
+            requests.append(request)
+            started.set()
+            await asyncio.Event().wait()
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(blocked)) as client:
+            work = asyncio.create_task(bilingual.run_once(client))
+            try:
+                await asyncio.wait_for(started.wait(), timeout=2)
+            finally:
+                work.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await work
+        self.assertEqual(len(requests), 1)
+        with core.connect() as db:
+            missing = db.execute('SELECT attempts,next_try FROM bilingual_blocks WHERE translated IS NULL').fetchall()
+            self.assertTrue(missing)
+            self.assertTrue(all(row['attempts'] == attempts+1 for row in missing))
+            usage = [tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')]
+            self.assertIsNone(usage[-1][-1])  # The cancelled request's actual usage is unknown.
+            return max(row['next_try'] for row in missing), usage
+
+    async def test_restart_settles_expired_final_cancelled_claim_without_refund(self):
+        deadline, usage = await self.cancel_claim(bilingual.MAX_ATTEMPTS-1)
+        self.assertEqual(self.attached()['status'], 'pending')
+        with patch.object(bilingual.time, 'time', return_value=deadline+1):
+            result = await self.run_mock()
+            self.assertEqual(result['processed'], 0)
+            self.assertEqual(self.attached()['status'], 'error')
+        with core.connect() as db:
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')], usage)
+            self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], bilingual.MAX_ATTEMPTS)
+        self.assertEqual(self.calls, [])
+
+    async def test_restart_does_not_settle_an_unexpired_final_cancelled_claim(self):
+        deadline, usage = await self.cancel_claim(bilingual.MAX_ATTEMPTS-1)
+        with patch.object(bilingual.time, 'time', return_value=deadline-1):
+            self.assertEqual((await self.run_mock())['processed'], 0)
+            self.assertEqual(self.attached()['status'], 'pending')
+        with core.connect() as db:
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')], usage)
+        self.assertEqual(self.calls, [])
+
+    async def test_restart_retries_an_expired_cancelled_claim_with_attempts_remaining(self):
+        deadline, usage = await self.cancel_claim(bilingual.MAX_ATTEMPTS-2)
+        with patch.object(bilingual.time, 'time', return_value=deadline+1):
+            self.assertEqual((await self.run_mock())['processed'], 2)
+            self.assertEqual(self.attached()['status'], 'done')
+        with core.connect() as db:
+            after = [tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')]
+            self.assertEqual(after[:len(usage)], usage)
+            self.assertEqual(len(after), len(usage)+1)
+            self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], bilingual.MAX_ATTEMPTS)
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_restart_settles_expired_final_claim_without_losing_successful_blocks(self):
+        deadline, usage = await self.cancel_claim(bilingual.MAX_ATTEMPTS-1, partial=True)
+        before = self.attached()
+        self.assertEqual(before['status'], 'partial')
+        self.assertIsNotNone(before['bilingual_html'])
+        with core.connect() as db:
+            blocks = [tuple(row) for row in db.execute('SELECT * FROM bilingual_blocks ORDER BY block_id')]
+        with patch.object(bilingual.time, 'time', return_value=deadline+1):
+            self.assertEqual((await self.run_mock())['processed'], 0)
+            after = self.attached()
+        self.assertEqual(after['status'], 'error')
+        self.assertEqual(after['bilingual_html'], before['bilingual_html'])
+        self.assertEqual(after['chinese_html'], before['chinese_html'])
+        with core.connect() as db:
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM bilingual_blocks ORDER BY block_id')], blocks)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')], usage)
+        self.assertEqual(len(self.calls), 1)  # Only the earlier successful/partial mock response.
+
+    async def test_restart_settlement_is_limited_to_current_model_and_body(self):
+        deadline, usage = await self.cancel_claim(bilingual.MAX_ATTEMPTS-1)
+        old_hash = bilingual.source_hash(self.entry['content'])
+        with patch.object(bilingual.time, 'time', return_value=deadline+1), \
+                patch.dict('os.environ', {'BILINGUAL_MODEL': 'different-model'}):
+            self.assertEqual((await self.run_mock())['processed'], 0)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT status FROM bilingual_articles WHERE source_hash=?', (old_hash,)).fetchone()[0], 'pending')
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')], usage)
+        changed = {**self.entry, 'content': '<p>This is a newly requested source version.</p>'}
+        self.allow(changed)
+        bilingual.enqueue(changed)
+        self.assertEqual((await self.run_mock())['processed'], 1)
+        with patch.object(bilingual.time, 'time', return_value=deadline+1):
+            self.assertEqual((await self.run_mock())['processed'], 0)
+            self.assertEqual(self.attached(changed)['status'], 'done')
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT status FROM bilingual_articles WHERE source_hash=?', (old_hash,)).fetchone()[0], 'pending')
+            after = [tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')]
+            self.assertEqual(after[:len(usage)], usage)
+        self.assertEqual(len(self.calls), 1)
+
     async def test_concurrent_worker_cannot_double_bill(self):
         bilingual.enqueue(self.entry)
         started, release = asyncio.Event(), asyncio.Event()
