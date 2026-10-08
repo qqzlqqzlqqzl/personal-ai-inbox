@@ -3,8 +3,9 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
-from warm_reader_covers import (PAGE_SIZE, MAX_MISSES, CacheFull, SlowSource, bind_jobs,
+from warm_reader_covers import (PAGE_SIZE, HEAD_ENTRIES, MAX_MISSES, CacheFull, SlowSource, bind_jobs,
     database_candidates, database_heads, digest, prune_state, readonly_database, select_candidates, version, warm_round)
 from reader_cover_proxy import verified_proxy_target
 from stabilize_media import signed_url
@@ -40,15 +41,62 @@ class CoverWarmTests(unittest.TestCase):
             (3, 8, 5, 10, '2025-01-01'), (4, 8, 5, 5, '2026-10-07'),
             (5, 7, 10, 10, '2026-10-08')])
         db.execute("INSERT INTO analyses VALUES(99,2,'done',10,10,10,'2026-10-09',2)")
-        ids = lambda: [r['entry_id'] for r in database_heads(db, 1, quality, limit=1)]
+        feeds = {2: {'hide_globally': False, 'category': {'hide_globally': False}}}
+        ids = lambda: [r['entry_id'] for r in database_heads(db, 1, quality, feeds=feeds, limit=1)]
         self.assertEqual(ids(), [4, 1, 2, 3])
         # A newly added source becomes eligible without editing a source/ID list.
         db.execute("INSERT INTO analyses VALUES(6,1,'pending',NULL,NULL,NULL,'2026-10-08',999)")
+        feeds[999] = {'hide_globally': False, 'category': {'hide_globally': False}}
         self.assertEqual(ids(), [4, 1, 2, 3])
         db.execute("UPDATE analyses SET state='done',score=9,technical_score=10,business_score=10 WHERE entry_id=6")
         self.assertEqual(ids(), [6, 1])
         self.assertNotIn(1, [r['entry_id'] for r in database_heads(
-            db, 1, lambda r: {'recommendation_eligible': r['entry_id'] != 1}, limit=1)])
+            db, 1, lambda r: {'recommendation_eligible': r['entry_id'] != 1}, feeds=feeds, limit=1)])
+
+    def test_hidden_feed_or_category_cannot_starve_visible_head_before_limit(self):
+        for hidden_by in ('feed', 'category'):
+            with self.subTest(hidden_by=hidden_by), sqlite3.connect(':memory:') as db:
+                self.addCleanup(db.close)
+                db.row_factory = sqlite3.Row
+                db.execute('CREATE TABLE analyses(entry_id INTEGER,user_id INTEGER,state TEXT,score REAL,'
+                           'technical_score REAL,business_score REAL,published_at TEXT,feed_id INTEGER,'
+                           'url TEXT,cover_url TEXT)')
+                hidden = [row(i, score=10, technical_score=10, business_score=10,
+                              published_at='2026-10-08T00:00:00Z')
+                          for i in range(1, HEAD_ENTRIES * 4 + 2)]
+                visible = row(9999, feed_id=999, score=9, technical_score=9, business_score=9)
+                excluded = [row(10000, feed_id=999, user_id=2), row(10001, feed_id=999, score=7),
+                            row(10002, feed_id=999, state='pending'), row(10003, feed_id=998)]
+                columns = ('entry_id', 'user_id', 'state', 'score', 'technical_score', 'business_score',
+                           'published_at', 'feed_id', 'url', 'cover_url')
+                db.executemany('INSERT INTO analyses VALUES(?,?,?,?,?,?,?,?,?,?)',
+                               [[item.get(column) for column in columns] for item in hidden + [visible] + excluded])
+                feeds = {2: {'hide_globally': hidden_by == 'feed',
+                             'category': {'hide_globally': hidden_by == 'category'}},
+                         999: {'hide_globally': False, 'category': {'hide_globally': False}}}
+                for _ in range(2):
+                    heads = database_heads(db, 1, quality, feeds=feeds)
+                    self.assertEqual([item['entry_id'] for item in heads], [9999])
+                    metadata = [{'id': item['entry_id'], 'user_id': item['user_id'],
+                                 'feed_id': item['feed_id'], 'url': item['url']} for item in heads]
+                    jobs = bind_jobs(heads, metadata, feeds, lambda _entry, item: signed_url(item['cover_url'], KEY),
+                                     lambda path: verified_proxy_target(path, KEY), quality=quality)
+                    self.assertEqual(len(jobs), 1)
+                    self.assertEqual(jobs[0]['widths'], [480, 960])
+                # The next native snapshot may make the source visible again.
+                feeds[2] = {'hide_globally': False, 'category': {'hide_globally': False}}
+                restored = database_heads(db, 1, quality, feeds=feeds)
+                self.assertEqual(len(restored), HEAD_ENTRIES)
+                self.assertEqual({item['feed_id'] for item in restored}, {2})
+
+    def test_no_visible_head_sources_returns_without_querying(self):
+        db = Mock()
+        db.execute.side_effect = AssertionError('empty visible feed scope queried analyses')
+        for feeds in ({}, {2: {'hide_globally': True, 'category': {'hide_globally': False}}},
+                      {2: {'hide_globally': False, 'category': {'hide_globally': True}}}):
+            with self.subTest(feeds=feeds):
+                self.assertEqual(database_heads(db, 1, quality, feeds=feeds), [])
+        db.execute.assert_not_called()
 
     def test_threshold_quality_without_cover_and_without_240_total_cap(self):
         candidates = [row(900, score=6), row(899, state="removed"), row(898, eligible=False),
