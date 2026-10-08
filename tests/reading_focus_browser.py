@@ -139,10 +139,10 @@ for width, height in [(1440, 960), (390, 844)]:
             h.goto('/inbox/all/entry/101')
             expect(p.locator('#focus-p-39')).to_be_attached()
             expect(p.locator('body')).to_have_attribute('arco-theme', theme)
-            summary = p.locator('.review-reading-controls > summary')
+            summary = p.get_by_label('阅读排版', exact=True)
             button = p.get_by_role('button', name='专注正文', exact=True)
             alignment = p.evaluate("""() => {
-              const a=document.querySelector('.review-reading-controls>summary').getBoundingClientRect();
+              const a=document.querySelector('.review-reading-controls>summary[aria-label="阅读排版"]').getBoundingClientRect();
               const b=document.querySelector('.review-reading-bar>button').getBoundingClientRect();
               return {topDelta:Math.abs(a.top-b.top),heightDelta:Math.abs(a.height-b.height),height:Math.min(a.height,b.height)};
             }""")
@@ -194,8 +194,8 @@ for width, height in [(1440, 960), (390, 844)]:
             # Reopen the real article route. Verify native details keyboard
             # activation and the production article-close hotkey together.
             h.goto('/inbox/all/entry/101')
-            layout = p.locator('.review-reading-controls')
-            summary = layout.locator('summary')
+            summary = p.get_by_label('阅读排版', exact=True)
+            layout = summary.locator('..')
             for target in ['summary', 'slider', 'reset']:
                 summary.press('Enter')
                 expect(layout).to_have_attribute('open', '')
