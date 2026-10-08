@@ -92,13 +92,24 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
   const entryList=Array.from({length:13},(_,id)=>({id,coverSource:`https://example.org/today-${id}.jpg`}))
   const file=fileURLToPath(new URL('../patches/ProgressiveLoadMore.jsx',import.meta.url))
   const fixtures={
-    '@arco-design/web-react':'export const Button="button",Spin="span"',
-    '@nanostores/react':'export const useStore=store=>store.value',
-    '@/hooks/useLoadMore':'export default()=>({loadingMore:false,loadMoreError:globalThis.__readerFixtureError||false,handleLoadMore:async(get,options)=>{try{await get(options)}catch{globalThis.__readerFixtureError=true}}})',
-    '@/store/contentState':`export const contentState={get value(){return globalThis.__readerFixtureContent ?? {isArticleListReady:true,loadMoreVisible:globalThis.__readerFixtureMore,articleListSnapshotRevision:1,articleListOffset:13,infoFrom:"today",infoId:0}}};export const filteredEntriesState={get value(){return globalThis.__readerFixtureEntries ?? ${JSON.stringify(entryList)}}}`,
+    '@arco-design/web-react':'export const Button="button",Spin="span",Message={error:()=>{}}',
+    '@nanostores/react':'export const useStore=store=>store.get?store.get():store.value',
+    '@/hooks/useLoadMore':`import actual from ${JSON.stringify(fileURLToPath(new URL('../upstream/reactflux/src/hooks/useLoadMore.js',import.meta.url)))};export default()=>globalThis.__readerUseActualLoader?actual():({loadingMore:false,loadMoreError:globalThis.__readerFixtureError||false,handleLoadMore:async(get,options)=>{try{await get(options)}catch{globalThis.__readerFixtureError=true}}})`,
+    '@/store/contentState':`export const contentState={get value(){return globalThis.__readerFixtureContent ?? {isArticleListReady:true,loadMoreVisible:globalThis.__readerFixtureMore,articleListSnapshotRevision:1,articleListOffset:13,infoFrom:"today",infoId:0}},get(){return {...this.value,entries:globalThis.__readerFixtureEntries}},setKey(key,value){globalThis.__readerFixtureContent={...this.value,[key]:value}}};export const filteredEntriesState={get value(){return globalThis.__readerFixtureEntries ?? ${JSON.stringify(entryList)}}};export const setLoadMoreError=value=>contentState.setKey('loadMoreError',value),setLoadMoreVisible=value=>contentState.setKey('loadMoreVisible',value),setEntriesWithDeduplication=entries=>{globalThis.__readerFixtureEntries=entries;return []}`,
+    '@/store/dataState':'export const getDataSessionRevision=()=>1;export const dataState={value:{sessionRevision:1}}',
+    '@/store/settingsState':'export const settingsState={get:()=>({pageSize:24,showStatus:"all",orderBy:"published_at",orderDirection:"desc"})}',
+    '@/store/aiState':'export const aiFilterEnabled=()=>true,AI_PAGE_SIZE=24',
+    '@/store/readingCalendarState':'export const getReadingCalendarSnapshot=()=>({ready:true})',
+    '@/hooks/useLanguage':'export const polyglotState={value:{polyglot:{t:x=>x}}}',
+    '@/hooks/useEntryActions':'export const markDuplicatesAsRead=()=>{globalThis.__readerDuplicateReads++}',
+    '@/utils/article-list-request-key':'export default ({content})=>String(content.articleListSnapshotRevision)',
+    '@/utils/date':'export const getTimestamp=Number',
+    '@/utils/entry-mutation-state':'export const getEntryMutationSnapshot=()=>({pendingRequests:0}),isEntryMutationSnapshotCurrent=()=>true,waitForEntryMutations=async()=>true',
+    '@/utils/entry-presentation':'export default entry=>entry',
+    '@/utils/nanostores':'export default store=>value=>store.set(value)',
   }
   const bundled=await build({entryPoints:[file],write:false,bundle:true,platform:'node',format:'cjs',jsx:'automatic',plugins:[{name:'today-fixture',setup(b){
-    b.onResolve({filter:/^react(?:\/.*)?$/},({path})=>({path:webRequire.resolve(path),external:true}))
+    b.onResolve({filter:/^(?:react(?:\/.*)?|nanostores)$/},({path})=>({path:webRequire.resolve(path),external:true}))
     b.onResolve({filter:/^(@arco-design|@nanostores|@\/)/},({path})=>{
       if(path in fixtures)return {path,namespace:'today-fixture'}
       const relative=path==='@/utils/reading-session'?'../patches/reading-session.js':'../frontend-review/after/src/components/Article/reader-image-variants.js'
@@ -114,7 +125,7 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
   scroll.querySelector('img').getBoundingClientRect=()=>({width:320})
   const oldImage=globalThis.Image,oldFrame=globalThis.requestAnimationFrame,oldCancel=globalThis.cancelAnimationFrame
   const oldMore=globalThis.__readerFixtureMore
-  const fixtureGlobals=['__readerFixtureContent','__readerFixtureEntries','__readerFixtureError']
+  const fixtureGlobals=['__readerFixtureContent','__readerFixtureEntries','__readerFixtureError','__readerUseActualLoader','__readerDuplicateReads']
   const oldGlobals=Object.fromEntries(fixtureGlobals.map(key=>[key,globalThis[key]]))
   const images=[];let lists=0
   globalThis.Image=class{constructor(){images.push(this)}}
@@ -179,29 +190,42 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
     assert.equal((await pagePhase('short-list',3)).length,3,'hasNextPage false ends automatic work')
     assert.equal((await pagePhase('failed-page',Infinity,true)).length,1,'failure stops automatic retries')
 
-    let releaseOld,oldCalls=0,newCalls=0
+    await act(async()=>root.render(null))
+    globalThis.__readerUseActualLoader=true
+    globalThis.__readerDuplicateReads=0
+    const rows=start=>Array.from({length:24},(_,i)=>({id:start+i,title:'Entry '+(start+i)}))
+    const firstNew=Promise.withResolvers(),calls=[]
+    let releaseOld,oldCalls=0
     globalThis.__readerFixtureError=false
-    globalThis.__readerFixtureEntries=entryList
-    globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:true,articleListSnapshotRevision:'old-filter',articleListOffset:13,infoFrom:'today',infoId:0}
+    globalThis.__readerFixtureEntries=rows(0)
+    globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:true,articleListSnapshotRevision:'old-filter',articleListOffset:24,infoFrom:'today',infoId:0}
     const paintRetired=get=>root.render(React.createElement(component.exports.default,{key:'retire',scrollRootRef:{current:scroll},getEntries:get}))
     await act(async()=>paintRetired(()=>{oldCalls++;return new Promise(resolve=>{releaseOld=resolve})}))
     await settleUntil(()=>oldCalls===1,'old filter request starts after its first paint')
     assert.equal(oldCalls,1)
-    globalThis.__readerFixtureContent={...globalThis.__readerFixtureContent,articleListSnapshotRevision:'new-filter',articleListOffset:0}
-    globalThis.__readerFixtureEntries=[]
-    const next=async options=>{
-      assert.equal(options.prefetch,true);newCalls++
-      globalThis.__readerFixtureEntries=[{id:999,coverSource:'https://example.org/new-filter.jpg'}]
-      globalThis.__readerFixtureContent={...globalThis.__readerFixtureContent,articleListOffset:1,loadMoreVisible:false}
-      paintRetired(next)
+    globalThis.__readerFixtureContent={...globalThis.__readerFixtureContent,articleListSnapshotRevision:'new-filter',articleListOffset:24}
+    globalThis.__readerFixtureEntries=rows(1000)
+    const next=async(_status,_starred,params)=>{
+      calls.push(params.offset)
+      if(calls.length===1)return firstNew.promise
+      return {entries:rows(1000+params.offset),total:1000}
     }
     await act(async()=>paintRetired(next))
-    assert.equal(newCalls,0,'old in-flight page keeps the single network slot')
-    await act(async()=>releaseOld())
-    await settleUntil(()=>newCalls===1,'new filter starts after the old request retires')
+    await settleUntil(()=>calls.length===1,'new ready filter starts while the retired request is still pending')
+    await act(async()=>releaseOld({entries:rows(24),total:1000}))
+    await act(async()=>paintRetired(next))
+    scroll.dispatchEvent(new dom.window.Event('scroll'))
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
+    assert.equal(calls.length,1,'old finally cannot release the new filter single-flight lock')
+    assert.deepEqual(globalThis.__readerFixtureEntries.map(e=>e.id),rows(1000).map(e=>e.id),'old results do not append to the new first page')
+    await act(async()=>firstNew.resolve({entries:rows(1024),total:1000}))
+    await settleUntil(()=>calls.length===5 && globalThis.__readerFixtureContent.articleListOffset===144,'new filter continues all five automatic pages')
+    assert.deepEqual(calls,[24,48,72,96,120])
+    assert.equal(globalThis.__readerDuplicateReads,0,'real hook prefetch never marks duplicates as read')
     assert.equal(oldCalls,1,'retired filter cannot start more pages')
-    assert.equal(newCalls,1,'new filter starts after the existing request retires')
     assert.equal(globalThis.__readerFixtureContent.articleListSnapshotRevision,'new-filter')
+    await act(async()=>root.render(null))
+    globalThis.__readerUseActualLoader=false
 
     const NativeObserver=window.MutationObserver,windowSetTimeout=window.setTimeout,windowClearTimeout=window.clearTimeout
     const previousFrame=globalThis.requestAnimationFrame,previousCancel=globalThis.cancelAnimationFrame
