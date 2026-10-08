@@ -1,6 +1,9 @@
 import asyncio
+import errno
 import json
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -148,3 +151,74 @@ def test_existing_error_record_still_uses_stale_cache(monkeypatch):
     result, source = asyncio.run(server.timeline("fixture", force=True))
     assert result is prior and source == "stale-cache"
     assert requests == ["/v1/timeline/fixture"]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("phase,error_number", [
+    (None, None), ("write", errno.ENOSPC), ("write", errno.EACCES), ("replace", errno.EIO),
+])
+def test_native_fresh_data_survives_cache_write_errors(tmp_path, cached, phase, error_number):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    target = cache / "fixture.json"
+    temporary = target.with_suffix(".tmp")
+    if cached:
+        target.write_text(json.dumps(cached_timeline()))
+    before = target.read_bytes() if cached else None
+    fresh = {"kind": "tweet", "id": "fresh", "text": "fresh upstream fixture",
+             "created_at": "2026-10-08T01:00:00Z", "author": {"username": "fixture"}, "media": []}
+    requests = []
+    client_type = httpx.AsyncClient
+    write_text, replace = Path.write_text, Path.replace
+
+    def upstream(request):
+        requests.append(request.url.path)
+        assert request.url.path == "/v1/timeline/fixture", "no extra profile or retry request"
+        return httpx.Response(200, content=json.dumps(fresh))
+
+    def client(**kwargs):
+        return client_type(transport=httpx.MockTransport(upstream), **kwargs)
+
+    def write(path, *args, **kwargs):
+        if phase == "write" and path == temporary:
+            raise OSError(error_number, "synthetic private storage failure")
+        return write_text(path, *args, **kwargs)
+
+    def move(path, destination):
+        if phase == "replace" and path == temporary:
+            raise OSError(error_number, "synthetic private storage failure")
+        return replace(path, destination)
+
+    with patch.object(server, "CACHE_DIR", cache), patch.object(server, "allowed_handles", return_value={}), \
+         patch.object(server.httpx, "AsyncClient", client), patch.object(Path, "write_text", write), \
+         patch.object(Path, "replace", move):
+        result = asyncio.run(server.x_feed("fixture", refresh=True))
+    assert result.status_code == 200
+    assert result.headers["x-x-feed-source"] == ("native-uncached" if phase else "live")
+    assert result.headers["x-x-feed-items"] == "1"
+    assert b"fresh upstream fixture" in result.body and b"retained fixture" not in result.body
+    assert b"synthetic private storage failure" not in result.body
+    assert requests == ["/v1/timeline/fixture"]
+    if phase:
+        if cached:
+            assert target.read_bytes() == before
+        else:
+            assert not target.exists()
+    else:
+        assert json.loads(target.read_text())["tweets"] == [fresh]
+
+
+def test_cache_fallback_does_not_swallow_programming_errors():
+    async def fresh(handle):
+        return [{"id": "fresh"}]
+
+    failure = RuntimeError("synthetic programming failure")
+    with patch.object(server, "load_cache", return_value=None), \
+         patch.object(server, "fetch_timeline", fresh), \
+         patch.object(server, "save_cache", side_effect=failure):
+        try:
+            asyncio.run(server.timeline("fixture"))
+        except RuntimeError as caught:
+            assert caught is failure
+        else:
+            raise AssertionError("Only cache-write OSError may use native-uncached")

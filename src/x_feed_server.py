@@ -84,7 +84,10 @@ async def timeline(handle, force=False):
         tweets = await fetch_timeline(handle)
         if not tweets and cached and cached.get("tweets"):
             return cached, "stale-empty-upstream"
-        return save_cache(handle, tweets), "live"
+        try:
+            return save_cache(handle, tweets), "live"
+        except OSError:
+            return {"fetched_at": time.time(), "handle": handle, "tweets": tweets}, "native-uncached"
     except (httpx.HTTPError, ValueError):
         if cached:
             return cached, "stale-cache"
