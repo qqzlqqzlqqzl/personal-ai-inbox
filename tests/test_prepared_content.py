@@ -136,3 +136,72 @@ async def test_original_repair_cannot_bind_restricted_or_changed_sources(db, ent
     assert (await prepared.verify_original_body(entry, current))['status'] == 'unverified'
     with core.connect() as connection:
         assert connection.execute('SELECT COUNT(*) FROM prepared_articles').fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_translation_preparation_recovers_plaintext_fallback_and_reuses_it(db, entry, monkeypatch):
+    import bilingual_translation
+    from kaggle_batch import fulltext_source
+    bilingual_translation.migrate()
+    entry = {**entry, 'url': 'https://techcrunch.com/2026/10/07/translation-source/'}
+    core.discover([entry])
+    core.update(entry['id'], state='done', score=8.2, source_text='Publisher full text ' * 80,
+        content_source='original_url_site_rule', result='{}')
+    assert core.decorate(entry, entry['user_id'], include_source_fallback=True)['prepared_source'] == 'analysis_source_fallback'
+    calls = []
+
+    async def fetch(*args, **kwargs):
+        calls.append(True)
+        return original_result(entry)
+
+    async def current():
+        return dict(entry)
+
+    monkeypatch.setattr(fulltext_source, 'fetch', fetch)
+    shown = await prepared.prepare_translation_body(entry, current)
+    assert shown['prepared_source'] == 'reader_original_html'
+    assert shown['content'].count('<p') == 3 and shown['content'].count('<img') == 1
+    assert shown['ai']['body_completeness']['status'] == 'verified'
+    assert (await prepared.prepare_translation_body(entry, current))['content'] == shown['content']
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_translation_preparation_leaves_native_structured_body_unchanged(db, entry, monkeypatch):
+    from kaggle_batch import fulltext_source
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail('Native structured body must not trigger a publisher fetch')
+
+    async def current():
+        pytest.fail('Native structured body needs no recovery re-read')
+
+    monkeypatch.setattr(fulltext_source, 'fetch', unexpected)
+    shown = await prepared.prepare_translation_body(entry, current)
+    assert shown['content'] == entry['content']
+
+
+@pytest.mark.asyncio
+async def test_cancelled_body_recovery_cannot_write_prepared_source(db, entry, monkeypatch):
+    from work_admission import AdmissionStopped
+    from kaggle_batch import fulltext_source
+    entry = {**entry, 'url': 'https://techcrunch.com/2026/10/07/cancelled-source/'}
+    stopped = False
+
+    async def fetch(*args, **kwargs):
+        return original_result(entry)
+
+    async def current():
+        nonlocal stopped
+        stopped = True
+        return dict(entry)
+
+    def admission():
+        if stopped:
+            raise AdmissionStopped('discovery_stopped')
+
+    monkeypatch.setattr(fulltext_source, 'fetch', fetch)
+    with pytest.raises(AdmissionStopped):
+        await prepared.verify_original_body(entry, current, admission=admission)
+    with core.connect() as connection:
+        assert connection.execute('SELECT COUNT(*) FROM prepared_articles').fetchone()[0] == 0
