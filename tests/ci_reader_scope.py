@@ -96,6 +96,7 @@ ENRICHMENT = ENRICHMENT_RUNTIME | ENRICHMENT_TESTS
 
 # Single-article body recovery and its visible quality/translation consumers.
 BODY_COMPLETENESS = {
+    'src/bilingual_translation.py', 'tests/test_bilingual_translation.py',
     'src/prepared_content.py', 'src/core.py', 'src/api.py', 'src/content_quality.py',
     'src/kaggle_batch/fulltext_source.py', 'src/kaggle_batch/cloud_bridge.py',
     'patches/reader-entry-detail.js', 'patches/AiBadge.jsx', 'src/patch_reader_detail_quality.py',
@@ -233,7 +234,8 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         if not verified_pin:
             return 'full'
         paths.remove(PIN_FILE)
-    if ({'src/prepared_content.py', 'src/content_quality.py'} <= paths
+    if (({'src/prepared_content.py', 'src/content_quality.py'} <= paths
+         or 'patches/reader-entry-detail.js' in paths)
             and paths <= BODY_COMPLETENESS | IMAGE_CI_SUPPORT):
         return 'body-completeness'
     if ENRICHMENT_RUNTIME <= paths and paths <= ENRICHMENT | IMAGE_CI_SUPPORT:

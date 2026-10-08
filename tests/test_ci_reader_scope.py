@@ -158,6 +158,17 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(classify([{'path': p, 'status': 'M'} for p in owned | {extra}]), 'full')
         self.assertEqual(classify([{'path': p, 'status': 'D'} for p in owned]), 'full')
 
+    def test_detail_reopen_and_rolling_translation_use_related_body_consumers(self):
+        owned = {'patches/reader-entry-detail.js', 'tests/test_reader_detail_reopen.mjs',
+                 'src/bilingual_translation.py', 'tests/test_bilingual_translation.py',
+                 'patches/BilingualReading.jsx', 'tests/test_bilingual_reading.mjs'}
+        changes = [{'path': p, 'status': 'M'} for p in owned]
+        self.assertEqual(classify(changes), 'body-completeness')
+        self.assertIn('tests/test_bilingual_translation.py', PYTHON_TESTS['body-completeness'])
+        self.assertEqual(classify([{'path': 'patches/reader-entry-detail.js', 'status': 'M'}]), 'body-completeness')
+        for extra in ('src/worker.py', 'src/notes_metadata.py', 'src/reader_image_cache.py'):
+            self.assertEqual(classify(changes + [{'path': extra, 'status': 'M'}]), 'full')
+
     def test_article_cache_only_uses_api_and_cache_checks_with_native_gate(self):
         owned = ['src/api.py', 'src/reader_image_cache.py', 'src/reader_image_proxy.py',
                  'src/warm_reader_covers.py', 'tests/test_api.py', 'tests/test_ci_reader_scope.py']

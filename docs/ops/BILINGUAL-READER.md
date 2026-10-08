@@ -1,8 +1,8 @@
 # Rolling and on-demand cached bilingual Reader articles
 
-Current user scope (2026-10-08, Issue181):
-- Automatically discover recent >=8 English recommendations every five minutes, newest published first; no browser visit is required. The bounded seven-day lookback catches recent/delayed analysis, without translating the entire historical archive.
-- Existing queued/partial work remains eligible after it leaves the discovery lookback.
+Current user scope (2026-10-09, Issue194):
+- Automatically discover global >=8 English recommendations every five minutes; no browser visit is required. Newly analyzed recommendations have priority, followed by the historical backlog in newest-published order. Future-dated, hidden, non-English and ineligible articles stay excluded.
+- Each discovery pass retains the existing 24-body / 30-second bound and keyset continuation. Completed translations are reused, and queued/partial work continues under the shared daily budget. This policy does not imply that the historical backlog is already complete.
 - A real article-open POST also requests work; ordinary detail/status GET and list/body/image prefetch stay read-only.
 - Reuse the existing bilingual worker and queue. BILINGUAL_ROLLING_ENABLED defaults false for rollout, enabled in the existing production private environment after deployment.
 - Automatic and article-open requests share bilingual_usage and its atomic reserved-or-actual token ceiling. Production ceiling is 1,000,000 input+output tokens and 1000 requests per UTC day, resetting at 08:00 Asia/Shanghai. This is a maximum, not a consumption target.
