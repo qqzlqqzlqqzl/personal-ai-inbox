@@ -19,6 +19,9 @@ except ImportError:  # The Windows unit tests still exercise the same cache logi
 MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_FILES = 8192
+MAX_HOT_BYTES = 128 * 1024 * 1024
+MAX_HOT_SECONDS = 15 * 60
+HOT_REFRESH_SECONDS = 5 * 60
 MAX_HEADER = 4096
 MAX_TTL = 7 * 86400
 DEFAULT_TTL = 86400
@@ -32,6 +35,22 @@ def image_priority(value):
     try:
         value = float(value)
         return max(0, min(99999999999, value)) if math.isfinite(value) else 0
+    except (ValueError, TypeError):
+        return 0
+
+
+def image_hot_until(value, now):
+    """Epoch deadline, rounded down so repeated view hits share a 5-minute bucket.
+
+    Never lengthen the supplied deadline or grant more than 15 minutes. A short
+    lease ending in the current bucket is ordinary, unprotected cache traffic.
+    """
+    try:
+        value = float(value)
+        if not math.isfinite(value):
+            return 0
+        value = math.floor(min(value, now + MAX_HOT_SECONDS) / HOT_REFRESH_SECONDS) * HOT_REFRESH_SECONDS
+        return value if value > now else 0
     except (ValueError, TypeError):
         return 0
 
@@ -89,7 +108,7 @@ class ImageCache:
         with self._mutex, self._file_lock('.index.lock'):
             yield
 
-    def get(self, key, *, priority=0):
+    def get(self, key, *, priority=0, hot_until=0):
         path = self.root / (key + '.image')
         with self._index():
             try:
@@ -113,8 +132,13 @@ class ImageCache:
                     return None
                 # A shared image belongs to its newest reference. Neither an old
                 # article nor an ordinary foreground hit can demote it.
-                if image_priority(priority) > image_priority(meta.get('priority', 0)):
-                    meta['priority'] = image_priority(priority)
+                hot = max(image_hot_until(hot_until, now), image_hot_until(meta.get('hot_until', 0), now))
+                # Restore the deliberate access time before inventory reads it.
+                os.utime(path, (now, meta['expires']))
+                if (image_priority(priority) > image_priority(meta.get('priority', 0))
+                        or hot > image_hot_until(meta.get('hot_until', 0), now)):
+                    meta['priority'] = max(image_priority(priority), image_priority(meta.get('priority', 0)))
+                    meta['hot_until'] = hot
                     self._store(key, body, meta, background=False)
                 os.utime(path, (now, meta['expires']))
                 headers = dict(meta['headers'])
@@ -123,13 +147,14 @@ class ImageCache:
             except (OSError, ValueError, KeyError, TypeError):
                 return None
 
-    def put(self, key, body, headers, *, priority=0, background=False):
+    def put(self, key, body, headers, *, priority=0, background=False, hot_until=0):
         lifetime = cache_lifetime(headers)
         if not lifetime or not body or len(body) > MAX_IMAGE_BYTES:
             return
         now = self.clock()
         meta = dict(created=now, expires=now + lifetime,
                     priority=image_priority(priority),
+                    hot_until=image_hot_until(hot_until, now),
                     headers={name: value for name, value in headers.items() if name in CACHE_HEADERS},
                     sha256=hashlib.sha256(body).hexdigest())
         with self._index():
@@ -152,25 +177,60 @@ class ImageCache:
                 path.unlink()
                 continue
             try:
-                with path.open('rb') as stream:
+                flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NOATIME', 0)
+                with os.fdopen(os.open(path, flags), 'rb') as stream:
                     meta = json.loads(stream.readline(MAX_HEADER))
+                # Scanning headers is not an image hit. In particular, future
+                # expiry mtimes otherwise make Linux relatime refresh each scan.
+                if not getattr(os, 'O_NOATIME', 0):
+                    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
                 priority = image_priority(meta.get('priority', 0))
+                hot_until = image_hot_until(meta.get('hot_until', 0), self.clock())
             except (ValueError, TypeError, AttributeError):
                 path.unlink()
                 continue
-            files.append((priority, info.st_atime, info.st_size, path))
+            files.append((priority, info.st_atime, info.st_size, path, hot_until))
         return files, other
 
-    def can_admit(self, priority, *, size=MAX_IMAGE_BYTES + MAX_HEADER):
+    def _hot_fits(self, size):
+        return size <= min(MAX_HOT_BYTES, self.max_bytes // 8) and self.max_files // 8 > 0
+
+    def _protected(self, files, priority, hot_until, size, *, existing=None, background=True):
+        """One bounded hot set shared by preflight and writes, under index lock.
+
+        Keep at most 1/8 of physical bytes/files hot (128 MiB at defaults).
+        New explicit hot references reserve their slot first; older leases
+        compete by real access time, then deadline. Overflow remains ordinary
+        cached data, not a second copy or a permanent pin. An oversized hot
+        candidate falls back to the unchanged ordinary publication-date gate.
+        """
+        incoming_hot = bool(image_hot_until(hot_until, self.clock())) and self._hot_fits(size)
+        remaining_bytes = min(MAX_HOT_BYTES, self.max_bytes // 8) - (size if incoming_hot else 0)
+        remaining_files = self.max_files // 8 - int(incoming_hot)
+        hot = set()
+        for row in sorted(files, key=lambda row: (-row[1], -row[4], row[3])):
+            if row == existing or not row[4] or row[2] > remaining_bytes or remaining_files <= 0:
+                continue
+            hot.add(row[3])
+            remaining_bytes -= row[2]
+            remaining_files -= 1
+        return hot | {row[3] for row in files
+                      if background and not incoming_hot and row[0] >= image_priority(priority)}
+
+    def can_admit(self, priority, *, size=MAX_IMAGE_BYTES + MAX_HEADER, hot_until=0):
         """Conservative background reservation before HTTP; never churn newer images.
 
         At most one maximum-size image of headroom is left unused. Equal-date
         images are also protected so one huge article cannot rotate its own tail.
+        Explicit hot references may replace non-hot images regardless of date;
+        ordinary background requests cannot displace the bounded hot set.
         Foreground requests are never subject to this background admission gate.
         """
         with self._index():
             files, other = self._inventory()
-            protected = [row for row in files if row[0] >= image_priority(priority)]
+            size = min(size, self.max_bytes)
+            paths = self._protected(files, priority, hot_until, size)
+            protected = [row for row in files if row[3] in paths]
             return (other + sum(row[2] for row in protected) + min(size, self.max_bytes) <= self.max_bytes
                     and len(protected) < self.max_files)
 
@@ -181,9 +241,12 @@ class ImageCache:
         existing = next((row for row in files if row[3].name == key + '.image'), None)
         if existing:
             meta['priority'] = max(image_priority(meta.get('priority')), existing[0])
+            meta['hot_until'] = max(image_hot_until(meta.get('hot_until', 0), self.clock()), existing[4])
         line = (json.dumps(meta, separators=(',', ':')) + '\n').encode()
         if len(line) >= MAX_HEADER or len(line) + len(body) > self.max_bytes:
             return False
+        protected = self._protected(files, meta['priority'], meta.get('hot_until', 0),
+                                    len(line) + len(body), existing=existing, background=background)
         total, count = other + sum(row[2] for row in files), len(files)
         victims = [existing] if existing else []
         if existing:
@@ -192,7 +255,7 @@ class ImageCache:
         for row in sorted(files):
             if total + len(line) + len(body) <= self.max_bytes and count < self.max_files:
                 break
-            if row == existing or (background and row[0] >= meta['priority']):
+            if row == existing or row[3] in protected:
                 continue
             victims.append(row)
             total -= row[2]
