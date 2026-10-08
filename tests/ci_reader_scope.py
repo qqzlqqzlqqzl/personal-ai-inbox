@@ -93,6 +93,24 @@ ENRICHMENT_TESTS = {
 }
 ENRICHMENT = ENRICHMENT_RUNTIME | ENRICHMENT_TESTS
 
+# Single-article body recovery and its visible quality/translation consumers.
+BODY_COMPLETENESS = {
+    'src/prepared_content.py', 'src/core.py', 'src/api.py', 'src/content_quality.py',
+    'src/kaggle_batch/fulltext_source.py', 'src/kaggle_batch/cloud_bridge.py',
+    'patches/reader-entry-detail.js', 'patches/AiBadge.jsx', 'src/patch_reader_detail_quality.py',
+    'src/patch_frontend.py', 'patches/BilingualReading.jsx',
+    'frontend-review/after/src/components/Article/ArticleDetail.jsx',
+    'tests/test_prepared_content.py', 'tests/test_core.py', 'tests/test_api.py',
+    'tests/test_content_quality.py', 'tests/test_content_quality_metadata.py',
+    'tests/test_content_quality_flow.py', 'tests/test_quality_current_identity.py',
+    'tests/test_quality_api.py', 'tests/test_processing_observation.py',
+    'tests/test_ai_badge_contract.mjs', 'tests/test_reader_detail_reopen.mjs',
+    'tests/test_reader_detail_quality.py',
+    'tests/test_reader_detail_install.py', 'tests/test_bilingual_reading.mjs',
+    'tests/test_bilingual_reading_component.mjs', 'tests/test_bilingual_reading_install.py',
+    'src/kaggle_batch/test_fulltext_source.py', 'src/kaggle_batch/test_cloud_bridge.py',
+}
+
 NATIVE = {
     'src/api.py', 'src/notes_metadata.py',
     'ops/miniflux-metadata/miniflux-2.3.3-entry-metadata.patch',
@@ -111,6 +129,11 @@ INTERFACES = NATIVE | {
 PIN_FILE = 'tests/dev_fixture_workspace_browser_acceptance.py'
 PIN = re.compile(rb'^SRC = "([0-9a-f]{40})"$', re.MULTILINE)
 PYTHON_TESTS = {
+    'body-completeness': sorted({path for path in BODY_COMPLETENESS
+                                if '/test_' in path and path.endswith('.py')} | {
+        'tests/test_bilingual_translation.py', 'tests/test_frontend_overlay_rebuild.py',
+        'tests/test_source_catalog_overlay.py', 'tests/test_ci_reader_scope.py',
+    }),
     'enrichment': sorted(ENRICHMENT_TESTS | {'tests/test_ci_reader_scope.py'}),
     'bilingual': [
         'tests/test_api.py', 'tests/test_bilingual_translation.py',
@@ -209,6 +232,9 @@ def classify(changes, verified_pin=False, verified_image_history=False):
         if not verified_pin:
             return 'full'
         paths.remove(PIN_FILE)
+    if ({'src/prepared_content.py', 'src/content_quality.py'} <= paths
+            and paths <= BODY_COMPLETENESS | IMAGE_CI_SUPPORT):
+        return 'body-completeness'
     if ENRICHMENT_RUNTIME <= paths and paths <= ENRICHMENT | IMAGE_CI_SUPPORT:
         return 'enrichment'
     if paths and paths <= FULLTEXT:
@@ -291,7 +317,7 @@ def select(root, event_name, event, expected_head):
         scope = 'images' if retirement else classify(changes, verified, verified_history)
         return {**result, 'scope': scope, 'base': base, 'comparison_base': comparison,
                 'changes': changes, 'verified_src_pin_only': verified,
-                'native': bool({row['path'] for row in changes} & (NATIVE - {'src/api.py'} if retirement or scope in {'bilingual', 'enrichment'} else NATIVE)),
+                'native': bool({row['path'] for row in changes} & (NATIVE - {'src/api.py'} if retirement or scope in {'bilingual', 'enrichment', 'body-completeness'} else NATIVE)),
                 'reason': ('documentation_only' if scope == 'docs' else
                            'related_files' if scope != 'full' else 'unknown_mixed_or_structural_change')}
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
