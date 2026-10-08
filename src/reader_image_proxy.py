@@ -28,7 +28,10 @@ MAX_OUTPUT_PIXELS = 4_000_000
 MAX_OUTPUT_HEIGHT = 4096
 FETCH_SECONDS = 20
 REQUEST_SECONDS = 30
-NATIVE_IMAGE_ACCEPT = "image/webp,image/jpeg,image/png,image/*;q=0.8"
+LEGACY_IMAGE_ACCEPT = "image/webp,image/jpeg,image/png,image/*;q=0.8"
+# Explicit q=1 is a bounded new cache profile; legacy PNG entries cannot mask
+# the negotiated encoder. The warmer imports this same canonical profile.
+NATIVE_IMAGE_ACCEPT = "image/webp;q=1,image/jpeg,image/png,image/*;q=0.8"
 SIGNED_PATH = re.compile(r"proxy/[A-Za-z0-9_-]{43}=/[A-Za-z0-9_=-]{1,8192}\Z")
 FORMATS = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP",
            "image/gif": "GIF", "image/avif": "AVIF"}
@@ -41,8 +44,29 @@ class BackgroundCacheFull(Exception):
     """No background reservation is available without evicting newer images."""
 
 
-def resize_image(body, content_type, width):
-    """Preserve invalid/unsupported/animated originals; never upscale or crop."""
+def _accepts_webp(accept):
+    """Require explicit support; any explicit exclusion wins over wildcards."""
+    if not isinstance(accept, str):
+        return False
+    supported = False
+    for item in accept.split(','):
+        parts = [part.strip() for part in item.split(';')]
+        if parts[0].lower() != 'image/webp':
+            continue
+        for parameter in parts[1:]:
+            name, _, value = parameter.partition('=')
+            if name.strip().lower() == 'q':
+                try:
+                    if not 0 < float(value.strip()) <= 1:
+                        return False
+                except ValueError:
+                    return False
+        supported = True
+    return supported
+
+
+def resize_image(body, content_type, width, *, allow_webp=False):
+    """Preserve originals/animation; only opt-in static PNGs may become WebP."""
     if width not in (0, *WIDTHS) or len(body) > MAX_BYTES:
         raise ValueError("image variant limit")
     if width == 0:
@@ -56,10 +80,10 @@ def resize_image(body, content_type, width):
             if not w or not h or w * h > MAX_PIXELS or getattr(original, "n_frames", 1) != 1:
                 return body, content_type
             orientation = original.getexif().get(274, 1)
-            # The browser applies EXIF orientation even when original bytes pass
-            # through. Compare the displayed dimensions before the small-image exit.
             display_w, display_h = (h, w) if orientation in (5, 6, 7, 8) else (w, h)
-            if display_w <= width and display_h <= MAX_OUTPUT_HEIGHT and w * h <= MAX_OUTPUT_PIXELS:
+            fits = display_w <= width and display_h <= MAX_OUTPUT_HEIGHT and w * h <= MAX_OUTPUT_PIXELS
+            webp_png = allow_webp and expected == "PNG" and original.mode in {"RGB", "RGBA", "P", "L", "LA"}
+            if fits and not webp_png:
                 return body, content_type
             # Leave ordinary JPEGs lazy so thumbnail can use decoder downsampling.
             image = original if orientation == 1 else ImageOps.exif_transpose(original)
@@ -81,14 +105,27 @@ def resize_image(body, content_type, width):
                     converted = image.convert("RGB")
                     image.close()
                     image = converted
-                output = io.BytesIO()
-                options = {"quality": 82, "optimize": True} if expected == "JPEG" else (
-                    {"quality": 82, "method": 4} if expected == "WEBP" else {"compress_level": 6})
-                image.save(output, format=expected, **options)
-                result = output.getvalue()
-                if len(result) > MAX_BYTES:
-                    return body, content_type
-                return result, Image.MIME[expected]
+                result = body
+                if not fits:
+                    output = io.BytesIO()
+                    options = {"quality": 82, "optimize": True} if expected == "JPEG" else (
+                        {"quality": 82, "method": 4} if expected == "WEBP" else {"compress_level": 6})
+                    image.save(output, format=expected, **options)
+                    result = output.getvalue()
+                    if len(result) > MAX_BYTES:
+                        return body, content_type
+                if webp_png:
+                    try:
+                        output = io.BytesIO()
+                        mode = "RGBA" if "A" in image.getbands() or "transparency" in image.info else "RGB"
+                        with image.convert(mode) as converted:
+                            converted.save(output, format="WEBP", quality=82, method=4, exact=True)
+                        candidate = output.getvalue()
+                        if 0 < len(candidate) < len(result):
+                            return candidate, "image/webp"
+                    except (OSError, ValueError, KeyError):
+                        pass  # An unavailable/failed encoder keeps the existing PNG result.
+                return (body, content_type) if fits else (result, Image.MIME[expected])
             finally:
                 image.close()
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
@@ -167,7 +204,8 @@ def _make_variant(native_base, path, width, accept, client_factory, *, backgroun
     if isinstance(native, Response):
         return native
     body, headers = native
-    result, content_type = resize_image(body, headers.get('content-type', 'application/octet-stream'), width)
+    result, content_type = resize_image(body, headers.get('content-type', 'application/octet-stream'), width,
+        allow_webp=accept == NATIVE_IMAGE_ACCEPT)
     headers.update({'Content-Type': content_type, 'Vary': 'Accept',
                     'ETag': '"' + hashlib.sha256(result).hexdigest() + '"'})
     headers.pop('content-type', None)
@@ -214,9 +252,10 @@ def original_cache_put(native_base, path, body, headers, status_code=200, cache_
 def fetch_variant(native_base, path, width, accept, cache_policy='', *, client_factory=httpx.AsyncClient,
                   cache=None, signature_key=_UNSET, priority=0, background=False, hot_until=0):
     """Local HMAC gates hits; native validates every miss. Failure never becomes a hit."""
-    # Native forwards Accept to the origin. Use one representation for the
-    # browser and server warmer, including the actual fetch and disk cache key.
-    accept = NATIVE_IMAGE_ACCEPT
+    # Capture the caller's capability before canonicalizing. The legacy profile
+    # historically advertises WebP upstream but must not enable NEW PNG encoding.
+    # Width zero always remains the shared, unmodified original representation.
+    accept = NATIVE_IMAGE_ACCEPT if width == 0 or _accepts_webp(accept) else LEGACY_IMAGE_ACCEPT
     hot_options = {"hot_until": hot_until} if hot_until else {}
     private_key = media_proxy_key() if signature_key is _UNSET else signature_key
     target = verified_proxy_target(path, private_key)
