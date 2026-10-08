@@ -622,7 +622,7 @@ class Controller:
         truncated_tail=False
         for index,line in enumerate(lines):
             try:
-                value = json.loads(line)
+                value = json.loads(line, object_pairs_hook=_unique_json)
             except (ValueError,UnicodeError):
                 if interrupted and index==len(lines)-1 and not line.endswith(b'\n'):
                     truncated_tail=True
@@ -669,7 +669,7 @@ class Controller:
                     key=None;reason=None
                     try:
                         if len(line)>2*1024**2:raise ValueError('oversized_record')
-                        value=json.loads(line)
+                        value=json.loads(line,object_pairs_hook=_unique_json)
                         if not isinstance(value,dict):raise ValueError('invalid_record_type')
                         key=value.get('id')
                         if not isinstance(key,str) or key not in expected:raise ValueError('unknown_item')
