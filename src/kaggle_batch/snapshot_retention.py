@@ -111,7 +111,9 @@ def prune(root=ROOT,cap_bytes=CAP_BYTES,min_history_per_lane=MIN_HISTORY_PER_LAN
         for item in historical[:max(0,int(min_history_per_lane))]:
             item['protected']=True;item['reason']='latest_lane_history'
     for item in snapshots:
-        if not item['protected'] and now-item['mtime']<young_seconds:
+        # Young protection also outranks the soft per-lane history minimum.
+        if now-item['mtime']<young_seconds and (
+                not item['protected'] or item['reason']=='latest_lane_history'):
             item['protected']=True;item['reason']='young_snapshot'
     deleted=[];remaining=before
     # "One recent point per lane" is the normal policy: all older complete

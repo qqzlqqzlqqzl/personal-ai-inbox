@@ -70,6 +70,49 @@ class SnapshotRetentionTests(unittest.TestCase):
         self.assertTrue(new.exists())
         self.assertLessEqual(report['after_bytes'],one_file_blocks)
 
+    def test_fresh_extraction_latest_survives_global_cap_before_batch_exists(self):
+        lane=self.lane('primary')
+        fresh=self.snapshot(lane/'before-extraction-1',999)
+        receipt=fresh.parent/'backup-complete.json'
+        report=prune(self.root,cap_bytes=1,young_seconds=1800,now=1000)
+        self.assertTrue(fresh.exists())
+        self.assertTrue(receipt.exists())
+        self.assertEqual('over_budget_protected',report['state'])
+        self.assertEqual(0,report['deleted_count'])
+        self.assertEqual(1,report['protected_count'])
+        self.assertEqual(report['before_bytes'],report['after_bytes'])
+
+    def test_fresh_finished_import_latest_survives_global_cap(self):
+        lane=self.lane('primary',[('qwen-inbox-new','imported')])
+        fresh=self.snapshot(lane/'qwen-inbox-new',999)
+        report=prune(self.root,cap_bytes=1,young_seconds=1800,now=1000)
+        self.assertTrue(fresh.exists())
+        self.assertTrue((fresh.parent/'backup-complete.json').exists())
+        self.assertEqual('over_budget_protected',report['state'])
+        self.assertEqual(0,report['deleted_count'])
+
+    def test_young_boundary_retains_fresh_then_allows_expired_history_pruning(self):
+        lane=self.lane('primary')
+        backup=self.snapshot(lane/'before-extraction-1',200)
+        report=prune(self.root,cap_bytes=1,young_seconds=1800,now=1999)
+        self.assertTrue(backup.exists())
+        self.assertEqual(0,report['deleted_count'])
+        report=prune(self.root,cap_bytes=1,young_seconds=1800,now=2000)
+        self.assertFalse(backup.exists())
+        self.assertFalse((backup.parent/'backup-complete.json').exists())
+        self.assertEqual('ok',report['state'])
+        self.assertEqual(1,report['deleted_count'])
+
+    def test_dry_run_preserves_young_latest_and_reports_protected_overage(self):
+        lane=self.lane('primary')
+        fresh=self.snapshot(lane/'before-extraction-1',999)
+        report=prune(self.root,cap_bytes=1,young_seconds=1800,now=1000,dry_run=True)
+        self.assertTrue(fresh.exists())
+        self.assertTrue((fresh.parent/'backup-complete.json').exists())
+        self.assertEqual('over_budget_protected',report['state'])
+        self.assertEqual(0,report['deleted_count'])
+        self.assertEqual(report['before_bytes'],report['after_bytes'])
+
 
 if __name__=='__main__':
     unittest.main(verbosity=2)
