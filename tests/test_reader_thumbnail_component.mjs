@@ -223,14 +223,14 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
       const pending=[...frames];frames.clear()
       await act(async()=>{for(const[,callback]of pending)callback()})
     }
-    const covers=prefix=>Array.from({length:6},(_,id)=>{
+    const covers=prefix=>Array.from({length:12},(_,id)=>{
       const coverSource=`https://example.org/${prefix}-${id}.jpg`
       return {id,coverSource,ai:{cover_proxy_url:'/mf/proxy/'+'A'.repeat(43)+'=/'+btoa(coverSource)}}
     })
     const paintCovers=(snapshot,{key=snapshot,more=false}={})=>{
       globalThis.__readerFixtureError=false
       globalThis.__readerFixtureEntries=covers(snapshot)
-      globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:more,articleListSnapshotRevision:snapshot,articleListOffset:6,infoFrom:'all',infoId:0}
+      globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:more,articleListSnapshotRevision:snapshot,articleListOffset:12,infoFrom:'all',infoId:0}
       root.render(React.createElement(component.exports.default,{key,scrollRootRef:{current:scroll},getEntries:async()=>{coverPages++;return {entries:[]}}}))
     }
     const mountCover=width=>{
@@ -242,31 +242,34 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
     }
     const activeImages=()=>images.filter(image=>image.onload)
     try {
-      await t.test('late grid mount warms covers without scroll or extra pages and keeps two slots',async()=>{
+      await t.test('late grid mount warms covers without scroll or extra pages and keeps six slots',async()=>{
         scroll.innerHTML='';scroll.scrollTop=0
         Object.defineProperty(scroll,'scrollHeight',{value:1800,configurable:true})
         const before=images.length
         await act(async()=>paintCovers('late',{more:true}))
         await flushFrames()
+        await flushFrames()
+        await flushFrames() // Observe the new effect after the startup request settles.
+        assert.equal(coverPages,1,'startup page begins after two paint frames without a timer')
         assert.equal(images.length,before)
         assert.equal(observers.filter(observer=>observer.active).length,1)
         await act(async()=>{mountCover(320);scroll.append(document.createElement('span'))})
-        // The normal check would fetch at visible index 3 of 6. This frame must only warm images.
+        // The normal check would fetch at visible index 3 of 12. This frame must only warm images.
         await flushFrames()
-        assert.equal(images.length,before+2)
-        assert.equal(coverPages,0)
+        assert.equal(images.length,before+6)
+        assert.equal(coverPages,1,'late cover observer does not add another page request')
         assert.equal(observers.filter(observer=>observer.active).length,0)
         assert.equal(coverTimers.size,0)
         await act(async()=>paintCovers('late'))
         await flushFrames()
         while(activeImages().length){
-          assert.ok(activeImages().length<=2)
+          assert.ok(activeImages().length<=6)
           await act(async()=>activeImages()[0].onload())
           await flushFrames()
         }
-        assert.equal(images.length,before+6)
-        assert.equal(new Set(images.slice(before).map(image=>image.src)).size,6)
-        assert.equal(coverPages,0)
+        assert.equal(images.length,before+12)
+        assert.equal(new Set(images.slice(before).map(image=>image.src)).size,12)
+        assert.equal(coverPages,1)
       })
 
       await t.test('missing and zero-width cards expire their observer while normal scroll still works',async()=>{
@@ -287,9 +290,9 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
           assert.equal(frames.size,0,'expired wait does not restart on another DOM mutation')
           assert.equal(images.length,before)
           scroll.dispatchEvent(new dom.window.Event('scroll'));await flushFrames()
-          assert.equal(images.length,before+2,'ordinary scroll still offers the covers after timeout')
+          assert.equal(images.length,before+6,'ordinary scroll still offers the covers after timeout')
         }
-        assert.equal(coverPages,0)
+        assert.equal(coverPages,1)
       })
 
       await t.test('snapshot and unmount cancel delayed cover observers timers and queued frames',async()=>{
@@ -316,29 +319,29 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
         await act(async()=>{replacement.callback([]);scroll.append(document.createElement('span'))})
         assert.equal(frames.size,0)
         assert.equal(images.length,before)
-        assert.equal(coverPages,0)
+        assert.equal(coverPages,1)
       })
 
       await t.test('snapshot retirement keeps active image slots but never restarts old queued covers',async()=>{
         scroll.innerHTML='';const before=images.length
         await act(async()=>paintCovers('old-queue',{key:'queue-retirement'}));await flushFrames()
         await act(async()=>mountCover(320));await flushFrames()
-        const oldActive=activeImages();assert.equal(oldActive.length,2)
+        const oldActive=activeImages();assert.equal(oldActive.length,6)
         await act(async()=>{scroll.innerHTML='';paintCovers('new-queue',{key:'queue-retirement'})});await flushFrames()
         await act(async()=>mountCover(320));await flushFrames()
-        assert.equal(images.length,before+2,'old downloads retain both slots')
+        assert.equal(images.length,before+6,'old downloads retain all six slots')
         await act(async()=>oldActive[0].onload());await flushFrames()
-        assert.equal(images.length,before+3)
+        assert.equal(images.length,before+7)
         assert.ok(images.at(-1).src.includes(btoa('https://example.org/new-queue-0.jpg')))
-        assert.equal(activeImages().length,2)
+        assert.equal(activeImages().length,6)
         const lateCompletion=activeImages()[0].onload
         await act(async()=>root.render(null))
         await act(async()=>lateCompletion())
-        assert.equal(images.length,before+3,'unmount cannot drain either retired queue')
+        assert.equal(images.length,before+7,'unmount cannot drain either retired queue')
         assert.equal(activeImages().length,0)
         assert.equal(coverTimers.size,0)
         assert.equal(frames.size,0)
-        assert.equal(coverPages,0)
+        assert.equal(coverPages,1)
       })
     } finally {
       await act(async()=>root.render(null))
