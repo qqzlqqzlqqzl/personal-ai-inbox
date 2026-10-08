@@ -115,7 +115,7 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
       const relative=path==='@/utils/reading-session'?'../patches/reading-session.js':'../frontend-review/after/src/components/Article/reader-image-variants.js'
       return {path:fileURLToPath(new URL(relative,import.meta.url))}
     })
-    b.onLoad({filter:/.*/,namespace:'today-fixture'},({path})=>({contents:fixtures[path],loader:'js'}))
+    b.onLoad({filter:/.*/,namespace:'today-fixture'},({path})=>({contents:fixtures[path],loader:'js',resolveDir:process.env.READER_UX_SOURCE || fileURLToPath(new URL('../upstream/reactflux/',import.meta.url))}))
   }}]})
   const component=new Module(file);component._compile(bundled.outputFiles[0].text,file)
   const scroll=document.createElement('div');scroll.innerHTML='<div data-entry-id="0"></div><div data-entry-id="1"></div><div data-entry-id="2"><img class="grid-card-cover"></div>'
