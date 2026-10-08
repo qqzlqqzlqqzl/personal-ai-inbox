@@ -47,6 +47,48 @@ def test_image_repair_is_durable_but_does_not_mask_new_article_text(db,entry):
     assert prepared.apply(changed)['content'] == changed['content']
 
 
+def test_image_repair_media_only_change_invalidates_bound_body(db,entry):
+    from media_repair import needs_repair
+    raw = ('<p>Same current article text.</p><img alt="Diagram" '
+           'src="data:image/svg+xml,%3Csvg%3E" data-src="https://example.org/a.png">')
+    original = {**entry, 'content': raw}
+    repaired = '<p>Same current article text.</p><img alt="Diagram" src="https://example.org/a.png">'
+    prepared.remember(original,repaired,'body_images_repaired')
+    assert prepared.apply(dict(original))['content'] == repaired
+    # Matching raw HTML never overrides the existing identity boundaries.
+    for changes in ({'user_id': original['user_id'] + 1}, {'url': original['url'] + '/other'},
+                    {'title': original['title'] + ' changed'}):
+        changed_identity = {**original, **changes}
+        assert prepared.apply(changed_identity) == changed_identity
+    changed = {**original, 'content': raw.replace('https://example.org/a.png', 'https://example.org/b.png')}
+    assert needs_repair(raw) and needs_repair(changed['content'])
+    assert prepared.text_hash(raw) == prepared.text_hash(changed['content'])
+    assert prepared.apply(changed) == changed
+    with core.connect() as connection:
+        stored = connection.execute('SELECT input_text_hash FROM prepared_articles WHERE entry_id=? AND user_id=?',
+                                    (original['id'], original['user_id'])).fetchone()
+    assert stored['input_text_hash'] == hashlib.sha256(raw.encode()).hexdigest()
+
+
+def test_image_repair_legacy_text_hash_is_not_current_html_proof(db,entry):
+    raw = ('<p>Same current article text.</p><img alt="Diagram" '
+           'src="data:image/svg+xml,%3Csvg%3E" data-src="https://example.org/a.png">')
+    original = {**entry, 'content': raw}
+    repaired = '<p>Same current article text.</p><img alt="Diagram" src="https://example.org/a.png">'
+    prepared.remember(original,repaired,'body_images_repaired')
+    legacy_hash = prepared.text_hash(raw)
+    with core.connect() as connection:
+        connection.execute('UPDATE prepared_articles SET input_text_hash=? WHERE entry_id=? AND user_id=?',
+                           (legacy_hash, original['id'], original['user_id']))
+        before = dict(connection.execute('SELECT * FROM prepared_articles WHERE entry_id=? AND user_id=?',
+                                         (original['id'], original['user_id'])).fetchone())
+    assert prepared.apply(original) == original
+    with core.connect() as connection:
+        after = dict(connection.execute('SELECT * FROM prepared_articles WHERE entry_id=? AND user_id=?',
+                                        (original['id'], original['user_id'])).fetchone())
+    assert after == before, 'legacy proof is not migrated, refilled, or deleted during a read'
+
+
 def original_result(entry):
     return {'html': '<article><p id="opening">Original opening paragraph.</p>'
             '<p>Read <a href="/details">the report</a><img src="/chart.png" onerror="bad()"></p>'
