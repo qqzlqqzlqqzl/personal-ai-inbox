@@ -249,6 +249,7 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
         await act(async()=>paintCovers('late',{more:true}))
         await flushFrames()
         await flushFrames()
+        await flushFrames() // Observe the new effect after the startup request settles.
         assert.equal(coverPages,1,'startup page begins after two paint frames without a timer')
         assert.equal(images.length,before)
         assert.equal(observers.filter(observer=>observer.active).length,1)
