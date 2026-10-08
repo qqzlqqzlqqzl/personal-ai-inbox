@@ -366,3 +366,33 @@ def test_session_privacy_unknown_drift_refuses_every_overlay_write(tmp_path, rel
     with pytest.raises(RuntimeError, match="Unreviewed source drift, refusing overwrite"):
         install(isolated)
     assert _source_bytes(web) == drifted
+
+def test_scope_normalizer_preserves_only_exact_authoritative_overlay(tmp_path):
+    # Re-running a historical construction stage must not undo a current reviewed
+    # component, but a changed look-alike cannot bypass its normal anchor refusal.
+    tree = ast.parse((ROOT / 'src/patch_scope_ai_filters.py').read_text())
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                 and node.name in ('backup', 'patch', 'normalize')]
+    web = tmp_path / 'upstream/reactflux'
+    name = 'src/components/Article/SearchAndSortBar.jsx'
+    installed = web / name
+    authored = tmp_path / 'frontend-review/after' / name
+    installed.parent.mkdir(parents=True)
+    authored.parent.mkdir(parents=True)
+    authored.write_text('current reviewed sorter')
+    namespace = {'ROOT': tmp_path, 'WEB': web,
+                 'BACK': tmp_path / 'runtime/reactflux-original', 'shutil': shutil}
+    exec(compile(ast.Module(body=functions, type_ignores=[]),
+                 'patch_scope_ai_filters.py', 'exec'), namespace)
+    installed.write_text(authored.read_text())
+    namespace['normalize'](name, ['legacy anchor'], 'historical final anchor')
+    assert installed.read_text() == authored.read_text()
+    assert not namespace['BACK'].exists()
+    installed.write_text('current reviewed sorter plus unknown drift')
+    with pytest.raises(RuntimeError, match='normalize anchor mismatch'):
+        namespace['normalize'](name, ['legacy anchor'], 'historical final anchor')
+    assert not namespace['BACK'].exists()
+    installed.write_text('legacy anchor')
+    namespace['normalize'](name, ['legacy anchor'], 'historical final anchor')
+    assert installed.read_text() == 'historical final anchor'
+    assert (namespace['BACK'] / name).read_text() == 'legacy anchor'

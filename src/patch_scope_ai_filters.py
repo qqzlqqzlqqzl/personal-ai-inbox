@@ -29,6 +29,9 @@ def patch(name, old, new):
 
 def normalize(name, variants, new):
     text = (WEB / name).read_text()
+    authored = ROOT / "frontend-review/after" / name
+    if authored.is_file() and text == authored.read_text():
+        return
     if new in text:
         return
     for old in variants:
@@ -320,7 +323,7 @@ normalize(
   const sortField = aiList
     ? (pendingList
       ? "published_at"
-      : (notesList && ((!recommendedList && ai.sort !== "time") || ai.sort === "note_updated"))
+      : (notesList && (!recommendedList || ai.sort === "note_updated"))
         ? "note_updated"
         : recommendedList && ai.sort !== "time" ? ai.sort : "published_at")
     : (activityList ? "changed_at" : orderBy)''',
