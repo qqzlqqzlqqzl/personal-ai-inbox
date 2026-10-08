@@ -76,6 +76,7 @@ def install_reader_entry_detail(root, web):
         '4a68e34d40cc4e57d79d91cb39c89f05a06db083986232d73202ac4832ae1bb3',
         'e9c9eb1d88b683e66428bfd099cbd3fca9f91e27a0cc679a372f882c8e0e2098',
         '75b82cc3b4b40ce113d91725c4869971458be301cb6da8213125795efe455945',
+        '5680f6975a030c29c80e918f9f409cf4e3e48d1552bd6110cf39db481bcf4f8f',
     }
     if target.exists() and target.read_bytes() != helper and hashlib.sha256(target.read_bytes()).hexdigest() not in previous_helper_shas:
         raise RuntimeError('Unreviewed reader detail helper')
