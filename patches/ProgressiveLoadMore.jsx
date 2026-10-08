@@ -127,8 +127,10 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
       if (!offerCovers()) waitForCovers()
       if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
-      // An unmeasured initial virtual list is not a scrolled-to empty tail.
-      if (index < 0 && root.scrollTop <= 0) return
+      // Mounted short lists also look near their tail before any scrolling.
+      // At the top, only the double-RAF startup queue may fetch its five pages;
+      // mount/image checks must not bypass that budget or its read-only flag.
+      if (root.scrollTop <= 0) return
       const remaining = root.scrollHeight - root.scrollTop - root.clientHeight
       let progress = -1
       if (index >= 0) {
