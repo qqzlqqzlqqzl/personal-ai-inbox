@@ -150,6 +150,8 @@ for width, height in [(1440, 960), (390, 844)]:
             h.check('controls_hit_height', alignment['height'] >= (43.9 if width < 620 else 35.9))
             measurements.append(alignment)
             capture_visual(h, 'normal-initial.png', False, width, height, theme, captures)
+            translation_starts = sum(path == '/mf/v1/ai/translation/101' for _, path, _ in h.writes)
+            h.check('initial_translation_demand_is_single', translation_starts == 1)
             button.click()
             exit_button = p.get_by_role('button', name='退出专注正文', exact=True)
             expect(exit_button).to_be_focused()
@@ -188,7 +190,15 @@ for width, height in [(1440, 960), (390, 844)]:
             link = p.locator('.article-source-footer a')
             link.scroll_into_view_if_needed(); expect(link).to_be_visible()
             h.check('source_retained', link.get_attribute('href') == 'https://example.test/101')
-            h.check('no_read_or_favorite_mutation', all(path.endswith('/ai/reading-session') for _, path, _ in h.writes))
+            # The English score-9 fixture legitimately requests its translation
+            # once when opened. Typography must never repeat that demand or write
+            # Miniflux read/favorite state, notes, or settings.
+            h.check('no_read_or_favorite_mutation', all(
+                method == 'POST' and (path == '/mf/v1/ai/reading-session' or
+                (path == '/mf/v1/ai/translation/101' and payload == {}))
+                for method, path, payload in h.writes))
+            h.check('focus_controls_do_not_repeat_translation', sum(
+                path == '/mf/v1/ai/translation/101' for _, path, _ in h.writes) == translation_starts)
             capture_visual(h, 'reading.png', False, width, height, theme, captures)
             p.get_by_role('button', name='关闭文章', exact=True).click()
             # Reopen the real article route. Verify native details keyboard
