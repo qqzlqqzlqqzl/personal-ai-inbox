@@ -152,6 +152,17 @@ class CatalogOverlayTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(previous).hexdigest(), expected)
             self.assertNotIn(expected, old[name])
             old[name].append(expected)
+        # #191 admits the exact two-slot helper preceding six-slot cover prefetch.
+        slots_base = '1a50f1b6b3811e287e9fc6c76fcd7a7e78927ac4'
+        subprocess.run(['git', 'merge-base', '--is-ancestor', slots_base, 'HEAD'],
+                       cwd=ROOT, check=True, timeout=15)
+        prior_slots = subprocess.check_output(
+            ['git', 'show', slots_base + ':frontend-review/after/' + variants],
+            cwd=ROOT, timeout=15)
+        expected_slots = '6eca73734c049c3d0076c29f1c229051f1332ef3b0fdfed4ed4a186bda2bbef0'
+        self.assertEqual(hashlib.sha256(prior_slots).hexdigest(), expected_slots)
+        self.assertNotIn(expected_slots, old[variants])
+        old[variants].append(expected_slots)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
