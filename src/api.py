@@ -1577,6 +1577,8 @@ async def proxy(path: str, request: Request):
             and content_type.startswith("application/json")
             and path.startswith("v1/")
             and path not in ("v1/entries/metadata", "v1/version")
+            and not (request.method == "GET" and path in (
+                "v1/me", "v1/feeds", "v1/categories", "v1/feeds/counters"))
         ):
             content = await reader_work.run(enrich_reader_response, r.content,
                 reader_base=str(request.base_url).rstrip("/") + "/mf")
