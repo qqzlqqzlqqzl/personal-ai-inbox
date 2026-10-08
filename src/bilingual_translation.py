@@ -905,6 +905,31 @@ def _ready_slots(cfg):
           (MAX_ATTEMPTS, time.time(), cfg['model'], _version(), cfg['concurrency'])).fetchone()[0]
 
 
+def _settle_expired_exhausted(cfg, admission):
+    """Close abandoned final attempts without retrying or refunding unknown usage.
+
+    Called only while run_once holds the cross-process worker lock. Unexpired
+    claims, retryable blocks and noncurrent/cached versions remain untouched.
+    """
+    check(admission)
+    with core.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        check(admission)
+        now = time.time()
+        db.execute('''UPDATE bilingual_articles AS a SET status='error',updated_at=?
+          WHERE a.requested_at>0 AND a.model=? AND a.version=?
+            AND a.status IN ('pending','partial','processing','budget_paused')
+            AND EXISTS (
+              SELECT 1 FROM bilingual_current c
+              JOIN bilingual_blocks b USING(user_id,entry_id,source_hash)
+              WHERE c.user_id=a.user_id AND c.entry_id=a.entry_id
+                AND c.source_hash=a.source_hash
+              GROUP BY b.user_id,b.entry_id,b.source_hash
+              HAVING SUM(b.translated IS NULL)>0
+                AND SUM(b.translated IS NULL AND (b.attempts<? OR b.next_try>?))=0
+            )''', (now, cfg['model'], _version(), MAX_ATTEMPTS, now))
+
+
 async def run_once(client=None, *, admission=None):
     cfg = config()
     if not cfg['enabled'] or not cfg['ready']:
@@ -915,6 +940,7 @@ async def run_once(client=None, *, admission=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return {'processed': 0, 'busy': True}
+        _settle_expired_exhausted(cfg, admission)
         if client is not None:
             return await _run_batches(client, cfg, admission)
         limits = httpx.Limits(max_connections=cfg['concurrency'],

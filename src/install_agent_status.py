@@ -27,6 +27,20 @@ const AgentStatusRoute = deferComponent(() => import("./pages/AgentStatus"))
 STARTUP_ROUTE_IMPORT=PREVIOUS_STARTUP_ROUTE_IMPORT.replace(
     'import contentPageComponents from "./pages/ContentPages"',
     'import contentPageComponents, { loadContentPages } from "./pages/ContentPages"')
+PRIOR_FALLBACK_ROUTE_IMPORT=STARTUP_ROUTE_IMPORT
+STARTUP_ROUTE_FALLBACK='''const StartupRouteFallback = () => (
+  <div aria-busy="true" aria-live="polite" role="status" style={{ padding: 24 }}>
+    正在加载阅读器…
+  </div>
+)
+
+'''
+STARTUP_ROUTE_IMPORT=STARTUP_ROUTE_IMPORT.replace(
+    'const HomeRedirectRoute =',STARTUP_ROUTE_FALLBACK+'const HomeRedirectRoute =',1)
+LOGIN_ROUTE='{ path: "/login", lazy: lazyRoute(() => import("./pages/Login")) }'
+STARTUP_LOGIN_ROUTE='{ path: "/login", HydrateFallback: StartupRouteFallback, lazy: lazyRoute(() => import("./pages/Login")) }'
+AUTH_GATE_ROUTE='      lazy: lazyRoute(() => import("./pages/RouterProtect")),\n'
+STARTUP_AUTH_GATE_ROUTE='      HydrateFallback: StartupRouteFallback,\n'+AUTH_GATE_ROUTE
 CONTENT_LOADER='''const loadContentPage = (pageKey) => async () => {
   const { default: contentPageComponents } = await import("./pages/ContentPages")
   return { Component: contentPageComponents[pageKey] }
@@ -220,14 +234,22 @@ def _reviewed_base(text, expected_sha, apply, undo, label, legacy=()):
 
 def _routes_apply(base):
     return (base.replace(ROUTE_IMPORT,STARTUP_ROUTE_IMPORT,1)
+            .replace(LOGIN_ROUTE,STARTUP_LOGIN_ROUTE,1)
+            .replace(AUTH_GATE_ROUTE,STARTUP_AUTH_GATE_ROUTE,1)
             .replace(CONTENT_LOADER,STARTUP_CONTENT_LOADER,1)
             .replace(AUTH_ROUTE_LOADER,STARTUP_AUTH_ROUTE_LOADER,1)
             .replace(HOME_ROUTE,STARTUP_HOME_ROUTE,1)
             .replace(ANCHOR,STARTUP_ADDITION,1))
 
 
+def _routes_apply_prior_fallback(base):
+    return (_routes_apply(base).replace(STARTUP_ROUTE_IMPORT,PRIOR_FALLBACK_ROUTE_IMPORT,1)
+            .replace(STARTUP_LOGIN_ROUTE,LOGIN_ROUTE,1)
+            .replace(STARTUP_AUTH_GATE_ROUTE,AUTH_GATE_ROUTE,1))
+
+
 def _routes_apply_prior_bootstrap(base):
-    return _routes_apply(base).replace(STARTUP_AUTH_ROUTE_LOADER,AUTH_ROUTE_LOADER,1)
+    return _routes_apply_prior_fallback(base).replace(STARTUP_AUTH_ROUTE_LOADER,AUTH_ROUTE_LOADER,1)
 
 
 def _routes_apply_previous(base):
@@ -239,10 +261,13 @@ def _routes_apply_previous(base):
 
 
 def _routes_undo(text):
+    text=(text.replace(STARTUP_LOGIN_ROUTE,LOGIN_ROUTE,1)
+          .replace(STARTUP_AUTH_GATE_ROUTE,AUTH_GATE_ROUTE,1)
+          .replace(STARTUP_ROUTE_IMPORT,PRIOR_FALLBACK_ROUTE_IMPORT,1))
     text=(text.replace(STARTUP_ADDITION,ANCHOR,1).replace(ADDITION,ANCHOR,1)
           .replace(STARTUP_AUTH_ROUTE_LOADER,AUTH_ROUTE_LOADER,1))
-    if STARTUP_ROUTE_IMPORT in text:
-        return (text.replace(STARTUP_ROUTE_IMPORT,ROUTE_IMPORT,1)
+    if PRIOR_FALLBACK_ROUTE_IMPORT in text:
+        return (text.replace(PRIOR_FALLBACK_ROUTE_IMPORT,ROUTE_IMPORT,1)
                 .replace(STARTUP_CONTENT_LOADER,CONTENT_LOADER,1)
                 .replace(STARTUP_HOME_ROUTE,HOME_ROUTE,1))
     if PREVIOUS_STARTUP_ROUTE_IMPORT not in text:
@@ -284,7 +309,7 @@ def install(root):
     routes=web/'src/routes.jsx';before=routes.read_text()
     base=_reviewed_base(before,ROUTES_BEFORE,_routes_apply,_routes_undo,'authenticated routes',
                         legacy=(lambda text:text.replace(ANCHOR,ADDITION,1), _routes_apply_previous,
-                                _routes_apply_prior_bootstrap))
+                                _routes_apply_prior_bootstrap, _routes_apply_prior_fallback))
     if base.count(ANCHOR)!=1:raise RuntimeError('Unreviewed authenticated routes; refusing status overlay')
     toolbar=web/'src/components/Ai/AiToolbar.jsx';toolbar_base=toolbar.read_text()
     if hashlib.sha256(toolbar_base.encode()).hexdigest()!=TOOLBAR_BEFORE:raise RuntimeError('Unreviewed toolbar; refusing status entry')

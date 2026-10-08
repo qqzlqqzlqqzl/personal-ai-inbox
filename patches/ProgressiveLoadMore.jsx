@@ -3,6 +3,7 @@ import { useStore } from "@nanostores/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import useLoadMore from "@/hooks/useLoadMore"
 import { contentState, filteredEntriesState } from "@/store/contentState"
+import { dataState } from "@/store/dataState"
 import { nextWindow, resumeStalledWindow, prefetchDecision, autoPrefetchDecision, scheduleAutoPrefetch, AUTO_PREFETCH_PAGES } from "@/utils/reading-session"
 import { createThumbnailPreloader } from "@/components/Article/reader-image-variants"
 
@@ -12,14 +13,15 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
     keys: ["isArticleListReady", "loadMoreVisible", "articleListSnapshotRevision", "articleListOffset", "infoFrom", "infoId"],
   })
   const entries = useStore(filteredEntriesState)
+  const { sessionRevision } = useStore(dataState, { keys: ["sessionRevision"] })
   const { handleLoadMore, loadMoreError, loadingMore } = useLoadMore()
   const indexes = useMemo(() => new Map(entries.map((e, i) => [String(e.id), i])), [entries])
-  const snapshot = `${infoFrom}:${infoId}:${articleListSnapshotRevision}`
+  const snapshot = `${sessionRevision}:${infoFrom}:${infoId}:${articleListSnapshotRevision}`
   const windowRef = useRef(null)
   const attemptRef = useRef(null)
   const autoRef = useRef({ snapshot: null, started: 0 })
   const offeredCoversRef = useRef({ snapshot: null, count: 0 })
-  const inFlightRef = useRef(false)
+  const inFlightRef = useRef(null)
   const aliveRef = useRef(true)
   const latest = useRef(null)
   const thumbnailsRef = useRef(null)
@@ -50,7 +52,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
 
   const request = async (manual = false, observation = null) => {
     const s = latest.current
-    if (!s.isArticleListReady || !s.loadMoreVisible || s.loadingMore || inFlightRef.current) return
+    if (!s.isArticleListReady || !s.loadMoreVisible || s.loadingMore || inFlightRef.current?.snapshot === s.snapshot) return
     if (!manual && s.loadMoreError) return
     const w = windowRef.current
     const key = `${s.snapshot}:${w?.count}:${w?.cursor}`
@@ -60,16 +62,22 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       autoRef.current.started++
     }
     attemptRef.current = key
-    inFlightRef.current = true
+    const flight = { snapshot: s.snapshot }
+    inFlightRef.current = flight
     if (observation) window.dispatchEvent(new CustomEvent("inbox:prefetch", { detail: { ...observation, count: w.count, start: w.start, size: w.size, cursor: w.cursor, scope: s.snapshot } }))
     try { await s.handleLoadMore(s.getEntries, { prefetch: observation?.reason === "startup" }) }
-    finally { inFlightRef.current = false; if (aliveRef.current) setSettled(v => v + 1) }
+    finally {
+      if (inFlightRef.current === flight) {
+        inFlightRef.current = null
+        if (aliveRef.current) setSettled(v => v + 1)
+      }
+    }
   }
   const requestRef = useRef(request)
   requestRef.current = request
 
   useEffect(() => {
-    if (!isArticleListReady || !loadMoreVisible || loadingMore || loadMoreError || inFlightRef.current) return
+    if (!isArticleListReady || !loadMoreVisible || loadingMore || loadMoreError || inFlightRef.current?.snapshot === snapshot) return
     const decision = autoPrefetchDecision(windowRef.current, autoRef.current.started)
     if (decision) return scheduleAutoPrefetch(() => {
       if (latest.current.snapshot === snapshot) void requestRef.current(false, decision)
@@ -126,7 +134,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const first = visible[0]
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
       if (!offerCovers()) waitForCovers()
-      if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current) return
+      if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current?.snapshot === s.snapshot) return
       // Mounted short lists also look near their tail before any scrolling.
       // At the top, only the double-RAF startup queue may fetch its five pages;
       // mount/image checks must not bypass that budget or its read-only flag.

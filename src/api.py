@@ -250,9 +250,14 @@ async def ai_status(request: Request):
             app.state.client.get(MF + "/v1/feeds", headers=auth_headers(request), timeout=8),
         )
         if entries_response.status_code == 200:
-            reader_total = int(entries_response.json().get("total", reader_total))
+            entries_data = entries_response.json()
+            total = entries_data.get("total") if isinstance(entries_data, dict) else None
+            if type(total) is int and total >= 0:
+                reader_total = total
         if feeds_response.status_code == 200:
-            source_count = len(feeds_response.json())
+            feeds_data = feeds_response.json()
+            if isinstance(feeds_data, list):
+                source_count = len(feeds_data)
     except (httpx.HTTPError, ValueError, TypeError):
         pass
     summary["coverage"] = {

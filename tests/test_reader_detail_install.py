@@ -92,6 +92,7 @@ class DetailInstallTests(unittest.TestCase):
             ('3045d90dc1c4e4edc952705331c1b393fbba4ca1', '82cc620457d6ee140e90a1edc85523d3c39532d5b51c36d0b9d26bf1cecc9ee4'),
             ('cc61abda99c44ab5f1e8186d2f3d5dac74fdc5dc', 'e9c9eb1d88b683e66428bfd099cbd3fca9f91e27a0cc679a372f882c8e0e2098'),
             ('8db6f0f69974b299d0a7a732e9b07d4b392f66ed', '75b82cc3b4b40ce113d91725c4869971458be301cb6da8213125795efe455945'),
+            ('9d9eefc314ece569928960ab04fc7ca48d9193be', '5680f6975a030c29c80e918f9f409cf4e3e48d1552bd6110cf39db481bcf4f8f'),
         ):
             with self.subTest(commit=commit):
                 previous = subprocess.check_output(['git', '-C', str(ROOT), 'show',

@@ -604,3 +604,67 @@ async def test_minimum_score_is_effective_even_when_model_flag_is_false(
     high = await browser_api.get("/mf/v1/entries?ai_view=recommended&ai_min=6", headers=h)
     assert low.status_code == 200 and low.json()["total"] == 1
     assert high.status_code == 200 and high.json()["total"] == 0
+
+
+STATUS_COUNT_SHAPES = [
+    ({"total": 6}, [{"id": 1}, {"id": 2}], 6, 2),
+    ({"total": 0}, [], 0, 0),
+    *[(value, [{"id": 1}, {"id": 2}], 5, 2) for value in ([], None, "bad", True, 9)],
+    ({}, [{"id": 1}, {"id": 2}], 5, 2),
+    *[({"total": value}, [{"id": 1}, {"id": 2}], 5, 2)
+      for value in (-1, True, False, "6", 1.5, float("inf"), float("nan"), [], None)],
+    *[({"total": 6}, value, 6, 0)
+      for value in (None, {}, {"error_message": "synthetic error envelope"}, "bad", 4, True)],
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entries_data,feeds_data,expected_total,expected_sources", STATUS_COUNT_SHAPES)
+async def test_status_optional_native_count_shapes_preserve_resources(
+    entries_data, feeds_data, expected_total, expected_sources
+):
+    import copy
+    import sys
+    from types import ModuleType, SimpleNamespace
+    from unittest.mock import patch
+
+    local = {"coverage": {"total_articles": 5, "ai_done": 2}, "counts": {"done": 2}, "usage": []}
+    calls, authorizations = [], []
+    campaign = ModuleType("month_control")
+    campaign.status = lambda: {"state": "synthetic"}
+
+    async def authorize(request, *, admin=False):
+        authorizations.append(admin)
+        return 1
+
+    async def health():
+        return {"ready": True}
+
+    async def upstream(request):
+        calls.append(request)
+        assert request.headers["x-auth-token"] == "synthetic-status-session"
+        if request.url.path == httpx.URL(api.MF + "/v1/entries").path:
+            assert dict(request.url.params) == {"limit": "1"}
+            data = entries_data
+        else:
+            assert request.url.path == httpx.URL(api.MF + "/v1/feeds").path and not request.url.query
+            data = feeds_data
+        return httpx.Response(200, content=json.dumps(data).encode(), headers={"content-type": "application/json"})
+
+    request = api.Request({"type": "http", "headers": [(b"x-auth-token", b"synthetic-status-session")]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        with patch.object(api, "authorize", authorize), patch.object(api, "health", health), \
+             patch.object(api, "status_summary", side_effect=lambda uid: copy.deepcopy(local)), \
+             patch.object(api.app.state, "client", client, create=True), \
+             patch.object(api.shutil, "disk_usage", return_value=SimpleNamespace(total=100, used=40, free=60)), \
+             patch.object(api.Path, "read_text", return_value="MemTotal: 100 kB\nMemAvailable: 60 kB\n"), \
+             patch.object(api.Path, "exists", return_value=False), patch.dict(sys.modules, {"month_control": campaign}):
+            result = await api.ai_status(request)
+    assert authorizations == [True]
+    assert len(calls) == 2
+    assert result["coverage"] == {**local["coverage"], "reader_total": expected_total, "source_count": expected_sources}
+    assert result["counts"] == local["counts"] and result["usage"] == local["usage"]
+    assert result["resources"] == {"disk_total_bytes": 100, "disk_used_bytes": 40, "disk_free_bytes": 60,
+                                   "memory_total_bytes": 102400, "memory_used_bytes": 40960,
+                                   "memory_available_bytes": 61440, "analysis_db_bytes": 0}
+    assert result["ready"] is True and result["kaggle"] == {"state": "synthetic"}

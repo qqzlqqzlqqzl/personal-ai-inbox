@@ -99,6 +99,15 @@ if 'return true' not in block:
         shutil.copy2(p, original)
     p.write_text(s[:start] + block + s[end:])
 
+# Keep the native fetch controls, but invalidate evidence for a replaced body.
+# This also covers view-only extraction without mutating the server's cache.
+patch('src/hooks/useEntryActions.js',
+      'import { Message, Notification } from "@arco-design/web-react"',
+      'import { readerFetchedBody } from "@/utils/reader-entry-detail"\nimport { Message, Notification } from "@arco-design/web-react"')
+patch('src/hooks/useEntryActions.js',
+      '        ...currentActiveContent,\n        content: newContent,',
+      '        ...readerFetchedBody(currentActiveContent, newContent),')
+
 patch('src/components/Article/ActionButtons.jsx',
       '''  const [isFetchedOriginal, setIsFetchedOriginal] = useState(false)
   const [lastActiveContentId, setLastActiveContentId] = useState(activeContent?.id)''',
