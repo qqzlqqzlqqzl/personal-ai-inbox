@@ -55,10 +55,14 @@ def resize_image(body, content_type, width):
             w, h = original.size
             if not w or not h or w * h > MAX_PIXELS or getattr(original, "n_frames", 1) != 1:
                 return body, content_type
-            if w <= width and h <= MAX_OUTPUT_HEIGHT and w * h <= MAX_OUTPUT_PIXELS:
+            orientation = original.getexif().get(274, 1)
+            # The browser applies EXIF orientation even when original bytes pass
+            # through. Compare the displayed dimensions before the small-image exit.
+            display_w, display_h = (h, w) if orientation in (5, 6, 7, 8) else (w, h)
+            if display_w <= width and display_h <= MAX_OUTPUT_HEIGHT and w * h <= MAX_OUTPUT_PIXELS:
                 return body, content_type
             # Leave ordinary JPEGs lazy so thumbnail can use decoder downsampling.
-            image = original if original.getexif().get(274, 1) == 1 else ImageOps.exif_transpose(original)
+            image = original if orientation == 1 else ImageOps.exif_transpose(original)
             try:
                 w, h = image.size
                 scale = min(1, width / w)

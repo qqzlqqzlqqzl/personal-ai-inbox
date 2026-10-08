@@ -56,6 +56,30 @@ def test_exif_rotation_and_png_alpha_survive():
     assert mime == "image/png"
 
 
+@pytest.mark.parametrize("orientation", [5, 6, 7, 8])
+@pytest.mark.parametrize("size,width", [((400, 900), 480), ((800, 1600), 960), ((1200, 2400), 1600)])
+def test_exif_display_width_cannot_take_encoded_small_image_exit(orientation, size, width):
+    exif = Image.Exif(); exif[274] = orientation
+    body = picture(size, exif=exif)
+    assert size[0] <= width < size[1]
+    result, mime = images.resize_image(body, "image/jpeg", width)
+    with Image.open(io.BytesIO(result)) as decoded:
+        assert 0 < decoded.width <= width
+        assert abs(decoded.width / decoded.height - size[1] / size[0]) < .004
+        assert decoded.getexif().get(274, 1) == 1
+        assert decoded.height <= images.MAX_OUTPUT_HEIGHT
+        assert decoded.width * decoded.height <= images.MAX_OUTPUT_PIXELS
+    assert mime == "image/jpeg" and result != body
+
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_exif_display_small_images_keep_original_bytes(orientation):
+    size = (1600, 800) if orientation in (5, 6, 7, 8) else (800, 1600)
+    exif = Image.Exif(); exif[274] = orientation
+    body = picture(size, exif=exif)
+    assert images.resize_image(body, "image/jpeg", 960) == (body, "image/jpeg")
+
+
 def test_small_invalid_nonimage_animation_and_pixel_limit_do_not_reencode(monkeypatch):
     small = picture((32, 24))
     for body, mime in [(small, "image/jpeg"), (b"broken jpeg", "image/jpeg"),
