@@ -5,9 +5,10 @@ Current user scope (2026-10-09, Issue194):
 - Each discovery pass retains the existing 24-body / 30-second bound and keyset continuation. Completed translations are reused, and queued/partial work continues under the shared daily budget. This policy does not imply that the historical backlog is already complete.
 - A real article-open POST also requests work; ordinary detail/status GET and list/body/image prefetch stay read-only.
 - Reuse the existing bilingual worker and queue. BILINGUAL_ROLLING_ENABLED defaults false for rollout, enabled in the existing production private environment after deployment.
-- Automatic and article-open requests share bilingual_usage and its atomic reserved-or-actual token ceiling. Production ceiling is 1,000,000 input+output tokens and 1000 requests per UTC day, resetting at 08:00 Asia/Shanghai. This is a maximum, not a consumption target.
+- Automatic and article-open requests share bilingual_usage and its atomic reserved-or-actual token ceiling. Production ceiling is 1,000,000 input+output tokens and 5000 requests per UTC day, resetting at 08:00 Asia/Shanghai. The higher secondary request limit lets remaining tokens be used; the Token ceiling is unchanged. This is a maximum, not a consumption target.
 - At the ceiling, preserve pending/partial translations and resume under the next day's budget. Cached reads are free.
 - Analysis must be current/done and score >=8, with current ownership, visibility, recommendation quality and English-language checks. Already translated exact content is not paid for again.
+- A verified restored original that changes the body can automatically request its matching translation. An old completed translation stays preserved but is not shown for a different body; unverified source changes do not trigger replacement. The rolling worker also discovers newer stored repairs without requiring another article visit.
 - In bilingual mode, render each original English segment first and its Chinese translation immediately after it. Chinese-only and original-only modes retain their behavior.
 - Keep VERSION, PROMPT and source-hash identity: existing successful and partial translations stay reusable. Image-address-only rotation retains the existing completed-text reuse.
 - Use the existing private New API key and gpt-4o-mini. No new service, environment, database or image-cache allocation.

@@ -127,12 +127,15 @@ export function startBilingualTranslation({
 }
 
 export function shouldRequestBilingualAutomatically(entry) {
-  // A structure-only body check cannot silently request a replacement for an
-  // old successful cache. Explicit translation POSTs remain server-authorized.
+  // Only a verified restored original can replace a previous source version.
+  // Unknown/unverified changes keep the old successful cache isolated.
   const body = entry?.ai?.body_completeness
   const bodyCheckPending = body?.policy_version === 'reader-body-completeness-v1' &&
     body.status !== 'verified' && !body.checked_at
-  return isTranslationEligible(entry) && entry?.translation?.status !== 'source_changed' && !bodyCheckPending
+  const restored = entry?.prepared_source === 'reader_original_html' &&
+    body?.policy_version === 'reader-body-completeness-v1' && body.status === 'verified'
+  return isTranslationEligible(entry) &&
+    (entry?.translation?.status !== 'source_changed' || restored) && !bodyCheckPending
 }
 
 export function useBilingualTranslation(entry) {

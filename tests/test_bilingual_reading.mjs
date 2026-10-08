@@ -48,13 +48,18 @@ test('three modes accept the API envelope translation without a legacy language 
   assert.equal(getBilingualReading(null).html, '')
 })
 
-test('verified source changes retain old cache without implicit replacement demand', () => {
+test('source changes replace translations only after original-body verification', () => {
   const changed = {...entry, translation: {...translation, status:'source_changed'}}
   assert.equal(getBilingualReading(changed).html, content)
   assert.match(getBilingualReading(changed).message, /已有译文对应旧正文/)
   assert.equal(getBilingualReading(changed,'original').message, '')
   assert.equal(isTranslationEligible(changed), true, 'explicit server-authorized requests remain eligible')
   assert.equal(shouldRequestBilingualAutomatically(changed), false)
+  const restored = {...changed, prepared_source:'reader_original_html', ai:{...entry.ai,
+    body_completeness:{policy_version:'reader-body-completeness-v1',status:'verified',checked_at:123}}}
+  assert.equal(shouldRequestBilingualAutomatically(restored), true)
+  assert.equal(shouldRequestBilingualAutomatically({...restored,ai:{...restored.ai,
+    body_completeness:{...restored.ai.body_completeness,status:'unverified'}}}), false)
   const waiting = {...entry, ai:{...entry.ai,body_completeness:{policy_version:'reader-body-completeness-v1',status:'unverified',checked_at:null}}}
   assert.equal(shouldRequestBilingualAutomatically(waiting), false)
   assert.equal(shouldRequestBilingualAutomatically({...waiting,ai:{...waiting.ai,body_completeness:{...waiting.ai.body_completeness,checked_at:123}}}), true)
