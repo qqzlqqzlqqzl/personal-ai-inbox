@@ -163,6 +163,16 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_slots).hexdigest(), expected_slots)
         self.assertNotIn(expected_slots, old[variants])
         old[variants].append(expected_slots)
+        # #199 admits only the exact deployed notes-sort control for upgrade.
+        sort_name = 'src/components/Article/SearchAndSortBar.jsx'
+        sort_base = '8db6f0f69974b299d0a7a732e9b07d4b392f66ed'
+        sort_sha = '25e801d1c55b2597f614d1a2e5a7a141d6217d417044f999a0d6d493f6559f2a'
+        prior_sort = subprocess.check_output(
+            ['git', 'show', sort_base + ':frontend-review/after/' + sort_name],
+            cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_sort).hexdigest(), sort_sha)
+        self.assertNotIn(sort_sha, old.get(sort_name, []))
+        old.setdefault(sort_name, []).append(sort_sha)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
