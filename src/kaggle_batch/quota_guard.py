@@ -4,6 +4,10 @@ import math
 import os
 import subprocess
 import time
+try:
+    from .absence_proof import VERSION_WARNING
+except ImportError:
+    from absence_proof import VERSION_WARNING
 
 RESERVE_HOURS = 1.0
 MAX_AGE_SECONDS = 300
@@ -29,7 +33,12 @@ def admission(snapshot, *, now=None, checked_at=None):
 def query_client(client, *, now=None):
     """Each call invokes official CLI anew; stdout/errors never leave this function."""
     try:
-        rows = json.loads(client(['quota','--format','json'], 20))
+        output = client(['quota','--format','json'], 20)
+        first, separator, rest = output.partition('\n')
+        # Accept only one complete official warning before the JSON payload.
+        if separator and VERSION_WARNING.fullmatch(first.removesuffix('\r')):
+            output = rest
+        rows = json.loads(output)
         if not isinstance(rows,list):
             raise TypeError()
         gpu = [r for r in rows if isinstance(r,dict) and str(r.get('resource','')).strip().lower() == 'gpu']
