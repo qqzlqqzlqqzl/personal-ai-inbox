@@ -1032,6 +1032,13 @@ class TechnicalLiteralTests(unittest.TestCase):
         '500 GiB', '250 GiB', '50 GiB', '25 GB', '$0.04 / GB',
         'AWS SigV4', 'Surface Laptop Ultra', 'Zen 3 / Vermeer',
         'Ryzen 9 5900X3D (AMD)', 'macOS Intel (x64)', 'Workers KV', 'Python 3.12.', 'ndcg@10',
+        'ACS URL', 'ACS URL:', 'ACS URL: .', '#### API',
+        'EP 3 909 047', 'DE 20 2021 004 551 U1',
+        '2x16GB G.Skill Trident Z Neo RGB DDR5-7200',
+        '4x8GB G.Skill Trident Z RGB DDR4-3200', 'AMD AM5 (Zen 5, Zen 4)',
+        'AMD AM4 (Zen 3)', '2TB Sabrent Rocket 4 Plus',
+        'pp8192   1583.9 -> 1657.1 tok/s (+4.6%)\npp64000   610.0 -> 684.5 tok/s (+12.2%)',
+        '![Image 3: logo](https://example.org/logo.svg)', '[](https://example.org/share?article=123)',
     )
 
     def validate(self, source, target):
@@ -1061,6 +1068,9 @@ class TechnicalLiteralTests(unittest.TestCase):
             'Surface Laptop Ultra is faster.', 'Zen 3 / Vermeer benchmarks',
             'Workers KV is available.', 'Python 3.12 is fast.', 'ndcg@10 improves ranking.',
             '0F FA means a supported operation.',
+            'AMD AM5 (Zen 5, Zen 4) improves compatibility.',
+            '2TB Sabrent Rocket 4 Plus is faster.', 'EP 3 909 047 covers a useful invention.',
+            '#### API overview', 'pp8192 1583.9 -> 1657.1 tok/s (+4.6%) explains the improvement.',
         ):
             with self.subTest(prose=sentence):
                 self.assertFalse(bilingual._technical_literal(sentence))

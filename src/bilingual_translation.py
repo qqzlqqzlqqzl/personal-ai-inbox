@@ -578,6 +578,11 @@ def _technical_literal(text):
             re.fullmatch(r'[$#]\s+\S[^\r\n]*', text) or
             re.fullmatch(r'[A-Za-z_]\w*\s*=\s*[A-Z][A-Za-z0-9_-]*\(.*\)', text)):
         return True
+    # Reader markdown may contain a resource-only image or an empty share link.
+    # Its URL is source data, not English prose or a translation instruction.
+    if len(text) <= 2048 and re.fullmatch(
+            r'(?:\[\]|!\[Image \d{1,4}: (?:logo|image|Image|Logo)\])\(https?://[^\s()]+\)', text):
+        return True
     # Recognize bounded product/platform syntax, never arbitrary Title Case.
     # Qualifiers contain only technical identifiers, versions and prices; prose
     # such as "Windows PowerShell Is Better" must still be translated.
@@ -587,7 +592,7 @@ def _technical_literal(text):
     # exception. The caller still requires unchanged visible source text.
     literal = ' '.join(text.split())
     if literal in {'AWS SigV4', 'Surface Laptop Ultra', 'Zen 3 / Vermeer',
-                   'macOS Intel (x64)', 'Workers KV'}:
+                   'macOS Intel (x64)', 'Workers KV', 'ACS URL', 'ACS URL:', 'ACS URL: .', '#### API'}:
         return True
     unit = r'(?:KiB|MiB|GiB|TiB|KB|MB|GB|TB)'
     number = r'[0-9]{1,12}(?:\.[0-9]{1,6})?'
@@ -598,7 +603,14 @@ def _technical_literal(text):
             r'Python \d{1,2}(?:\.\d{1,3}){1,2}\.?',
             r'(?:ndcg|NDCG)@\d{1,4}',
             r'Ryzen [3579] \d{4,5}[A-Z0-9]{0,6} \(AMD\)',
+            r'(?:EP|DE) (?:\d{1,4} ){1,5}\d{1,4}(?: [A-Z]\d)?',
+            r'\d{1,2}x\d{1,3}GB G\.Skill Trident Z(?: Neo)?(?: RGB)? DDR[345]-\d{3,5}',
+            r'AMD AM[345] \(Zen [1-9](?:, Zen [1-9])*\)',
+            r'\d{1,2}TB Sabrent Rocket \d{1,2}(?: Plus)?',
     )):
+        return True
+    metric = r'(?:pp|tg)\d{1,6}\s+~?\d+(?:\.\d+)?\s*->\s*~?\d+(?:\.\d+)?\s+tok/s\s+\([+-]\d+(?:\.\d+)?%\)'
+    if re.fullmatch(metric + r'(?:\s+' + metric + r')*', text):
         return True
     # Environment-prefixed relative executable commands remain copyable verbatim.
     if re.fullmatch(r'(?:[A-Z][A-Z0-9_]{0,63}=[A-Za-z0-9_.+-]+\s+)*'
