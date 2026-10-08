@@ -157,3 +157,41 @@ for(const bad of [undefined,'bad',[revisionA]]) {
   assert.equal(state.articleListRevision,0);
 }
 console.log('PASS dynamic result replacement, one refresh budget, explicit retry, invalid revision refusal');
+
+// A slow page belongs to its view, not to whichever view is now ready. Exercise
+// the real hook including its module-level lock and a late old finally.
+for (const change of ['sort', 'snapshot', 'session']) {
+  for (const oldFails of [false, true]) {
+    let requestKey='a',session=1,reads=0,newCalls=0;
+    dependencies.createArticleListRequestKey=()=>requestKey;
+    dependencies.getDataSessionRevision=()=>session;
+    dependencies.markDuplicatesAsRead=()=>{reads++};
+    resetDynamic();firstPage(base,revisionA);
+    const realHook=evaluate('hooks/useLoadMore.js','useLoadMore');
+    const oldPage=Promise.withResolvers(),newPage=Promise.withResolvers();
+    const old=realHook().handleLoadMore(()=>oldPage.promise,{prefetch:true});
+    assert.equal(realHook().loadingMore,true);
+    if(change==='sort')requestKey='b';
+    else if(change==='snapshot')state.articleListSnapshotRevision++;
+    else session++;
+    assert.equal(realHook().loadingMore,false,'a retired view cannot block the new ready view');
+    const getNew=()=>{newCalls++;return newPage.promise};
+    const pending=realHook().handleLoadMore(getNew,{prefetch:true});
+    assert.equal(newCalls,1,'new pagination starts before the old page settles');
+    const before=JSON.stringify(state),oldConsole=console.error;
+    try {
+      console.error=()=>{};
+      if(oldFails)oldPage.reject(Error('retired request'));
+      else oldPage.resolve({entries:[{id:999,title:'Retired'}],total:100,ai_revision:revisionA});
+      await old;
+    } finally {console.error=oldConsole}
+    assert.equal(JSON.stringify(state),before,'retired completion cannot mutate the new view');
+    assert.equal(realHook().loadingMore,true,'old finally cannot release the new owner');
+    await realHook().handleLoadMore(getNew,{prefetch:true});
+    assert.equal(newCalls,1,'same-view pagination stays single-flight');
+    newPage.resolve({entries:base.slice(24,48),total:52,ai_revision:revisionA});await pending;
+    assert.equal(realHook().loadingMore,false);assert.equal(state.articleListOffset,48);
+    assert.equal(reads,0,'background pages never mark duplicates as read');
+  }
+}
+console.log('PASS pagination owners isolate sort, snapshot and session changes, late success/error and same-view single-flight');

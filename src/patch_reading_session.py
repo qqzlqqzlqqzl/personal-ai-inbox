@@ -23,6 +23,7 @@ if old_buffer in s:
  s=s.replace(old_buffer,new_buffer,1)
 else: assert s.count(new_buffer)==1, 'virtual buffer patch anchor missing'
 p.write_text(s)
+
 print('Reading snapshot, ten-page automatic prefetch and scroll overlay applied')
 
 # AI offset totals and native cursor totals have different meanings.
@@ -47,4 +48,30 @@ for before,after in [
  else:
   assert s.count(before)==1, 'background prefetch hook anchor missing'
   s=s.replace(before,after,1)
+p.write_text(s)
+
+# A retired view must not retain the current view's pagination slot. Keep the
+# existing boolean guard intact for the calendar overlay applied later.
+for old_owner,new_owner in [
+ ('const loadingMoreState = atom(false)', '''const getLoadMoreOwner = () => JSON.stringify([
+  createArticleListRequestKey({ content: contentState.get(), settings: settingsState.get() }),
+  getDataSessionRevision(), contentState.get().articleListSnapshotRevision,
+])
+let loadingMoreOwner = null
+const loadingMoreState = atom(false)'''),
+ ('  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {', '''  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {
+    const requestOwner = getLoadMoreOwner()
+    if (loadingMoreOwner !== requestOwner) {
+      loadingMoreOwner = requestOwner
+      setLoadingMore(false)
+    }'''),
+ ('    } finally {\n      setLoadingMore(false)\n    }', '''    } finally {
+      if (loadingMoreOwner === requestOwner) setLoadingMore(false)
+    }'''),
+ ('  return { handleLoadMore, loadMoreError, loadingMore }',
+  '  return { handleLoadMore, loadMoreError, loadingMore: loadingMore && loadingMoreOwner === getLoadMoreOwner() }'),
+]:
+ if new_owner not in s:
+  assert s.count(old_owner)==1, 'pagination owner hook anchor missing'
+  s=s.replace(old_owner,new_owner,1)
 p.write_text(s)
