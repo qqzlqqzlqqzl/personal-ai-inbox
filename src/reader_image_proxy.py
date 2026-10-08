@@ -9,6 +9,7 @@ import contextlib
 import hashlib
 import io
 import re
+import time
 import warnings
 
 import httpx
@@ -207,11 +208,12 @@ def original_cache_put(native_base, path, body, headers, status_code=200, cache_
 
 
 def fetch_variant(native_base, path, width, accept, cache_policy='', *, client_factory=httpx.AsyncClient,
-                  cache=None, signature_key=_UNSET, priority=0, background=False):
+                  cache=None, signature_key=_UNSET, priority=0, background=False, hot_until=0):
     """Local HMAC gates hits; native validates every miss. Failure never becomes a hit."""
     # Native forwards Accept to the origin. Use one representation for the
     # browser and server warmer, including the actual fetch and disk cache key.
     accept = NATIVE_IMAGE_ACCEPT
+    hot_options = {"hot_until": hot_until} if hot_until else {}
     private_key = media_proxy_key() if signature_key is _UNSET else signature_key
     target = verified_proxy_target(path, private_key)
     if width not in (0, *WIDTHS):
@@ -222,15 +224,15 @@ def fetch_variant(native_base, path, width, accept, cache_policy='', *, client_f
         key = variant_key(native_base, target, width, accept)
         try:
             with cache.singleflight(key):
-                hit = cache.get(key, priority=priority)
+                hit = cache.get(key, priority=priority, **hot_options)
                 if hit:
                     return Response(hit[0], headers=hit[1])
-                if background and not cache.can_admit(priority):
+                if background and not cache.can_admit(priority, **hot_options):
                     raise BackgroundCacheFull
                 response = _make_variant(native_base, path, width, accept, client_factory, background=background)
                 if response.status_code == 200 and _is_cache_image(response.body, response.headers.get('content-type', '')):
                     with contextlib.suppress(OSError):
-                        cache.put(key, response.body, dict(response.headers), priority=priority, background=background)
+                        cache.put(key, response.body, dict(response.headers), priority=priority, background=background, **hot_options)
                 return response
         except OSError:
             if background:
@@ -250,7 +252,8 @@ async def proxy_reader_image(path, request, native_base):
     try:
         response = await asyncio.wait_for(image_work.run(
             fetch_variant, native_base, path, int(values[0]), request.headers.get("accept", "image/*"),
-            request.headers.get('cache-control', '')),
+            request.headers.get('cache-control', ''),
+            hot_until=(int(time.time()) // 300) * 300 + 900),
             timeout=REQUEST_SECONDS)
     except (httpx.HTTPError, TimeoutError):
         return Response(status_code=504, headers={"Cache-Control": "no-store"})

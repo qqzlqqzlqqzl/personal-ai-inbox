@@ -1,4 +1,4 @@
-"""Warm complete newest-first All / AI recommended >=8 article images.
+"""Warm common Reader sort heads before deeper recommended article images.
 
 Only the existing signed native image proxy is used. Analysis SQLite is read-only;
 the only writes are the existing bounded image cache and one private status JSON.
@@ -18,6 +18,8 @@ import time
 from urllib.parse import urlsplit
 
 PAGE_SIZE = 24
+HEAD_ENTRIES = 2 * PAGE_SIZE
+HEAD_SORTS = ("time", "score", "technical", "business")
 MAX_PAGES = 16
 MAX_MISSES = 60
 MAX_STATE_ITEMS = 128
@@ -84,6 +86,26 @@ def database_candidates(db, uid, quality, *, after=None, limit=PAGE_SIZE):
         " ORDER BY COALESCE(julianday(published_at),0) DESC,entry_id DESC LIMIT ?", params))
     cursor = [rows[-1]["published_order"], rows[-1]["entry_id"]] if rows else after
     return select_candidates(rows, uid, quality), cursor, len(rows) < limit
+
+
+def database_heads(db, uid, quality, *, limit=HEAD_ENTRIES):
+    """Live, interleaved sort heads: no fixed feeds, dates or article IDs."""
+    columns = {"time": "julianday(published_at)", "score": "score",
+               "technical": "technical_score", "business": "business_score"}
+    lanes = []
+    for field in HEAD_SORTS:
+        rows = db.execute("SELECT *,COALESCE(julianday(published_at),0) AS published_order "
+                          "FROM analyses WHERE user_id=? AND state='done' AND score>=8 "
+                          "ORDER BY " + columns[field] + " DESC,entry_id DESC LIMIT ?",
+                          (uid, limit * 4)).fetchall()
+        lanes.append(select_candidates(rows, uid, quality)[:limit])
+    result, seen = [], set()
+    for index in range(limit):
+        for lane in lanes:
+            if index < len(lane) and lane[index]["entry_id"] not in seen:
+                seen.add(lane[index]["entry_id"])
+                result.append(lane[index])
+    return result
 
 
 NON_IMAGES = {".svg", ".svgz", ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".m4a", ".ogg", ".wav", ".pdf"}
@@ -351,10 +373,56 @@ def main():
                         if cursor is not None and (state.get("cursor") is None or tuple(cursor) < tuple(state["cursor"])):
                             state["cursor"] = list(cursor)
 
+                    def fetch_image(path, width, on_miss, *, priority, hot_until=0):
+                        def factory(**kwargs):
+                            if time.monotonic() + FETCH_SECONDS + 1 >= deadline:
+                                raise RoundStop("deadline")
+                            on_miss()
+                            return httpx.AsyncClient(**kwargs)
+                        try:
+                            response = fetch_variant(NATIVE_BASE, path, width, NATIVE_IMAGE_ACCEPT,
+                                client_factory=factory, priority=priority, background=True,
+                                hot_until=hot_until)
+                        except BackgroundCacheFull:
+                            raise CacheFull from None
+                        except (httpx.TimeoutException, httpx.NetworkError, TimeoutError):
+                            raise SlowSource from None
+                        if response.status_code == 429 or response.status_code >= 500:
+                            raise SlowSource
+                        target = verify(path)
+                        hit = image_cache.get(variant_key(NATIVE_BASE, target, width, NATIVE_IMAGE_ACCEPT)) if target else None
+                        return bool(response.status_code == 200 and hit)
+
+                    # Cover-only heads run first; large body images cannot consume
+                    # this front-of-list budget. Hits reuse the same signed variants
+                    # as browser requests and refresh only a shared five-minute bucket.
+                    hot_until = (int(time.time()) // 300) * 300 + 900
+                    head_rows = database_heads(db, uid, public_for_row)
+                    head_jobs = []
+                    for start in range(0, len(head_rows), PAGE_SIZE):
+                        group = head_rows[start:start + PAGE_SIZE]
+                        ids = [row["entry_id"] for row in group]
+                        body, headers = json_response(client, "POST", "/v1/entries/metadata", deadline=deadline,
+                                                      json={"entry_ids": ids})
+                        if headers.get("X-Reader-Entry-Metadata") != "1":
+                            raise ValueError("native_metadata_required")
+                        metadata = decode_metadata(body, uid, ids)
+                        head_jobs.extend(bind_jobs(group, metadata, feeds,
+                            lambda entry, row: stored_cover_proxy(entry, row.get("cover_url"), row, uid, key, native_base=NATIVE_BASE),
+                            verify, quality=public_for_row, seen=seen))
+                    priorities = {job["path"]: job["priority"] for job in head_jobs}
+                    counters["head_entries"] = len(head_rows)
+                    counters["head_images"] = len(head_jobs)
+                    warm_round(head_jobs, state,
+                        lambda path, width, miss: fetch_image(path, width, miss,
+                            priority=priorities[path], hot_until=hot_until),
+                        current, deadline=deadline, counters=counters)
+                    counters["head_misses"] = counters["misses"]
+
                     after, pages = None, 0
                     # Every round revisits the newest page first (new arrivals and
                     # expired originals), then resumes its persisted deeper page.
-                    while pages < MAX_PAGES and time.monotonic() < deadline:
+                    while counters["stop"] == "complete" and pages < MAX_PAGES and time.monotonic() < deadline:
                         rows, page_cursor, ended = database_candidates(db, uid, public_for_row, after=after)
                         pages += 1
                         ids = [row["entry_id"] for row in rows]
@@ -402,25 +470,12 @@ def main():
                                     verify, quality=public_for_row, seen=seen)
 
                                 def fetch(path, width, on_miss):
-                                    def factory(**kwargs):
-                                        if time.monotonic() + FETCH_SECONDS + 1 >= deadline:
-                                            raise RoundStop("deadline")
-                                        on_miss()
-                                        return httpx.AsyncClient(**kwargs)
-                                    try:
-                                        response = fetch_variant(NATIVE_BASE, path, width, NATIVE_IMAGE_ACCEPT,
-                                            client_factory=factory, priority=priority, background=True)
-                                    except BackgroundCacheFull:
-                                        raise CacheFull from None
-                                    except (httpx.TimeoutException, httpx.NetworkError, TimeoutError):
-                                        raise SlowSource from None
-                                    if response.status_code == 429 or response.status_code >= 500:
-                                        raise SlowSource
+                                    ok = fetch_image(path, width, on_miss, priority=priority)
                                     target = verify(path)
                                     hit = image_cache.get(variant_key(NATIVE_BASE, target, width, NATIVE_IMAGE_ACCEPT)) if target else None
                                     if hit:
                                         recheck_at[0] = min(recheck_at[0], time.time() + cache_lifetime(hit[1]))
-                                    return bool(response.status_code == 200 and hit)
+                                    return ok
 
                                 warm_round(jobs, state, fetch, current, deadline=deadline, counters=counters)
                                 if counters["stop"] != "complete":
@@ -444,7 +499,8 @@ def main():
                             break
                         after = state.get("cursor")
                     else:
-                        counters["stop"] = "deadline" if time.monotonic() >= deadline else "page_limit"
+                        if counters["stop"] == "complete":
+                            counters["stop"] = "deadline" if time.monotonic() >= deadline else "page_limit"
                     counters["pages"] = pages
                 finally:
                     core.connect = original_connect

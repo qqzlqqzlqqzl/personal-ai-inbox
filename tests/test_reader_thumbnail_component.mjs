@@ -88,7 +88,7 @@ test('changing entry/source starts a fresh proxy thumbnail; unproxied covers req
   } finally {await act(async()=>root.unmount());tracked.restore()}
 })
 
-test('unbound Today covers issue no origin warmups while ten-page lifecycle stays bounded',async(t)=>{
+test('unbound Today covers issue no origin warmups while five-page lifecycle stays bounded',async(t)=>{
   const entryList=Array.from({length:13},(_,id)=>({id,coverSource:`https://example.org/today-${id}.jpg`}))
   const file=fileURLToPath(new URL('../patches/ProgressiveLoadMore.jsx',import.meta.url))
   const fixtures={
@@ -166,16 +166,16 @@ test('unbound Today covers issue no origin warmups while ten-page lifecycle stay
       }
       scroll.scrollTop=0
       await act(async()=>paint())
-      const expected=fail?1:Math.min(10,stopAfter)
+      const expected=fail?1:Math.min(5,stopAfter)
       await settleUntil(()=>calls.length>=expected && active===0,'background page queue finishes its bounded work')
       assert.equal(maxActive,1)
       assert.equal(new Set(calls).size,calls.length,'no repeated page cursor')
       return calls
     }
-    assert.equal((await pagePhase('ten-pages')).length,10,'exactly ten forward pages without scrolling')
+    assert.equal((await pagePhase('five-pages')).length,5,'exactly five forward pages without scrolling')
     await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20))})
-    assert.equal(globalThis.__readerFixtureContent.articleListOffset,253,'initial thirteen plus ten pages, not ten total pages')
-    assert.equal(images.length,0,'ten loaded pages never warm unbound external covers')
+    assert.equal(globalThis.__readerFixtureContent.articleListOffset,133,'initial thirteen plus five pages, not five total pages')
+    assert.equal(images.length,0,'five loaded pages never warm unbound external covers')
     assert.equal((await pagePhase('short-list',3)).length,3,'hasNextPage false ends automatic work')
     assert.equal((await pagePhase('failed-page',Infinity,true)).length,1,'failure stops automatic retries')
 

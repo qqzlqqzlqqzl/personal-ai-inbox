@@ -130,13 +130,14 @@ async def test_invalid_variant_never_fetches(monkeypatch, query):
 @pytest.mark.asyncio
 async def test_cache_validator_is_applied_only_after_native_response(monkeypatch):
     calls = []
-    def worker(*args):
-        calls.append(args)
+    def worker(*args, **kwargs):
+        calls.append((args, kwargs))
         return Response(b"pixels", headers={"ETag": '"variant"', "Cache-Control": "public, max-age=259200"})
     monkeypatch.setattr(images, "fetch_variant", worker)
     result = await images.proxy_reader_image(PATH, request(headers=[(b"if-none-match", b'"variant"')]), "http://native.test/mf")
     assert len(calls) == 1 and result.status_code == 304 and result.body == b""
     assert result.headers["cache-control"] == "public, max-age=259200"
+    assert 0 < calls[0][1]['hot_until'] - images.time.time() <= 900
 
 
 @pytest.mark.asyncio
