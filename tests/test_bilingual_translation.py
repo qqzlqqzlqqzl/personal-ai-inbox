@@ -575,7 +575,9 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.attached()['status'], 'budget_paused')
         self.assertIn('bilingual_html', self.attached())
         for _ in range(bilingual.MAX_ATTEMPTS - 1):
-            await self.run_mock(omitted={1})
+            # Recovery numbers text fragments from zero; omit both namespaces
+            # so this provider remains broken through the retry ceiling.
+            await self.run_mock(omitted={0, 1})
             self.ready_retry()
         self.assertEqual(self.attached()['status'], 'error')
         self.assertIn('bilingual_html', self.attached())
