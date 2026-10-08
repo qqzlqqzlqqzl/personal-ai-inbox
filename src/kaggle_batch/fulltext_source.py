@@ -543,11 +543,12 @@ async def fetch_reader(url, *,admission=None):
     raise last or FulltextUnavailable('reader_fetch_failed')
 
 
-async def fetch(url, *,admission=None):
+async def fetch(url, *,admission=None, direct_on_connect_error=False):
     """Bounded source fetch using only reviewed per-site transports."""
     import httpx
     selector,remove,repeated=rule_for(url)
-    async def request():
+    proxy = os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None
+    async def request(route):
         if selector=='@github-release':
             return await fetch_github_release(url,**options(admission))
         if selector=='@feed:adafruit':
@@ -561,7 +562,7 @@ async def fetch(url, *,admission=None):
         if selector.startswith('@reader'):
             return await fetch_reader(url,**options(admission))
         async with http_client(admission,timeout=25, trust_env=False, follow_redirects=False,
-                proxy=os.environ.get('AI_NEWS_OUTBOUND_PROXY') or None,
+                proxy=route,
                 headers={'User-Agent': 'Mozilla/5.0 (compatible; PersonalAIInbox/1.0)'}) as client:
             target = url
             for _ in range(5):
@@ -594,6 +595,15 @@ async def fetch(url, *,admission=None):
                     return result
             raise FulltextUnavailable('too_many_original_redirects')
     try:
-        return await asyncio.wait_for(request(), timeout=90)
+        try:
+            return await asyncio.wait_for(request(proxy), timeout=90)
+        except httpx.ConnectError:
+            # Only an opted-in same-article repair may retry a failed proxy
+            # connection. HTTP denial, login/paywall and extraction failures
+            # never enter this branch. TLS verification remains enabled.
+            if not direct_on_connect_error or not proxy or selector.startswith('@'):
+                raise
+            check(admission)
+            return await asyncio.wait_for(request(None), timeout=90)
     except (httpx.HTTPError, asyncio.TimeoutError) as exc:
         raise FulltextUnavailable('original_fetch_' + type(exc).__name__) from exc

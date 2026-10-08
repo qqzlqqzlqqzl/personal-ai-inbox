@@ -268,6 +268,29 @@ def visible_recommendation(*, state, score, minimum, quality):
 
 
 PUBLIC_FIELDS = ('policy_version', 'recommendation_eligible', 'reason_codes', 'access', 'information')
+BODY_POLICY = 'reader-body-completeness-v1'
+
+
+def body_completeness(entry, analysis=None):
+    """Reader body evidence is independent of informativeness and recommendation.
+
+    Neither a long body, a substantive summary nor a finished translation proves
+    that the current Reader body preserves the publisher's article structure.
+    """
+    result = {'policy_version': BODY_POLICY, 'status': 'unverified',
+              'structure': 'unknown', 'reason': 'no_original_body_receipt', 'checked_at': None}
+    if entry.get('prepared_source') == 'analysis_source_fallback':
+        return {**result, 'structure': 'lost', 'reason': 'plain_text_fallback'}
+    if entry.get('prepared_source') == 'product_page':
+        return {**result, 'status': 'incomplete', 'reason': 'product_description_only'}
+    receipt = entry.get('fulltext_receipt')
+    if entry.get('prepared_source') == 'reader_original_html' and isinstance(receipt, dict):
+        if (receipt.get('body_policy') == BODY_POLICY and receipt.get('requested_url') == entry.get('url')
+                and receipt.get('html_sha256') == hashlib.sha256((entry.get('content') or '').encode()).hexdigest()):
+            return {**result, 'status': 'verified', 'structure': 'preserved',
+                    'reason': 'original_container_verified', 'checked_at': receipt.get('checked_at'),
+                    'analysis_text_matches': receipt.get('analysis_text_matches')}
+    return result
 
 
 def unknown(reason='source_unassessed'):

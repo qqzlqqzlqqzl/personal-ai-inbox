@@ -89,6 +89,54 @@ async def test_null_false_true_correction_preserves_counts_pages_and_detail(qual
 
 
 @pytest.mark.asyncio
+async def test_original_body_repair_keeps_score_old_done_and_get_read_only(quality_api, monkeypatch):
+    import api
+    import bilingual_translation as bilingual
+    from kaggle_batch import fulltext_source
+    native = quality_api.synthetic_entries[1]
+    native['url'] = 'https://techcrunch.com/2026/10/07/synthetic-reader-body/'
+    native['language'] = 'en'
+    with core.connect() as connection:
+        connection.execute('UPDATE analyses SET url=? WHERE entry_id=1', (native['url'],))
+    bilingual.enqueue(core.decorate(native, 1, include_source_fallback=True))
+    old_hash = bilingual.source_hash(native['content'])
+    with core.connect() as connection:
+        connection.execute("UPDATE bilingual_articles SET status='done' WHERE entry_id=1")
+        connection.execute("UPDATE bilingual_blocks SET translated='已有的缓存译文。' WHERE entry_id=1")
+    calls = []
+
+    async def fetch(url, **options):
+        calls.append(url)
+        return {'html': '<article><p id="first">Original first paragraph with useful source detail.</p>'
+                '<p>See <a href="/report">the original report</a>.</p><p>Original final paragraph.</p></article>',
+                'source_text': 'Original first paragraph with useful source detail. See the original report. Original final paragraph.',
+                'content_quality': {'access': 'unknown', 'information': 'substantive', 'reason_codes': []},
+                'receipt': {'url': url, 'requested_url': url, 'page_sha256': 'synthetic-page',
+                            'selector': '.entry-content.wp-block-post-content'}}
+
+    def no_enqueue(*args, **kwargs):
+        pytest.fail('A body verification or GET must not request new body translation')
+
+    monkeypatch.setattr(fulltext_source, 'fetch', fetch)
+    monkeypatch.setattr(bilingual, 'enqueue', no_enqueue)
+    response = await quality_api.post('/mf/v1/ai/body/1/verify')
+    assert response.status_code == 200
+    body = response.json()
+    assert body['ai']['body_completeness']['status'] == 'verified'
+    assert body['ai']['score'] == 8 and body['content'].count('<p') == 3
+    assert body['translation']['status'] == 'source_changed'
+    assert body['translation']['bilingual_html'] is None
+    with core.connect() as connection:
+        assert connection.execute('SELECT status FROM bilingual_articles WHERE source_hash=?', (old_hash,)).fetchone()[0] == 'done'
+        assert connection.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0] == 0
+    monkeypatch.setattr(api, 'enqueue_cards', lambda entries, **kwargs: pytest.fail('Repaired body must not refresh a card') if entries else None)
+    current = await quality_api.get('/mf/v1/entries/1')
+    assert current.status_code == 200 and current.json()['translation']['status'] == 'source_changed'
+    assert current.json()['ai']['body_completeness']['status'] == 'verified'
+    assert calls == [native['url']]
+
+
+@pytest.mark.asyncio
 async def test_false_eligibility_does_not_remove_raw_article_or_notes(quality_api):
     set_quality(1,True)
     with core.connect() as db:

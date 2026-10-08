@@ -287,7 +287,7 @@ def load_reader_batch(entries, user_id=None, *, prepared_batch, settings_snapsho
 
 
 def decorate(entry, user_id, include_source_fallback=False, processing_evidence=None, *, batch=None):
-    from content_quality import public_for_row, unknown
+    from content_quality import public_for_row, unknown, body_completeness
     from processing_status import for_entry
     from prepared_content import apply as apply_prepared
     # Unexpected identity types retain the single-entry path's existing behavior.
@@ -330,6 +330,7 @@ def decorate(entry, user_id, include_source_fallback=False, processing_evidence=
                 "ai": {
                     "state": "pending",
                     "content_quality": unknown(),
+                    "body_completeness": body_completeness(entry),
                     "processing": for_entry({'entry_id': entry['id'], 'state': 'pending'}, processing_evidence),
                     "has_note": bool(note and note["note"].strip()),
                     "note_updated_at": note["updated_at"] if note else None,
@@ -344,6 +345,7 @@ def decorate(entry, user_id, include_source_fallback=False, processing_evidence=
     note_updated_at = row.pop("note_updated_at", None)
     metadata = {
         "content_quality": public_for_row(row, current_entry=entry),
+        "body_completeness": body_completeness(entry, row),
         "processing": for_entry(row, processing_evidence),
         **{
             k: row[k]

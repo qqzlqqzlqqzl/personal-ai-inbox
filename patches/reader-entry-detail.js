@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useStore } from '@nanostores/react'
 import { getEntry } from '@/apis'
+import apiClient from '@/apis/ofetch'
 import { contentState, setActiveContent, setIsArticleLoading } from '@/store/contentState'
 import { dataState, getDataSessionRevision } from '@/store/dataState'
 import { authState } from '@/store/authState'
@@ -10,6 +11,9 @@ import prepareEntry from '@/utils/entry-presentation'
 
 let closeIntentRevision = 0
 const activeDetailRequests = new Set()
+export const needsReaderBodyCheck = entry =>
+  entry?.ai?.body_completeness?.policy_version === 'reader-body-completeness-v1' &&
+  entry.ai.body_completeness.status !== 'verified'
 
 export function invalidateReaderEntryDetail() {
   closeIntentRevision += 1
@@ -24,6 +28,7 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
   const currentRoute = useRef(routeKey)
   const previousRoute = useRef(null)
   const pendingOwner = useRef(null)
+  const bodyCheckedFor = useRef(null)
   const selection = useRef({ generation: 0, active: contentState.get().activeContent })
   const cancelPending = useCallback(() => {
     const owner = pendingOwner.current
@@ -80,7 +85,7 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
     pendingOwner.current = { requestId, isCurrent, controller }
     const numericId = Number(requestedId)
     const existing = contentState.get().entries.find(entry => entry.id === numericId)
-    if (existing && !existing.content_deferred) {
+    if (existing && !existing.content_deferred && !needsReaderBodyCheck(existing)) {
       pendingOwner.current = null
       setIsArticleLoading(false)
       setActiveContent(existing)
@@ -92,15 +97,32 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
       // Keep the loading view until both independently started resources settle.
       // The shared import promise stays rejected for React.lazy/ErrorBoundary.
       const moduleSettled = Promise.resolve().then(loadArticleDetail).then(() => {}, () => {})
-      const [entry] = await Promise.all([
+      let [entry] = await Promise.all([
         getEntry(requestedId, { signal: controller.signal }), moduleSettled,
       ])
+      if (isCurrent() && needsReaderBodyCheck(entry)) {
+        try {
+          // Only this owned, activated detail path verifies one original. Hover,
+          // list GETs and prefetch do not call this non-model POST.
+          const checked = await apiClient.post(`/v1/ai/body/${encodeURIComponent(requestedId)}/verify`, {},
+            { signal: controller.signal, retry: 0, timeout: 18000 })
+          if (checked?.id !== numericId || checked.content_deferred) throw new Error('Unexpected verified body identity')
+          entry = checked
+        } catch (error) {
+          if (controller.signal.aborted || !isCurrent()) return
+          // Keep the original read available, with its explicit unverified state.
+          entry = { ...entry, ai: { ...entry.ai, body_completeness: {
+            ...entry.ai.body_completeness, reason: 'original_check_failed', checked_at: Date.now() / 1000,
+          } } }
+        }
+      }
       if (isCurrent()) {
         if (entry?.id !== numericId || entry.content_deferred) throw new Error('Unexpected detail identity')
         const prepared = prepareEntry(entry)
         if (!isCurrent()) return
         // Detach the completed owner before notifying content observers.
         pendingOwner.current = null
+        bodyCheckedFor.current = prepared
         activeDetailRequests.delete(controller)
         contentState.set({ ...contentState.get(), activeContent: prepared, isArticleLoading: false })
       }
@@ -138,7 +160,8 @@ export default function useReaderEntryDetail({ entryId, source, sourceId, active
       return
     }
     if (current?.id !== Number(entryId) && !routeChanged) return
-    if (current?.id === Number(entryId) && !current.content_deferred) return
+    if (current?.id === Number(entryId) && !current.content_deferred &&
+        (!needsReaderBodyCheck(current) || bodyCheckedFor.current === current)) return
     void fetchSingleEntry(entryId)
   }, [entryId, routeKey, activeContent, sessionRevision, fetchSingleEntry, entryRequestIdRef, restoreEntryListFocus, cancelPending])
 }

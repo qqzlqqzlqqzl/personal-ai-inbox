@@ -85,7 +85,7 @@ def test_reader_uses_header_control_root_with_shared_state(tmp_path, monkeypatch
     import core
     import prepared_content
     monkeypatch.setattr(core, 'load_reader_batch', lambda *args, **kwargs: None)
-    monkeypatch.setattr(prepared_content, 'prepare_many', lambda entries: None)
+    monkeypatch.setattr(prepared_content, 'prepare_many', lambda entries: types.SimpleNamespace(apply=lambda entry: entry))
     namespace={'ROOT':source,'enqueue_cards':lambda *_args,**_kwargs:None,'decorate':decorate,
                'settings':lambda: {}}
     exec(compile(ast.Module(body=[fn],type_ignores=[]),'<reader-entry-observation>','exec'),namespace)
