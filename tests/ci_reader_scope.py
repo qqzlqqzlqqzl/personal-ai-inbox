@@ -66,6 +66,7 @@ ARTICLE_CACHE = {
 }
 BILINGUAL = {
     IMAGE_HISTORY,
+    'src/prepared_content.py', 'tests/test_prepared_content.py',
     'src/bilingual_translation.py', 'src/api.py', 'tests/test_api.py',
     'tests/test_bilingual_translation.py', 'patches/BilingualReading.jsx',
     'patches/BilingualReading.css', 'src/patch_frontend.py',
@@ -136,7 +137,7 @@ PYTHON_TESTS = {
     }),
     'enrichment': sorted(ENRICHMENT_TESTS | {'tests/test_ci_reader_scope.py'}),
     'bilingual': [
-        'tests/test_api.py', 'tests/test_bilingual_translation.py',
+        'tests/test_api.py', 'tests/test_bilingual_translation.py', 'tests/test_prepared_content.py',
         'tests/test_bilingual_reading_install.py', 'tests/test_ci_reader_scope.py',
         'tests/test_frontend_overlay_rebuild.py', 'tests/test_source_catalog_overlay.py',
     ],

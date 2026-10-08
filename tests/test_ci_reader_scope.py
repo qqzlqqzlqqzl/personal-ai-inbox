@@ -131,6 +131,15 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(classify(changes), 'full')
         self.assertEqual(classify([{'path': 'src/core.py', 'status': 'M'}]), 'full')
 
+    def test_translation_and_body_preparation_share_the_related_bilingual_gate(self):
+        paths = {'src/bilingual_translation.py', 'src/prepared_content.py',
+                 'tests/test_bilingual_translation.py', 'tests/test_prepared_content.py'}
+        changes = [{'path': path, 'status': 'M'} for path in paths]
+        self.assertEqual(classify(changes), 'bilingual')
+        self.assertIn('tests/test_prepared_content.py', PYTHON_TESTS['bilingual'])
+        self.assertEqual(classify([{'path': 'src/prepared_content.py', 'status': 'M'}]), 'full')
+        self.assertEqual(classify(changes + [{'path': 'src/worker.py', 'status': 'M'}]), 'full')
+
     def test_body_recovery_selects_related_consumers_and_rejects_mixed_changes(self):
         from ci_reader_scope import BODY_COMPLETENESS
         owned = {'src/prepared_content.py', 'src/content_quality.py', 'src/api.py',
