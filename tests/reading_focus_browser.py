@@ -28,7 +28,7 @@ def visual_state(page):
       let scroll=body.parentElement;
       while(scroll&&!(scroll.scrollHeight>scroll.clientHeight&&/(auto|scroll)/.test(getComputedStyle(scroll).overflowY)))scroll=scroll.parentElement;
       if(!scroll)throw Error('Missing actual overflowing article ancestor');
-      const v=visualViewport,a=document.activeElement,toggle=bar.querySelector('button[aria-pressed]');
+      const v=visualViewport,a=document.activeElement,toggle=bar.querySelector(':scope > button[aria-pressed][aria-label]');
       const layout=bar.querySelector('.review-reading-controls'),opener=layout?.querySelector('summary');
       const outline=opener?getComputedStyle(opener):null;
       const barRect=bar.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();
@@ -37,7 +37,7 @@ def visual_state(page):
         viewport:[innerWidth,innerHeight,devicePixelRatio],visual:v?{width:v.width,height:v.height,
           scale:v.scale,offsetLeft:v.offsetLeft,offsetTop:v.offsetTop,pageLeft:v.pageLeft,pageTop:v.pageTop}:null,
         fonts:document.fonts.status,focusMode:article.classList.contains('review-reading-focus'),
-        toggle:{text:toggle?.textContent,pressed:toggle?.getAttribute('aria-pressed')},
+        toggle:{label:toggle?.getAttribute('aria-label'),pressed:toggle?.getAttribute('aria-pressed')},
         title:info(article.querySelector('.article-title')),meta:info(article.querySelector('.article-meta')),
         ai:info(article.querySelector('.article-header>.ai-verdict,.article-header>.ai-pending')),
         layout:{open:layout?.open,opener:{...info(opener),focused:a===opener,
@@ -63,7 +63,7 @@ def validate_visual_state(state, width, height, theme, focus):
     assert state['viewport'][:2] == [width, height], 'wrong viewport'
     assert state['fonts'] == 'loaded', 'fonts still loading'
     assert state['focusMode'] is focus and state['toggle']['pressed'] == str(focus).lower(), 'wrong focus state'
-    assert state['toggle']['text'] == ('退出专注正文' if focus else '专注正文'), 'wrong focus control'
+    assert state['toggle']['label'] == ('退出专注正文' if focus else '专注正文'), 'wrong focus control'
     assert state['title']['text'] == 'Synthetic long reading fixture', 'article title changed'
     assert state['paragraphs'] == 40, 'original reading paragraphs missing'
     assert not state['horizontalOverflow'], 'document horizontal overflow'
@@ -139,10 +139,10 @@ for width, height in [(1440, 960), (390, 844)]:
             h.goto('/inbox/all/entry/101')
             expect(p.locator('#focus-p-39')).to_be_attached()
             expect(p.locator('body')).to_have_attribute('arco-theme', theme)
-            summary = p.locator('.review-reading-controls > summary')
+            summary = p.get_by_label('阅读排版', exact=True)
             button = p.get_by_role('button', name='专注正文', exact=True)
             alignment = p.evaluate("""() => {
-              const a=document.querySelector('.review-reading-controls>summary').getBoundingClientRect();
+              const a=document.querySelector('.review-reading-controls>summary[aria-label="阅读排版"]').getBoundingClientRect();
               const b=document.querySelector('.review-reading-bar>button').getBoundingClientRect();
               return {topDelta:Math.abs(a.top-b.top),heightDelta:Math.abs(a.height-b.height),height:Math.min(a.height,b.height)};
             }""")
@@ -150,6 +150,8 @@ for width, height in [(1440, 960), (390, 844)]:
             h.check('controls_hit_height', alignment['height'] >= (43.9 if width < 620 else 35.9))
             measurements.append(alignment)
             capture_visual(h, 'normal-initial.png', False, width, height, theme, captures)
+            translation_starts = sum(path == '/mf/v1/ai/translation/101' for _, path, _ in h.writes)
+            h.check('initial_translation_demand_is_single', translation_starts == 1)
             button.click()
             exit_button = p.get_by_role('button', name='退出专注正文', exact=True)
             expect(exit_button).to_be_focused()
@@ -188,14 +190,22 @@ for width, height in [(1440, 960), (390, 844)]:
             link = p.locator('.article-source-footer a')
             link.scroll_into_view_if_needed(); expect(link).to_be_visible()
             h.check('source_retained', link.get_attribute('href') == 'https://example.test/101')
-            h.check('no_read_or_favorite_mutation', all(path.endswith('/ai/reading-session') for _, path, _ in h.writes))
+            # The English score-9 fixture legitimately requests its translation
+            # once when opened. Typography must never repeat that demand or write
+            # Miniflux read/favorite state, notes, or settings.
+            h.check('no_read_or_favorite_mutation', all(
+                method == 'POST' and (path == '/mf/v1/ai/reading-session' or
+                (path == '/mf/v1/ai/translation/101' and payload == {}))
+                for method, path, payload in h.writes))
+            h.check('focus_controls_do_not_repeat_translation', sum(
+                path == '/mf/v1/ai/translation/101' for _, path, _ in h.writes) == translation_starts)
             capture_visual(h, 'reading.png', False, width, height, theme, captures)
             p.get_by_role('button', name='关闭文章', exact=True).click()
             # Reopen the real article route. Verify native details keyboard
             # activation and the production article-close hotkey together.
             h.goto('/inbox/all/entry/101')
-            layout = p.locator('.review-reading-controls')
-            summary = layout.locator('summary')
+            summary = p.get_by_label('阅读排版', exact=True)
+            layout = summary.locator('..')
             for target in ['summary', 'slider', 'reset']:
                 summary.press('Enter')
                 expect(layout).to_have_attribute('open', '')

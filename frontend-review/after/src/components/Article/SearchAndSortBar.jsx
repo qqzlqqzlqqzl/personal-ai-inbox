@@ -225,7 +225,7 @@ const SearchAndSortBar = ({ fullWidth = false }) => {
   const sortField = aiList
     ? (pendingList
       ? "published_at"
-      : (notesList && (!recommendedList || ai.sort === "note_updated"))
+      : (notesList && ((!recommendedList && ai.sort !== "time") || ai.sort === "note_updated"))
         ? "note_updated"
         : recommendedList && ai.sort !== "time" ? ai.sort : "published_at")
     : (activityList ? "changed_at" : orderBy)

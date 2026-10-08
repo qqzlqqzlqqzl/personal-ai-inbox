@@ -107,6 +107,8 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
         # another 11 minutes here used to make submit_unknown recovery needlessly
         # sluggish and contributed to claims looking permanently stuck.
         resume_state=control.row(batch)['state']
+        if resume_state=='quarantined':
+            return report('quarantined',batch_id=batch)
         if resume_state in {'submitted','running'}:
             report('resuming',batch_id=batch)
             sleep(min(660,max(0,deadline-clock())))
@@ -114,10 +116,14 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
             report('reconciling',batch_id=batch,previous_state=resume_state)
         while clock()<deadline:
             authorize()
+            if control.row(batch)['state']=='quarantined':
+                return report('quarantined',batch_id=batch)
             outcome=invoke('recover' if recovery_batch else 'advance','--batch',batch,timeout=max(1,min(600,int(deadline-clock()))))
             if outcome.get('state') in DispatchStopped.STATES:
                 raise DispatchStopped(outcome['state'])
             authorize()
+            if control.row(batch)['state']=='quarantined':
+                return report('quarantined',batch_id=batch)
             if outcome.get('submission_blocked'):
                 return report(outcome['quota_gate']['state'],batch_id=batch,
                               quota_gate=outcome['quota_gate'],gpu_started=False)
@@ -176,6 +182,8 @@ def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.mon
         try:
             report=drain_once(config_path,{**config,'cycle_timeout_seconds':int(deadline-clock())},control,call,sleep,clock,authorize=authorize,recovery_batch=recovery_batch)
             authorize()
+            if report.get('state')=='quarantined':
+                return report  # Parking an unknown attempt is not successful recovery.
             atomic_json(recovery,{'failures':0,'retry_at':0,'at':time.time()})
             return report
         except DispatchStopped as exc:

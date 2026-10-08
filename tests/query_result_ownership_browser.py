@@ -47,6 +47,14 @@ def intercept(route, path, method):
         raw_request_trace.append({'path': path, 'query': query})
     if method == "GET" and path.endswith("/entries") and query.get("ai_view") == ["recommended"]:
         scope = "today" if "published_after" in query else "all"
+        if query.get("offset") not in (None, ["0"]):
+            # Startup now warms subsequent pages without a scroll. They are
+            # outside this suite's held first-page ownership queue and trace.
+            assert query.get("limit") == ["24"] and query.get("ai_min") == ["8"]
+            offset = int(query["offset"][0])
+            assert offset > 0 and offset % 24 == 0
+            route.fulfill(json={"total": 1965 if scope == "all" else 0, "entries": []})
+            return True
         request_trace.append({"scope": scope, "ai_min": query.get("ai_min"),
                               "offset": query.get("offset"), "limit": query.get("limit"),
                               "status": query.get("status"),

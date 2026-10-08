@@ -35,12 +35,28 @@ def test_exact_f_preimage_and_bounded_reading_suffix_change():
     history = json.loads((ROOT / 'frontend-review/previous-hashes.json').read_text())
     assert history[str(NAME)].count(OLD_SHA) == 1
     updated = (ROOT / 'frontend-review/after' / NAME).read_bytes()
-    # Preserve every current reviewed rule, allowing only the explicit new
-    # full-width border-box declaration. The historical F fixture stays pinned.
+    # Preserve the historical fixture and every rule outside the authorized
+    # full-width, right-aligned icon toolbar. Do not freeze the old text buttons.
     baseline = (ROOT / 'tests/fixtures/reading-toolbar-34ad.css').read_bytes()
     assert hashlib.sha256(baseline).hexdigest() == '4093e7792ca6c8be2bc60dfd6cbc85f8ed1456631bfbebb84504b846fbbb7a2d'
-    allowed = baseline.replace(b'.review-reading-bar{display:flex;',
-        b'.review-reading-bar{box-sizing:border-box;width:100%;display:flex;', 1)
+    allowed = baseline
+    changes = [
+        (b'.review-reading-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px auto;padding:8px 0;',
+         b'.review-reading-bar{box-sizing:border-box;width:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin:0 auto;padding:4px 8px;'),
+        ('.review-reading-controls>summary::before{content:"▸";margin-right:6px}'.encode(),
+         b'.review-reading-controls>summary::before{content:none}'),
+        (b'.review-reading-bar>span[role=status]{flex-basis:100%;font-size:12px;line-height:1.4}',
+         b'.review-reading-bar>span[role=status]{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}'),
+        (b'.review-reading-options{position:absolute;top:calc(100% + 8px);left:0;',
+         b'.review-reading-options{position:absolute;top:calc(100% + 8px);right:0;'),
+    ]
+    for before, after in changes:
+        assert allowed.count(before) == 1
+        allowed = allowed.replace(before, after, 1)
+    allowed += (
+        b'\n.review-reading-bar>button,.review-reading-controls>summary{width:36px;height:36px;padding:0;flex:none}\n'
+        b'.review-reading-bar>button[aria-pressed=true]{color:rgb(var(--primary-6,57,122,184));border-color:currentColor;background:var(--color-fill-2,#eef3fa)}\n'
+    )
     assert updated == allowed
 
 

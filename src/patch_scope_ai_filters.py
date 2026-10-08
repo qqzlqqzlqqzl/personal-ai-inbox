@@ -29,6 +29,9 @@ def patch(name, old, new):
 
 def normalize(name, variants, new):
     text = (WEB / name).read_text()
+    authored = ROOT / "frontend-review/after" / name
+    if authored.is_file() and text == authored.read_text():
+        return
     if new in text:
         return
     for old in variants:

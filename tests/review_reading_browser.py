@@ -79,14 +79,14 @@ try:
     # Existing reader state remains unchanged by typography controls.
     before=[w for w in h.writes if '/v1/entries' in w[1]]
     telemetry_before=[w[2] for w in h.writes if w[1].endswith('/ai/reading-session')];session_before=telemetry_before[-1]['session_id'];open_count=sum(w['action']=='open' for w in telemetry_before)
-    reading_summary=p.locator('.review-reading-controls summary');reading_summary.focus();reading_summary.press('Enter');expect(p.locator('.review-reading-controls')).to_have_attribute('open','');expect(reading_summary).to_be_focused();h.check('R06_keyboard_opens_reading_controls')
+    reading_summary=p.get_by_label('阅读排版',exact=True);reading_summary.focus();reading_summary.press('Enter');expect(reading_summary.locator('..')).to_have_attribute('open','');expect(reading_summary).to_be_focused();h.check('R06_keyboard_opens_reading_controls')
     p.get_by_label('正文字号',exact=True).fill('1.35');p.get_by_label('正文行距',exact=True).fill('2.2');p.get_by_label('正文栏宽',exact=True).fill('80')
     h.check('R06_line_height_applied',p.locator('.article-body').evaluate('e=>Math.abs(parseFloat(getComputedStyle(e).lineHeight)/parseFloat(getComputedStyle(e).fontSize)-2.2)<0.01'))
     p.get_by_role('button',name='专注正文',exact=True).click();expect(p.locator('.article-meta')).to_be_hidden();expect(p.get_by_role('button',name='退出专注正文',exact=True)).to_be_visible();p.get_by_role('button',name='退出专注正文',exact=True).click()
     p.get_by_role('button',name='恢复默认排版',exact=True).click();expect(p.get_by_label('正文行距',exact=True)).to_have_value('1.8')
     h.check('R06_typography_focus_no_read_mutation',before==[w for w in h.writes if '/v1/entries' in w[1]])
     telemetry_after=[w[2] for w in h.writes if w[1].endswith('/ai/reading-session')];h.check('R06_controls_keep_reading_session',telemetry_after[-1]['session_id']==session_before and sum(w['action']=='open' for w in telemetry_after)==open_count)
-    reading_summary.focus();reading_summary.press('Enter');expect(p.locator('.review-reading-controls')).not_to_have_attribute('open','');expect(reading_summary).to_be_focused();h.check('R06_keyboard_closes_reading_controls_with_focus')
+    reading_summary.focus();reading_summary.press('Enter');expect(reading_summary.locator('..')).not_to_have_attribute('open','');expect(reading_summary).to_be_focused();h.check('R06_keyboard_closes_reading_controls_with_focus')
     notice=p.get_by_role('group',name='图片加载恢复');notice.scroll_into_view_if_needed();expect(notice).to_contain_text('电路板示意图');expect(notice.get_by_role('link',name='打开原图')).to_have_attribute('href','https://images.example.test/board.svg')
     expect(p.locator('.image-overlay-button:enabled')).to_have_count(0);expect(p.get_by_role('dialog',name='Lightbox',exact=True)).to_have_count(0);h.check('R07_failed_image_cannot_open_empty_lightbox')
     before_images=len(image_calls);p.wait_for_timeout(250);h.check('R07_failure_no_automatic_retry',len(image_calls)==before_images)
@@ -106,8 +106,8 @@ try:
     p.evaluate("document.documentElement.style.zoom='2'")
     h.check('R06_200_percent_zoom_no_horizontal_overflow',p.evaluate('document.documentElement.scrollWidth<=innerWidth'))
     p.evaluate("document.documentElement.style.zoom=''")
-    p.set_viewport_size({'width':390,'height':844});p.locator('.review-reading-controls summary').click();expect(p.get_by_label('正文栏宽',exact=True)).to_be_disabled();h.check('R06_mobile_controls_no_overflow',p.evaluate('document.documentElement.scrollWidth<=innerWidth'))
-    p.screenshot(path=str(h.out/'mobile-reading.png'),full_page=True);p.locator('.review-reading-controls summary').click()
+    p.set_viewport_size({'width':390,'height':844});p.get_by_label('阅读排版',exact=True).click();expect(p.get_by_label('正文栏宽',exact=True)).to_be_disabled();h.check('R06_mobile_controls_no_overflow',p.evaluate('document.documentElement.scrollWidth<=innerWidth'))
+    p.screenshot(path=str(h.out/'mobile-reading.png'),full_page=True);p.get_by_label('阅读排版',exact=True).click()
     # Compact article controls expose the same searchable TOC on a narrow viewport.
     toc_button=p.get_by_role('button',name=re.compile('目录|Table of Contents'))
     if not toc_button.count() or not toc_button.first.is_visible():

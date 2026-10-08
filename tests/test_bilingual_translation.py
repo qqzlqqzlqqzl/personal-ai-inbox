@@ -2,15 +2,91 @@
 import asyncio
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import threading
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 import httpx
 import core
 import bilingual_translation as bilingual
+
+
+class RollingBodyVersionTests(unittest.TestCase):
+    """Exercise the real candidate SQL without optional body parsers or disk I/O."""
+
+    def setUp(self):
+        self.db = sqlite3.connect(':memory:')
+        self.db.row_factory = sqlite3.Row
+        self.addCleanup(self.db.close)
+        connection = patch.object(core, 'connect', self.connection)
+        connection.start()
+        self.addCleanup(connection.stop)
+        environment = patch.dict('os.environ', {'BILINGUAL_MODEL': 'offline-model'}, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.db.executescript('''
+          CREATE TABLE analyses(entry_id INTEGER PRIMARY KEY,user_id INTEGER,url TEXT,
+            feed_id INTEGER,content_hash TEXT,content_quality TEXT,analyzed_at REAL,
+            updated_at REAL,published_at TEXT,state TEXT,score REAL);
+          CREATE TABLE prepared_articles(entry_id INTEGER PRIMARY KEY,user_id INTEGER,
+            url TEXT,kind TEXT,prepared_at REAL,content TEXT);
+        ''')
+        bilingual.migrate()
+        self.now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        self.old = '<p>The initial source explanation.</p>'
+        self.full = '<p>The verified original with restored explanations.</p>'
+        self.cfg = bilingual.config()
+        self.db.execute('INSERT INTO analyses VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+            (7, 3, 'https://source.invalid/article', 1, core.hash_text(self.old), None,
+             self.now-10, self.now-10, '2026-10-08T00:00:00Z', 'done', 8))
+        digest = bilingual.source_hash(self.old, self.cfg['model'])
+        self.db.execute('INSERT INTO bilingual_articles VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+            (3, 7, digest, self.old, self.cfg['model'], 'done', 10,
+             '2026-10-08T00:00:00Z', self.now-10, bilingual._version(), self.now-30))
+        self.db.execute('INSERT INTO bilingual_current VALUES(?,?,?)', (3, 7, digest))
+        self.db.execute('INSERT INTO prepared_articles VALUES(?,?,?,?,?,?)',
+            (7, 3, 'https://source.invalid/article', 'reader_original_html', self.now-20, self.full))
+
+    @contextmanager
+    def connection(self):
+        yield self.db
+
+    def selected(self, state=None):
+        candidates, _, _ = bilingual._rolling_candidates(3, self.now, state or {}, self.cfg)
+        return [row['entry_id'] for _, row in candidates]
+
+    def test_restored_body_before_old_completion_is_discovered_in_fresh_and_backlog(self):
+        for state in ({}, {'since': self.now+1}):
+            with self.subTest(state=state):
+                self.assertEqual(self.selected(state), [7])
+
+    def test_older_prepared_body_cannot_replace_newer_native_admission(self):
+        self.db.execute('UPDATE bilingual_articles SET requested_at=?', (self.now-15,))
+        self.assertEqual(self.selected(), [])
+
+    def test_matching_body_never_reenters_rolling(self):
+        self.db.execute('UPDATE prepared_articles SET content=?,prepared_at=?', (self.old, self.now-5))
+        self.assertEqual(self.selected(), [])
+
+    def test_legacy_zero_admission_keeps_the_completion_time_guard(self):
+        self.db.execute('UPDATE bilingual_articles SET requested_at=0')
+        self.assertEqual(self.selected(), [])
+        self.db.execute('UPDATE prepared_articles SET prepared_at=?', (self.now-5,))
+        self.assertEqual(self.selected(), [7])
+
+    def test_restoration_must_still_match_owner_entry_url_and_kind(self):
+        for field, value in (('user_id', 4), ('entry_id', 8), ('url', 'https://other.invalid/'),
+                             ('kind', 'body_images_repaired')):
+            with self.subTest(field=field):
+                self.db.execute('SAVEPOINT mismatch')
+                self.db.execute('UPDATE prepared_articles SET '+field+'=?', (value,))
+                self.assertEqual(self.selected(), [])
+                self.db.execute('ROLLBACK TO mismatch')
+                self.db.execute('RELEASE mismatch')
 
 
 class BilingualTests(unittest.IsolatedAsyncioTestCase):
@@ -211,6 +287,52 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(new_hash, old_hash)
             self.assertEqual(db.execute('SELECT status FROM bilingual_articles WHERE source_hash=?', (old_hash,)).fetchone()[0], 'done')
         self.assertEqual(self.calls, [])
+
+    async def test_rolling_restoration_during_old_translation_survives_late_completion(self):
+        from prepared_content import remember
+        from content_quality import BODY_POLICY
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(124, now)
+        full = '<article><p>This verified original restores the full explanation and supporting details.</p></article>'
+        old_hash = bilingual.source_hash(entry['content'])
+        started, release = asyncio.Event(), asyncio.Event()
+        clock = [now-30]
+
+        async def respond(request):
+            started.set()
+            await release.wait()
+            return self.reply(request)
+
+        with patch.object(bilingual.time, 'time', side_effect=lambda: clock[0]):
+            bilingual.enqueue(entry)
+            async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+                work = asyncio.create_task(bilingual.run_once(client))
+                try:
+                    await asyncio.wait_for(started.wait(), timeout=2)
+                    clock[0] = now-20
+                    remember(entry, full, 'reader_original_html', {
+                        'body_policy': BODY_POLICY, 'requested_url': entry['url'],
+                        'html_sha256': core.hash_text(full), 'checked_at': clock[0],
+                    })
+                    clock[0] = now-10
+                finally:
+                    release.set()
+                    await asyncio.wait_for(work, timeout=2)
+
+        calls = []
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client([entry], calls) as client:
+                self.assertEqual((await bilingual.discover_recent(client, now=now))['enqueued'], 1)
+                reads = len(calls)
+                self.assertEqual((await bilingual.discover_recent(client, now=now+300))['enqueued'], 0)
+                self.assertFalse(any('/entries/' in path for path in calls[reads:]))
+        with core.connect() as db:
+            current = db.execute('SELECT source_hash FROM bilingual_current WHERE entry_id=124').fetchone()[0]
+            self.assertEqual(current, bilingual.source_hash(full))
+            self.assertNotEqual(current, old_hash)
+            self.assertEqual(db.execute('SELECT status FROM bilingual_articles WHERE source_hash=?', (old_hash,)).fetchone()[0], 'done')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 1)
+        self.assertEqual(len(self.calls), 1)  # Only the old in-flight mock request.
 
     async def test_rolling_analysis_change_after_decoration_cannot_enqueue(self):
         now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
