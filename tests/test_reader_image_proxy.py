@@ -2,17 +2,18 @@
 import asyncio
 import io
 import json
+import random
 import threading
 
 import httpx
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps, ImageStat
 from starlette.requests import Request
 from starlette.responses import Response
 
 import reader_image_proxy as images
 from reader_work import ReaderWorkPool
-from reader_image_cache import ImageCache
+from reader_image_cache import ImageCache, variant_key
 from stabilize_media import signed_url
 
 PATH = "proxy/" + "A" * 43 + "=/aHR0cHM6Ly9leGFtcGxlLm9yZy9waG90by5qcGc="
@@ -217,9 +218,9 @@ def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_
     cache = ImageCache(tmp_path / 'images')
     fetches, codecs = [], []
     resize = images.resize_image
-    def codec(*args):
+    def codec(*args, **kwargs):
         codecs.append(1)
-        return resize(*args)
+        return resize(*args, **kwargs)
     monkeypatch.setattr(images, 'resize_image', codec)
     async def native(req):
         fetches.append(req)
@@ -235,7 +236,7 @@ def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_
         return images.fetch_variant('http://native.test/mf', path, 960, accept,
                                     client_factory=factory, cache=cache, signature_key=key, hot_until=hot_until)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(read, ('image/*', 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8')))
+        results = list(pool.map(read, ('image/webp', 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8')))
     assert all(result.status_code == 200 for result in results)
     assert len(fetches) == len(codecs) == 1 and results[0].body == results[1].body
     assert all(result.headers['cache-control'] == 'public, max-age=60'
@@ -244,13 +245,13 @@ def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_
     assert read('image/avif,image/webp,image/*').body == results[0].body
     assert len(fetches) == len(codecs) == 1
     until = (int(images.time.time()) // 300) * 300 + 900
-    assert read("image/*", hot_until=until).body == results[0].body
+    assert read(images.NATIVE_IMAGE_ACCEPT, hot_until=until).body == results[0].body
     assert len(fetches) == len(codecs) == 1
     meta = json.loads(next(cache.root.glob("*.image")).read_bytes().splitlines()[0])
     assert meta["hot_until"] == until
     assert meta["expires"] - meta["created"] == 60
     forged = path.replace(path.split('/')[1], 'A' * 43 + '=')
-    denied = images.fetch_variant('http://native.test/mf', forged, 960, 'image/*',
+    denied = images.fetch_variant('http://native.test/mf', forged, 960, 'image/webp',
                                   client_factory=factory, cache=cache, signature_key=key)
     assert denied.status_code == 403 and len(fetches) == 2 and len(codecs) == 1
 
@@ -323,3 +324,174 @@ def test_slow_origin_past_old_five_seconds_and_true_whole_fetch_deadline(monkeyp
     monkeypatch.setattr(images, 'FETCH_SECONDS', .08)
     with pytest.raises(TimeoutError):
         images.fetch_variant('http://native.test/mf', PATH, 960, 'image/*', client_factory=factory, signature_key=None)
+
+
+def photo_png(size=(1920, 1200), *, alpha=False, exif=None):
+    """Deterministic photo-like gradients, edges and textured grain; real codecs."""
+    with Image.frombytes("RGB", size, random.Random(235).randbytes(size[0] * size[1] * 3)) as raw:
+        noise = raw.filter(ImageFilter.GaussianBlur(1.2))
+    sky = ImageOps.colorize(Image.linear_gradient("L").resize(size), "#37638c", "#d4b889")
+    photo = Image.blend(sky, noise, .32)
+    points = [(0,1000),(0,650),(350,420),(700,720),(1040,370),(1530,790),(1920,500),(1920,1200),(0,1200)]
+    ImageDraw.Draw(photo).polygon([(int(x * size[0] / 1920), int(y * size[1] / 1200)) for x, y in points],
+                                 fill=(64, 92, 78))
+    textured = Image.blend(photo, noise, .12)
+    try:
+        if alpha:
+            with Image.linear_gradient("L").resize(size) as channel:
+                textured.putalpha(channel)
+        output = io.BytesIO()
+        textured.save(output, "PNG", **({"exif": exif} if exif is not None else {}))
+        return output.getvalue()
+    finally:
+        for image in (noise, sky, photo, textured):
+            image.close()
+
+
+@pytest.mark.parametrize("accept,supported", [
+    ("image/webp", True), ("image/avif,image/webp;q=0.8,image/*;q=0.5", True),
+    ("IMAGE/WEBP; Q=1", True), ("image/*", False), ("*/*", False), ("", False),
+    ("image/png,image/jpeg", False), ("image/webp;q=0,*/*;q=1", False),
+    ("image/webp;q=0.000,image/*", False), ("image/webp,image/webp;q=0", False),
+    ("image/webp;q=bad", False), ("image/webp;q=nan", False), ("image/webp;q=2", False),
+])
+def test_webp_requires_explicit_acceptable_media_type(accept, supported):
+    assert images._accepts_webp(accept) is supported
+
+
+@pytest.mark.parametrize("width", images.WIDTHS)
+def test_static_photo_png_uses_smaller_negotiated_webp_with_same_dimensions(width):
+    body = photo_png()
+    png, _ = images.resize_image(body, "image/png", width)
+    result, mime = images.resize_image(body, "image/png", width, allow_webp=True)
+    assert mime == "image/webp" and len(result) < len(png)
+    with Image.open(io.BytesIO(png)) as baseline, Image.open(io.BytesIO(result)) as decoded:
+        assert decoded.size == baseline.size and decoded.width <= width
+        assert decoded.format == "WEBP"
+        difference = ImageChops.difference(baseline.convert("RGB"), decoded.convert("RGB"))
+        assert max(ImageStat.Stat(difference).mean) < 8
+
+
+def test_png_webp_preserves_alpha_orientation_and_never_upscales():
+    body = photo_png((640, 400), alpha=True)
+    result, mime = images.resize_image(body, "image/png", 960, allow_webp=True)
+    assert mime == "image/webp" and len(result) < len(body)
+    with Image.open(io.BytesIO(body)) as original, Image.open(io.BytesIO(result)) as decoded:
+        assert decoded.size == original.size == (640, 400)
+        assert decoded.convert("RGBA").getchannel("A").tobytes() == original.getchannel("A").tobytes()
+    scaled = photo_png((1200, 750), alpha=True)
+    png, _ = images.resize_image(scaled, "image/png", 480)
+    result, mime = images.resize_image(scaled, "image/png", 480, allow_webp=True)
+    with Image.open(io.BytesIO(png)) as baseline, Image.open(io.BytesIO(result)) as decoded:
+        assert mime == "image/webp" and decoded.size == baseline.size
+        assert decoded.convert("RGBA").getchannel("A").tobytes() == baseline.getchannel("A").tobytes()
+    for orientation in (5, 6, 7, 8):
+        exif = Image.Exif(); exif[274] = orientation
+        body = photo_png((400, 800), exif=exif)
+        png, _ = images.resize_image(body, "image/png", 480)
+        result, mime = images.resize_image(body, "image/png", 480, allow_webp=True)
+        with Image.open(io.BytesIO(png)) as baseline, Image.open(io.BytesIO(result)) as decoded:
+            assert decoded.size == (480, 240) and decoded.getexif().get(274, 1) == 1
+            assert mime == "image/webp"
+            difference = ImageChops.difference(baseline.convert("RGB"), decoded.convert("RGB"))
+            assert max(ImageStat.Stat(difference).mean) < 8
+
+
+def test_webp_opt_in_keeps_width_zero_animation_long_images_and_invalid_inputs():
+    body = photo_png((640, 400))
+    assert images.resize_image(body, "image/png", 0, allow_webp=True) == (body, "image/png")
+    for kind, mime in (("PNG", "image/png"), ("GIF", "image/gif"), ("WEBP", "image/webp")):
+        output = io.BytesIO()
+        with Image.new("RGB", (640, 400), "red") as first, Image.new("RGB", (640, 400), "blue") as second:
+            first.save(output, kind, save_all=True, append_images=[second], duration=100, loop=0)
+        animated = output.getvalue()
+        assert images.resize_image(animated, mime, 480, allow_webp=True) == (animated, mime)
+    long_image = picture((1000, 6000), kind="PNG")
+    assert images.resize_image(long_image, "image/png", 960, allow_webp=True) == (long_image, "image/png")
+    assert images.resize_image(b"invalid PNG", "image/png", 960, allow_webp=True) == (b"invalid PNG", "image/png")
+
+
+@pytest.mark.parametrize("failure", ["error", "larger"])
+def test_webp_encoder_failure_or_larger_result_keeps_png(monkeypatch, failure):
+    body = photo_png((640, 400))
+    save = Image.Image.save
+    def candidate(image, output, format=None, **kwargs):
+        if format == "WEBP":
+            if failure == "error":
+                raise OSError("synthetic WebP encoder failure")
+            save(image, output, format=format, **kwargs)
+            output.write(b"x" * len(body))
+            return
+        return save(image, output, format=format, **kwargs)
+    monkeypatch.setattr(Image.Image, "save", candidate)
+    assert images.resize_image(body, "image/png", 960, allow_webp=True) == (body, "image/png")
+
+
+@pytest.mark.parametrize("accept", ["image/png", "image/*", "image/webp;q=0,*/*;q=1"])
+def test_cold_unsupported_webp_request_keeps_legacy_png_profile(tmp_path, accept):
+    secret = "test-only-webp-key"
+    target = "https://example.org/photo.png"
+    path = signed_url(target, secret)[4:]
+    body = photo_png((640, 400))
+    cache = ImageCache(tmp_path / "legacy")
+    calls = []
+    def native(request):
+        calls.append(request)
+        assert request.headers["accept"] == images.LEGACY_IMAGE_ACCEPT
+        return httpx.Response(200, content=body, headers={"content-type": "image/png", "cache-control": "public, max-age=60"})
+    def factory(**kwargs):
+        return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+    response = images.fetch_variant("http://native/mf", path, 960, accept,
+        client_factory=factory, cache=cache, signature_key=secret)
+    assert response.headers["content-type"] == "image/png" and response.body == body
+    assert len(calls) == 1
+    assert cache.get(variant_key("http://native/mf", target, 960, images.LEGACY_IMAGE_ACCEPT))
+
+
+def test_legacy_png_cannot_mask_webp_and_browser_warmer_share_two_profiles(tmp_path):
+    secret = "test-only-webp-key"
+    target = "https://example.org/photo.png"
+    path = signed_url(target, secret)[4:]
+    body = photo_png((640, 400))
+    cache = ImageCache(tmp_path / "profiles")
+    headers = {"content-type": "image/png", "cache-control": "public, max-age=60"}
+    legacy = variant_key("http://native/mf", target, 960, images.LEGACY_IMAGE_ACCEPT)
+    assert images.LEGACY_IMAGE_ACCEPT == "image/webp,image/jpeg,image/png,image/*;q=0.8"
+    cache.put(legacy, body, headers)
+    calls = []
+    def native(request):
+        calls.append(request)
+        assert request.headers["accept"] == images.NATIVE_IMAGE_ACCEPT
+        return httpx.Response(200, content=body, headers=headers)
+    def factory(**kwargs):
+        return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+    def read(accept):
+        return images.fetch_variant("http://native/mf", path, 960, accept,
+            client_factory=factory, cache=cache, signature_key=secret)
+    for accept in ("image/*", "image/png", "image/webp;q=0,*/*;q=1"):
+        assert read(accept).body == body
+    assert not calls
+    modern = read("image/avif,image/webp,image/*;q=0.8")
+    assert modern.headers["content-type"] == "image/webp" and len(modern.body) < len(body)
+    for accept in (images.NATIVE_IMAGE_ACCEPT, "IMAGE/WEBP;q=0.5", "image/webp,image/png"):
+        assert read(accept).body == modern.body
+    assert len(calls) == 1 and len(list(cache.root.glob("*.image"))) == 2
+    assert modern.headers["vary"] == "Accept"
+    assert modern.headers["etag"] == '"' + images.hashlib.sha256(modern.body).hexdigest() + '"'
+
+
+def test_legacy_profile_keeps_native_webp_passthrough_without_new_errors(tmp_path):
+    secret = "test-only-native-webp"
+    target = "https://example.org/original.webp"
+    path = signed_url(target, secret)[4:]
+    with Image.open(io.BytesIO(photo_png((320, 200)))) as original:
+        output = io.BytesIO()
+        original.save(output, "WEBP", quality=82)
+    body = output.getvalue()
+    def factory(**kwargs):
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
+            200, content=body, headers={"content-type": "image/webp", "cache-control": "public, max-age=60"})), **kwargs)
+    response = images.fetch_variant("http://native/mf", path, 960, "image/webp;q=0,image/png",
+        client_factory=factory, cache=ImageCache(tmp_path / "native"), signature_key=secret)
+    assert response.status_code == 200 and response.headers["content-type"] == "image/webp"
+    assert response.body == body  # Existing native behavior; no PNG conversion or new 406.
