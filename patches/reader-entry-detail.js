@@ -11,7 +11,24 @@ import prepareEntry from '@/utils/entry-presentation'
 
 let closeIntentRevision = 0
 const activeDetailRequests = new Set()
+// Native extraction may be a view-only operation. Its new HTML is not covered
+// by the old server receipt/cache and must not be overwritten by that old DTO.
+export function readerFetchedBody(entry, content) {
+  if (entry.content === content) return entry
+  const translation = entry.translation, current = { ...entry }
+  for (const field of ['translation', 'fulltext_receipt', 'prepared_at', 'content_source_url']) delete current[field]
+  const hadTranslation = translation?.blocks_done > 0 || translation?.bilingual_html || translation?.chinese_html
+  return { ...current, content, content_deferred: false, prepared_source: 'reader_native_fetch',
+    translation: { status: hadTranslation ? 'source_changed' : 'skipped' },
+    ai: { ...entry.ai, body_completeness: {
+      policy_version: 'reader-body-completeness-v1', status: 'unverified', structure: 'unknown',
+      reason: 'native_extraction_unverified', checked_at: null,
+    } },
+  }
+}
+
 export const needsReaderBodyCheck = entry =>
+  entry?.prepared_source !== 'reader_native_fetch' &&
   entry?.ai?.body_completeness?.policy_version === 'reader-body-completeness-v1' &&
   entry.ai.body_completeness.status !== 'verified'
 
