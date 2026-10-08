@@ -34,6 +34,13 @@ export function nextWindow(previous, snapshot, count, cursor) {
   return { ...previous, cursor, stalled: previous.stalled || cursor !== previous.cursor }
 }
 
+/** Only a fresh downward scroll may resume a duplicate-only page's cursor. */
+export function resumeStalledWindow(window, previousTop, nextTop) {
+  if (!window?.stalled || !Number.isFinite(previousTop) || !Number.isFinite(nextTop) ||
+      nextTop <= Math.max(0, previousTop)) return window
+  return { ...window, stalled: false }
+}
+
 export function prefetchDecision(window, firstVisible, remaining, viewport) {
   if (!window?.size || window.stalled) return null
   const target = window.start + Math.floor(window.size * PREFETCH_FRACTION)
