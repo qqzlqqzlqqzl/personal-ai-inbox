@@ -235,6 +235,63 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(second['enqueued'], 1)
         self.assertEqual([path for path in calls if '/entries/' in path], ['/mf/v1/entries/112', '/mf/v1/entries/111'])
 
+    async def test_rolling_deep_body_failure_isolated_with_backoff_and_no_model_usage(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        deep = self.rolling_entry(154, now, age=60)
+        following = self.rolling_entry(155, now, age=120)
+        deep['content'] = '<div>' * 1200 + '<p>This is a synthetic article explanation.</p>' + '</div>' * 1200
+        self.assertLess(len(deep['content'].encode()), bilingual.MAX_HTML_BYTES)
+        core.update(154, content_hash=core.hash_text(deep['content']), source_text=deep['content'])
+        calls, state = [], {'since': now-300}
+
+        async def prepare(native, current_entry, *, admission):
+            admission()
+            fresh = await current_entry()
+            self.assertEqual(fresh, native)
+            return fresh
+
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client([deep, following], calls) as client:
+                first = await bilingual.discover_recent(client, state=state, now=now, prepare=prepare)
+                self.assertEqual((first['status'], first['failed'], first['enqueued']), ('ok', 1, 1))
+                self.assertEqual(first['fetched'], 2)
+                self.assertEqual([path for path in calls if '/entries/' in path],
+                    ['/mf/v1/entries/154', '/mf/v1/entries/154', '/mf/v1/entries/155', '/mf/v1/entries/155'])
+                self.assertEqual(len(state['skipped']), 1)
+                self.assertEqual(next(iter(state['skipped'].values())), now+bilingual.ROLLING_SKIP_SECONDS)
+                calls.clear()
+                again = await bilingual.discover_recent(client, state=state, now=now+300, prepare=prepare)
+                self.assertEqual((again['status'], again['fetched'], again['enqueued']), ('ok', 0, 0))
+                self.assertFalse(any('/entries/' in path for path in calls))
+        with core.connect() as db:
+            self.assertEqual([row[0] for row in db.execute('SELECT entry_id FROM bilingual_articles')], [155])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], 0)
+        self.assertEqual(self.calls, [])
+
+    async def test_rolling_recursion_isolation_does_not_swallow_permission_admission_or_timeout(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entries = [self.rolling_entry(156, now, age=60), self.rolling_entry(157, now, age=120)]
+        for error, status in ((PermissionError, 'error'), (bilingual.AdmissionStopped, 'stopped'),
+                              (TimeoutError, 'bounded')):
+            with self.subTest(error=error.__name__):
+                calls, state = [], {'since': now-300}
+
+                async def prepare(native, current_entry, *, admission):
+                    admission()
+                    raise error('synthetic_stop')
+
+                with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+                    with self.rolling_client(entries, calls) as client:
+                        result = await bilingual.discover_recent(client, state=state, now=now, prepare=prepare)
+                self.assertEqual((result['status'], result['failed'], result['enqueued']), (status, 0, 0))
+                self.assertEqual([path for path in calls if '/entries/' in path], ['/mf/v1/entries/156'])
+                self.assertFalse(state['skipped'])
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+        self.assertEqual(self.calls, [])
+
     async def test_rolling_current_done_skips_body_but_failed_changed_source_is_discovered(self):
         now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
         done = self.rolling_entry(121, now)

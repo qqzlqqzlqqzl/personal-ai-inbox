@@ -1151,7 +1151,8 @@ def _discover_recent_sync(client, state, now, stopped, admission, loop, prepare)
                         report['skipped'] += 1
             except (PermissionError, AdmissionStopped, TimeoutError):
                 raise
-            except (httpx.HTTPError, ValueError, TypeError, KeyError, UnicodeError):
+            except (httpx.HTTPError, ValueError, TypeError, KeyError, UnicodeError, RecursionError):
+                # A pathological body must not abort discovery of later articles.
                 report['failed'] += 1
             skipped[key] = now + ROLLING_SKIP_SECONDS
             skipped.move_to_end(key)

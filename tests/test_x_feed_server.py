@@ -3,7 +3,7 @@ import errno
 import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -222,3 +222,62 @@ def test_cache_fallback_does_not_swallow_programming_errors():
             assert caught is failure
         else:
             raise AssertionError("Only cache-write OSError may use native-uncached")
+
+
+INVALID_CACHE_TIMESTAMPS = [None, "bad", "Infinity", [], {}, True, False,
+                            float("inf"), float("-inf"), float("nan"), 10 ** 400]
+
+
+@pytest.mark.parametrize("stamp", INVALID_CACHE_TIMESTAMPS)
+def test_invalid_cache_timestamp_is_a_non_destructive_miss(tmp_path, stamp):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    target = cache / "fixture.json"
+    cached = cached_timeline()
+    cached["fetched_at"] = stamp
+    target.write_text(json.dumps(cached))
+    before = target.read_bytes()
+    fresh = [{"id": "fresh", "text": "fresh after cache miss", "created_at": "2026-10-08T01:00:00Z",
+              "author": {"username": "fixture"}, "media": []}]
+    fetch = AsyncMock(return_value=fresh)
+    saved = {"fetched_at": 10000, "handle": "fixture", "tweets": fresh}
+    with patch.object(server, "CACHE_DIR", cache), patch.object(server, "allowed_handles", return_value={}), \
+         patch.object(server, "fetch_timeline", fetch), patch.object(server, "save_cache", return_value=saved) as save, \
+         patch.object(server, "profile_exists", new=AsyncMock(side_effect=AssertionError("no extra profile request"))):
+        assert server.load_cache("fixture") is None
+        assert target.read_bytes() == before
+        result = asyncio.run(server.x_feed("fixture"))
+    assert result.status_code == 200 and result.headers["x-x-feed-source"] == "live"
+    assert b"fresh after cache miss" in result.body
+    fetch.assert_awaited_once_with("fixture")
+    save.assert_called_once_with("fixture", fresh)
+    assert target.read_bytes() == before
+
+
+def test_missing_cache_timestamp_is_a_non_destructive_miss(tmp_path):
+    cached = cached_timeline()
+    cached.pop("fetched_at")
+    target = tmp_path / "fixture.json"
+    target.write_text(json.dumps(cached))
+    before = target.read_bytes()
+    with patch.object(server, "CACHE_DIR", tmp_path):
+        assert server.load_cache("fixture") is None
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("stamp,expected", [(9999, "fresh-cache"), (9999.5, "fresh-cache"),
+                                           (0, "stale-cache"), (1.0, "stale-cache"), (-1, "stale-cache")])
+def test_finite_cache_timestamps_preserve_fresh_and_stale_fallback(tmp_path, stamp, expected):
+    cached = cached_timeline()
+    cached["fetched_at"] = stamp
+    target = tmp_path / "fixture.json"
+    target.write_text(json.dumps(cached))
+    before = target.read_bytes()
+    fetch = AsyncMock(side_effect=httpx.HTTPError("synthetic upstream failure"))
+    with patch.object(server, "CACHE_DIR", tmp_path), patch.object(server.time, "time", return_value=10000), \
+         patch.object(server, "fetch_timeline", fetch), \
+         patch.object(server, "profile_exists", new=AsyncMock(side_effect=AssertionError("cached fallback needs no profile"))):
+        result, source = asyncio.run(server.timeline("fixture"))
+    assert result == cached and source == expected
+    assert fetch.await_count == (0 if expected == "fresh-cache" else 1)
+    assert target.read_bytes() == before

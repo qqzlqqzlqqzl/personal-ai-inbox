@@ -1,5 +1,5 @@
 """Local X-to-Atom adapter backed by x-cli guest reads."""
-import json, os, re, socket, time
+import json, math, os, re, socket, time
 from datetime import datetime, timezone
 from html import escape, unescape
 from pathlib import Path
@@ -30,8 +30,10 @@ def load_cache(handle):
     try:
         data = json.loads(cache_path(handle).read_text())
         if isinstance(data, dict) and isinstance(data.get("tweets"), list):
-            return data
-    except (OSError, ValueError):
+            fetched_at = data.get("fetched_at")
+            if type(fetched_at) in (int, float) and math.isfinite(fetched_at):
+                return data
+    except (OSError, ValueError, OverflowError):
         pass
     return None
 
