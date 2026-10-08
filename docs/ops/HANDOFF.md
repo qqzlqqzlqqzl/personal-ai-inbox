@@ -1,3 +1,29 @@
+## 2026-10-08 follow-up: rolling bilingual translation, Issue181
+
+Latest user request supersedes the earlier explicit-open-only policy: automatically
+translate newly published >=8 English selections, original English before Chinese,
+with one daily token ceiling shared by automatic and article-open work.
+
+The existing bilingual worker discovers recent seven-day selections every five
+minutes, newest first, with bounded metadata/body/time limits and native Reader
+ownership, feed visibility, content-quality and language checks. Already queued
+work continues beyond this discovery window. Keep ordinary GET/prefetch read-only
+and preserve exact cached translations, model prompt and content-version identity.
+
+Rollout uses BILINGUAL_ROLLING_ENABLED (default false), enabled only in the
+existing private production environment after scoped CI. Retain the production
+1,000,000 input+output reserved-or-actual token cap / 1000 requests per UTC day
+(08:00 UTC+8 reset); over-budget pending work resumes the next day. Do not
+backfill the entire historical archive or create another service/runtime/cache.
+
+Before this follow-up, 108 completed translations contain 621023 translated-text
+bytes; translation-related SQLite pages occupy about 3.1 MiB. Body image bytes
+remain in the shared 1 GiB image cache. See [BILINGUAL-READER.md](BILINGUAL-READER.md)
+for the current policy. Earlier deployment records below remain historical.
+Actual merge/deployment evidence for this follow-up belongs in Issue181.
+
+---
+
 ## 2026-10-08 04:12 UTC+8: 本轮优化已实际部署
 
 本轮继续使用原 Reader / Events checkout、腾讯云既有环境和 Dot 六个 Astra/xhigh 岗位。参考 Miniflux worker pool、Karakeep architecture 和 RSSHub cache 配置后，选择已有关键路径上的有限改动，不引入新的服务或技术栈。

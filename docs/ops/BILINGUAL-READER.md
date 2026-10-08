@@ -1,29 +1,26 @@
-# On-demand cached bilingual Reader articles
+# Rolling and on-demand cached bilingual Reader articles
 
-Translate eligible English article bodies when a user actually opens the article.
-Do not translate unseen articles because list, detail, image or ten-page prefetch runs.
+Current user scope (2026-10-08, Issue181):
+- Automatically discover recent >=8 English recommendations every five minutes, newest published first; no browser visit is required. The bounded seven-day lookback catches recent/delayed analysis, without translating the entire historical archive.
+- Existing queued/partial work remains eligible after it leaves the discovery lookback.
+- A real article-open POST also requests work; ordinary detail/status GET and list/body/image prefetch stay read-only.
+- Reuse the existing bilingual worker and queue. BILINGUAL_ROLLING_ENABLED defaults false for rollout, enabled in the existing production private environment after deployment.
+- Automatic and article-open requests share bilingual_usage and its atomic reserved-or-actual token ceiling. Production ceiling is 1,000,000 input+output tokens and 1000 requests per UTC day, resetting at 08:00 Asia/Shanghai. This is a maximum, not a consumption target.
+- At the ceiling, preserve pending/partial translations and resume under the next day's budget. Cached reads are free.
+- Analysis must be current/done and score >=8, with current ownership, visibility, recommendation quality and English-language checks. Already translated exact content is not paid for again.
+- In bilingual mode, render each original English segment first and its Chinese translation immediately after it. Chinese-only and original-only modes retain their behavior.
+- Keep VERSION, PROMPT and source-hash identity: existing successful and partial translations stay reusable. Image-address-only rotation retains the existing completed-text reuse.
+- Use the existing private New API key and gpt-4o-mini. No new service, environment, database or image-cache allocation.
+- Maintain the existing top-right language/layout/focus controls, original markup, signed images and shared 1GiB image-cache cap.
+- Validation uses relevant offline mocked selection/budget/idempotence/order tests, existing scoped CI, actual backend deployment and a real cached reading result.
 
-Acceptance:
-- Current analysis must be done with score >= 8; preserve existing content-quality and ownership checks.
-- Detail GET and status GET only read cached results. An authenticated POST
-  /mf/v1/ai/translation/{entry_id} requests work for the owned, current body.
-- Remove automatic library seeding. Previously cancelled pending work is dormant
-  until the article is explicitly opened again. Existing complete translations are reused.
-- Show original content immediately and add completed Chinese paragraphs above English.
-  Persist partial and final results; repeat opens do not pay again for unchanged content.
-- Keep Chinese, bilingual and original mode controls as top-right icons with accessible labels.
-  Preserve the existing reading-tools icons, source markup, signed images and latest 1 GiB cache.
-- Use existing server-side New API credentials and gpt-4o-mini. No keys in Git/browser/Dot.
-  Reference the public Immersive Translate prompt rules: faithful translation, same structure,
-  preserved technical terms/code, and no extra commentary:
-  https://immersivetranslate.com/zh-Hans/docs/prompts/
-- Reuse existing bounded chunks/cache validation; wake the worker promptly on a real request.
-  BILINGUAL_CONCURRENCY controls 1-100 upstream batches (fallback 3); the HTTP
-  connection pool uses the same capacity. Empty queues do not start idle batch tasks.
-  Claims and daily budgets still prevent duplicate or unbounded paid work.
-- Record actual API usage and safe elapsed time. No all-history paid probe or new service/environment.
-- Run focused backend/API and React tests plus the locked frontend build. Publish that tested build
-  to the existing service, verify a real article and cache reuse, then merge/close this issue.
+Verified baseline before this change:
+- Completed translation versions:108; total stored article versions:110.
+- Stored translated UTF-8 text:621023 bytes; bilingual-related SQLite pages roughly3.1MiB. Text storage grows separately from the shared1GiB image cache; HTML image links do not duplicate image binaries here.
+- Recent published >=8 records:12-52 per day over the sampled week, including Chinese articles.
+- The previous newest100 batch completed; this does not imply that every historical >=8 article was translated.
+
+The following deployment/cost entries are historical evidence, not the current automatic-discovery policy.
 
 Cost research (2026-10-07, estimates rather than billed totals):
 - 2248 current >=8 analyzed entries; roughly 2076 have English bodies, including prepared/source fallback.
