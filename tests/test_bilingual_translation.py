@@ -3,7 +3,9 @@ import asyncio
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import httpx
@@ -75,6 +77,174 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         with core.connect() as db:
             db.execute('UPDATE bilingual_blocks SET next_try=0')
 
+    def rolling_entry(self, entry_id, now, *, age=60, language='en', score=8, state='done', hidden=False):
+        feed = {'id': 2 if hidden else 1, 'user_id': 3, 'feed_url': 'https://source.invalid/feed',
+                'hide_globally': hidden, 'category': {'id': 1, 'user_id': 3, 'hide_globally': False}}
+        entry = {**self.entry, 'id': entry_id, 'url': f'https://source.invalid/article-{entry_id}',
+                 'feed_id': feed['id'], 'feed': feed, 'language': language,
+                 'published_at': datetime.fromtimestamp(now-age, timezone.utc).isoformat()}
+        if language == 'zh':
+            entry['content'] = '<p>这是一篇中文文章，不需要再次翻译。</p>'
+        self.allow(entry, score=score, state=state)
+        with core.connect() as db:
+            db.execute('UPDATE analyses SET feed_id=?,published_at=?,analyzed_at=? WHERE entry_id=?',
+                       (feed['id'], entry['published_at'], now-10, entry_id))
+        return entry
+
+    def rolling_client(self, entries, calls, transform=None):
+        feeds = {entry['feed']['id']: entry['feed'] for entry in entries}
+        by_id = {entry['id']: entry for entry in entries}
+        caller = threading.get_ident()
+
+        def response(request):
+            self.assertNotEqual(threading.get_ident(), caller)
+            self.assertEqual(request.method, 'GET')
+            self.assertEqual((request.url.scheme, request.url.host, request.url.port), ('http', '127.0.0.1', 8091))
+            self.assertEqual(request.headers['X-Auth-Token'], 'offline-reader-token')
+            calls.append(request.url.path)
+            if request.url.path.endswith('/me'):
+                return httpx.Response(200, json={'id': 3})
+            if request.url.path.endswith('/feeds'):
+                return httpx.Response(200, json=list(feeds.values()))
+            entry = by_id[int(request.url.path.rsplit('/', 1)[-1])]
+            return httpx.Response(200, json=transform(entry) if transform else entry)
+
+        return httpx.Client(transport=httpx.MockTransport(response))
+
+    async def test_rolling_is_opt_in_and_heartbeat_has_only_counts(self):
+        with httpx.Client(transport=httpx.MockTransport(lambda request: self.fail('Disabled discovery made a request'))) as client:
+            result = await bilingual.discover_recent(client, now=1791417600)
+        self.assertFalse(bilingual.config()['rolling_enabled'])
+        self.assertEqual(result['status'], 'disabled')
+        self.assertEqual(core.get_meta('bilingual_rolling_heartbeat'), result)
+        self.assertEqual(set(result), {'at', 'status', 'scanned', 'fetched', 'enqueued', 'skipped', 'failed'})
+
+    async def test_rolling_only_recent_visible_english_and_deduplicates_skips(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entries = [self.rolling_entry(101, now, age=100), self.rolling_entry(102, now, age=90, language='zh'),
+                   self.rolling_entry(103, now, age=80, language='fr'), self.rolling_entry(104, now, age=70, hidden=True),
+                   self.rolling_entry(105, now, age=8*86400), self.rolling_entry(106, now, score=7),
+                   self.rolling_entry(107, now, state='pending'), self.rolling_entry(108, now, age=50)]
+        calls, state = [], {}
+        transform = lambda entry: {**entry, 'url': 'https://wrong.invalid/source'} if entry['id'] == 108 else entry
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client(entries, calls, transform) as client:
+                result = await bilingual.discover_recent(client, state=state, now=now)
+                self.assertEqual((result['enqueued'], result['failed']), (1, 1))
+                self.assertEqual([path for path in calls if '/entries/' in path],
+                                 ['/mf/v1/entries/108', '/mf/v1/entries/103', '/mf/v1/entries/102', '/mf/v1/entries/101'])
+                calls.clear()
+                again = await bilingual.discover_recent(client, state=state, now=now+300)
+                self.assertEqual(again['fetched'], 0)
+                self.assertFalse(any('/entries/' in path for path in calls))
+        with core.connect() as db:
+            self.assertEqual([row[0] for row in db.execute('SELECT entry_id FROM bilingual_articles')], [101])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+        self.assertEqual(self.calls, [])
+
+    async def test_rolling_late_analysis_is_not_lost_behind_cursor_and_body_bound(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entries = [self.rolling_entry(111, now, age=2*86400), self.rolling_entry(112, now, age=86400)]
+        with core.connect() as db:
+            cursor = db.execute("SELECT julianday(?,'unixepoch')", (now-3*86400,)).fetchone()[0]
+        state, calls = {'cursor': (cursor, 999), 'since': now-300}, []
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}), \
+                patch.object(bilingual, 'ROLLING_BODIES', 1):
+            with self.rolling_client(entries, calls) as client:
+                first = await bilingual.discover_recent(client, state=state, now=now)
+                self.assertEqual((first['enqueued'], first['status']), (1, 'bounded'))
+                second = await bilingual.discover_recent(client, state=state, now=now+300)
+                self.assertEqual(second['enqueued'], 1)
+        self.assertEqual([path for path in calls if '/entries/' in path], ['/mf/v1/entries/112', '/mf/v1/entries/111'])
+
+    async def test_rolling_current_done_skips_body_but_failed_changed_source_is_discovered(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        done = self.rolling_entry(121, now)
+        failed = self.rolling_entry(122, now)
+        for entry in (done, failed):
+            bilingual.enqueue(entry)
+        old_hash = bilingual.source_hash(failed['content'])
+        with core.connect() as db:
+            db.execute("UPDATE bilingual_articles SET status='done' WHERE entry_id=121")
+            db.execute("UPDATE bilingual_blocks SET translated='已有缓存译文' WHERE entry_id=121")
+            db.execute("UPDATE bilingual_articles SET status='error' WHERE entry_id=122")
+            db.execute('UPDATE bilingual_blocks SET attempts=? WHERE entry_id=122', (bilingual.MAX_ATTEMPTS,))
+        failed['content'] = '<p>This is a changed source with a new explanation.</p>'
+        core.update(122, content_hash=core.hash_text(failed['content']), source_text=failed['content'])
+        calls = []
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client([done, failed], calls) as client:
+                result = await bilingual.discover_recent(client, now=now)
+        self.assertEqual(result['enqueued'], 1)
+        self.assertEqual([path for path in calls if '/entries/' in path], ['/mf/v1/entries/122'])
+        with core.connect() as db:
+            current = db.execute('SELECT source_hash FROM bilingual_current WHERE entry_id=122').fetchone()[0]
+            self.assertNotEqual(current, old_hash)
+            self.assertEqual(current, bilingual.source_hash(failed['content']))
+            self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks WHERE source_hash=?', (current,)).fetchone()[0], 0)
+
+    async def test_rolling_analysis_change_after_decoration_cannot_enqueue(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(131, now)
+        decorate = core.decorate
+
+        def changed(*args, **kwargs):
+            result = decorate(*args, **kwargs)
+            core.update(131, content_hash='changed-during-preparation')
+            return result
+
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}), \
+                patch.object(core, 'decorate', side_effect=changed):
+            with self.rolling_client([entry], []) as client:
+                result = await bilingual.discover_recent(client, now=now)
+        self.assertEqual(result['enqueued'], 0)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 0)
+
+    async def test_rolling_uses_decorated_full_body_instead_of_native_teaser(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(132, now)
+        full = '<article><p>This is the captured full explanation with all original details.</p></article>'
+        decorate = core.decorate
+
+        def prepared(item, user_id, *, include_source_fallback):
+            self.assertTrue(include_source_fallback)
+            return {**decorate(item, user_id, include_source_fallback=include_source_fallback), 'content': full}
+
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}), \
+                patch.object(core, 'decorate', side_effect=prepared):
+            with self.rolling_client([entry], []) as client:
+                result = await bilingual.discover_recent(client, now=now)
+        self.assertEqual(result['enqueued'], 1)
+        with core.connect() as db:
+            row = db.execute('SELECT source_html,source_hash FROM bilingual_articles').fetchone()
+            self.assertEqual(tuple(row), (full, bilingual.source_hash(full)))
+
+    async def test_rolling_cancel_joins_reader_thread_before_any_enqueue(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(141, now)
+        entered, release = threading.Event(), threading.Event()
+
+        def blocked(item):
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError('Cancellation watchdog')
+            return item
+
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client([entry], [], blocked) as client:
+                work = asyncio.create_task(bilingual.discover_recent(client, now=now))
+                try:
+                    self.assertTrue(await asyncio.to_thread(entered.wait, 2))
+                    work.cancel()
+                    await asyncio.sleep(0)
+                finally:
+                    release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await work
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 0)
+
     async def test_cached_read_deduplicates_and_keeps_original(self):
         original = dict(self.entry)
         self.assertTrue(bilingual.enqueue(self.entry, priority=100))
@@ -90,6 +260,30 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         with core.connect() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM usage').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT actual FROM bilingual_usage').fetchone()[0], 77)
+
+    async def test_done_cache_renders_english_first_without_retranslation(self):
+        self.entry['content'] += '<p>See <a id="docs" href="#intro">the documentation</a>' \
+                                 '<img src="https://source.invalid/diagram.jpg"></p>'
+        self.allow(self.entry)
+        bilingual.enqueue(self.entry)
+        await self.run_mock()
+        with core.connect() as db:
+            before = tuple(tuple(row) for row in db.execute('SELECT * FROM bilingual_articles'))
+            usage = tuple(tuple(row) for row in db.execute('SELECT * FROM bilingual_usage'))
+        value = self.attached()
+        html = value['bilingual_html']
+        self.assertLess(html.index('reader-translation-original'), html.index('reader-translation-target'))
+        self.assertEqual(html.count('<img '), 1)
+        self.assertEqual(html.count('id="docs"'), 1)
+        self.assertIn('href="#intro"', html)
+        self.assertNotIn('reader-translation-original', value['chinese_html'])
+        self.assertEqual(value['chinese_html'].count('<img '), 1)
+        self.assertEqual(value['source_hash'], bilingual.source_hash(self.entry['content']))
+        self.assertEqual((await self.run_mock())['processed'], 0)
+        with core.connect() as db:
+            self.assertEqual(tuple(tuple(row) for row in db.execute('SELECT * FROM bilingual_articles')), before)
+            self.assertEqual(tuple(tuple(row) for row in db.execute('SELECT * FROM bilingual_usage')), usage)
+        self.assertEqual(len(self.calls), 1)
 
     async def test_image_address_rotation_reuses_done_without_new_rows_or_calls(self):
         self.entry['content'] += '<p><a href="https://source.invalid/old">An ordinary link.</a></p><p><a href="https://image.invalid/old"><img src="https://image.invalid/old" alt="Diagram"></a></p>'
@@ -192,6 +386,49 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue((await self.run_mock())['budget_paused'])
         self.assertEqual(len(self.calls), 1)
 
+    async def test_shared_token_budget_pause_resumes_after_utc_midnight(self):
+        class Clock(datetime):
+            current = datetime(2026, 10, 8, 23, 59, 59, tzinfo=timezone.utc)
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.current if tz is not None else cls.current.replace(tzinfo=None)
+
+        other = {**self.entry, 'id': 8}
+        self.allow(other)
+        bilingual.enqueue(self.entry, priority=100)
+        bilingual.enqueue(other, priority=10)
+        rows = bilingual._next_rows()
+        payload = json.dumps({'items': [{'id': row['block_id'], 'text': row['source_text']} for row in rows]}, ensure_ascii=False)
+        maximum = min(12000, max(1200, sum(len(row['source_text']) for row in rows) + 500))
+        limit = len(payload.encode()) + len(bilingual.PROMPT.encode()) + maximum
+
+        def response(request):
+            reply = self.reply(request)
+            body = reply.json()
+            body['usage']['total_tokens'] = limit
+            return httpx.Response(200, json=body)
+
+        with patch.object(bilingual, 'datetime', Clock), patch.dict('os.environ', {
+            'BILINGUAL_DAILY_TOKENS': str(limit), 'BILINGUAL_DAILY_REQUESTS': '1000',
+            'BILINGUAL_CONCURRENCY': '3',
+        }):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+                first = await bilingual.run_once(client)
+                self.assertTrue(first['budget_paused'])
+                self.assertEqual(len(self.calls), 1)
+                self.assertEqual(self.attached(other)['status'], 'budget_paused')
+                self.assertTrue((await bilingual.run_once(client))['budget_paused'])
+                self.assertEqual(len(self.calls), 1)
+                Clock.current = datetime(2026, 10, 9, 0, 0, 0, tzinfo=timezone.utc)
+                self.assertEqual((await bilingual.run_once(client))['processed'], 2)
+                self.assertEqual(len(self.calls), 2)
+        with core.connect() as db:
+            self.assertEqual([tuple(row) for row in db.execute(
+                'SELECT day,COUNT(*),SUM(actual) FROM bilingual_usage GROUP BY day ORDER BY day')],
+                [('2026-10-08', 1, limit), ('2026-10-09', 1, limit)])
+            self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], 1)
+
     async def test_exhausted_partial_and_budget_pause_are_terminal_with_html(self):
         bilingual.enqueue(self.entry)
         await self.run_mock(omitted={1})
@@ -272,7 +509,8 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('href="https://source.invalid/docs"', html)
             self.assertIn('<pre>Do not translate code block</pre>', html)
             self.assertIn('<code>foo()</code>', html)
-            self.assertIn('<td><span class="reader-translation-target"', html)
+            first = 'original' if mode == 'bilingual_html' else 'target'
+            self.assertIn('<td><span class="reader-translation-' + first + '"', html)
             self.assertIn('中文原段落不需要翻译。', html)
 
     def test_native_content_never_enters_model_queue(self):
