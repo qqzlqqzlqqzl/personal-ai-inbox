@@ -338,7 +338,7 @@ def config():
         'base_url': base,
         'model': os.environ.get('BILINGUAL_MODEL', DEFAULT_MODEL).strip() or DEFAULT_MODEL,
         'concurrency': _number('BILINGUAL_CONCURRENCY', 3, 1, MAX_CONCURRENT_BATCHES),
-        'daily_requests': _number('BILINGUAL_DAILY_REQUESTS', 40, 1, 1000),
+        'daily_requests': _number('BILINGUAL_DAILY_REQUESTS', 40, 1, 10000),
         'daily_tokens': _number('BILINGUAL_DAILY_TOKENS', 250000, 1000, 10000000),
     }
 
@@ -944,14 +944,18 @@ async def _run_batches(client, cfg, admission):
 
 
 def _rolling_candidates(user_id, now, state, cfg):
-    # A completed current version is not a source-change monitor. Explicit views
-    # still discover changed bodies. Failed/cancelled/stale queues are not hidden.
+    # A completed current version is not a publisher source-change monitor.
+    # A newer identity-matched body already restored by Reader can need its own
+    # translation; the later native read/apply path verifies that repair again.
     where = '''a.user_id=? AND a.state='done' AND a.score>=8
       AND julianday(a.published_at)<=julianday(?,'unixepoch')
       AND NOT EXISTS (
         SELECT 1 FROM bilingual_current c JOIN bilingual_articles b USING(user_id,entry_id,source_hash)
         WHERE c.user_id=a.user_id AND c.entry_id=a.entry_id AND b.model=? AND b.version=?
-          AND (b.status IN ('done','native') OR (b.requested_at>0
+          AND ((b.status IN ('done','native') AND NOT EXISTS (
+            SELECT 1 FROM prepared_articles p WHERE p.entry_id=a.entry_id AND p.user_id=a.user_id
+              AND p.url=a.url AND p.kind='reader_original_html' AND p.prepared_at>b.updated_at
+              AND p.content<>b.source_html)) OR (b.requested_at>0
             AND b.status IN ('pending','partial','processing','budget_paused')
             AND EXISTS (SELECT 1 FROM bilingual_blocks x
               WHERE x.user_id=b.user_id AND x.entry_id=b.entry_id AND x.source_hash=b.source_hash

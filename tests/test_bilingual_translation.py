@@ -185,6 +185,33 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(current, bilingual.source_hash(failed['content']))
             self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks WHERE source_hash=?', (current,)).fetchone()[0], 0)
 
+    async def test_rolling_restored_original_replaces_completed_old_body_once(self):
+        from prepared_content import remember
+        from content_quality import BODY_POLICY
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(123, now)
+        bilingual.enqueue(entry)
+        old_hash = bilingual.source_hash(entry['content'])
+        with core.connect() as db:
+            db.execute("UPDATE bilingual_articles SET status='done',updated_at=? WHERE entry_id=123", (now-10,))
+            db.execute("UPDATE bilingual_blocks SET translated='旧正文的缓存译文' WHERE entry_id=123")
+        full = '<article><p>This is the verified complete original with newly restored details and explanations.</p></article>'
+        remember(entry, full, 'reader_original_html', {
+            'body_policy': BODY_POLICY, 'requested_url': entry['url'],
+            'html_sha256': core.hash_text(full), 'checked_at': now,
+        })
+        calls = []
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client([entry], calls) as client:
+                self.assertEqual((await bilingual.discover_recent(client, now=now))['enqueued'], 1)
+                self.assertEqual((await bilingual.discover_recent(client, now=now+300))['enqueued'], 0)
+        with core.connect() as db:
+            new_hash = db.execute('SELECT source_hash FROM bilingual_current WHERE entry_id=123').fetchone()[0]
+            self.assertEqual(new_hash, bilingual.source_hash(full))
+            self.assertNotEqual(new_hash, old_hash)
+            self.assertEqual(db.execute('SELECT status FROM bilingual_articles WHERE source_hash=?', (old_hash,)).fetchone()[0], 'done')
+        self.assertEqual(self.calls, [])
+
     async def test_rolling_analysis_change_after_decoration_cannot_enqueue(self):
         now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
         entry = self.rolling_entry(131, now)
@@ -936,9 +963,10 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             return self.reply(request)
         with patch.dict('os.environ', {
             'BILINGUAL_CONCURRENCY': '100',
-            'BILINGUAL_DAILY_REQUESTS': '1000',
+            'BILINGUAL_DAILY_REQUESTS': '5000',
             'BILINGUAL_DAILY_TOKENS': '1000000',
         }):
+            self.assertEqual(bilingual.config()['daily_requests'], 5000)
             for index in range(100, 200):
                 entry = {**self.entry, 'id': index}
                 self.allow(entry)
