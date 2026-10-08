@@ -643,7 +643,7 @@ const requestSnapshot = () => {
   }
   return { ready, query, key: JSON.stringify([calendar.key, ai.hydrated, query,
     settings.showStatus, settings.showHiddenFeeds, content.filterDate, content.filterString,
-    content.articleListRevision]) }
+    content.articleListRevision, dataState.get().loadState.counts.snapshotRevision]) }
 }
 const requestState = computed(
   [authState, dataState, aiState, contentState, settingsState, readingCalendarKeyState],
@@ -703,8 +703,16 @@ export const startSidebarScopeCounts = () => {
   return () => { active = false; controller?.abort(); unlisten(); result.set({ key: null, counts: null }) }
 }
 '''
+# Upgrade only the exact prior generated module; arbitrary local edits still fail.
+SIDEBAR_SCOPE_COUNTS_PREVIOUS = SIDEBAR_SCOPE_COUNTS.replace(
+    '    content.articleListRevision, dataState.get().loadState.counts.snapshotRevision]) }',
+    '    content.articleListRevision]) }',
+    1,
+)
 scope_counts_path = WEB / "src/store/sidebarScopeCountsState.js"
-if scope_counts_path.exists() and scope_counts_path.read_text() != SIDEBAR_SCOPE_COUNTS:
+if scope_counts_path.exists() and scope_counts_path.read_text() not in {
+    SIDEBAR_SCOPE_COUNTS, SIDEBAR_SCOPE_COUNTS_PREVIOUS,
+}:
     raise RuntimeError("Unreviewed sidebar scope counts module")
 scope_counts_path.write_text(SIDEBAR_SCOPE_COUNTS)
 patch("src/components/AppDataProvider.jsx", 'import { getAuthSessionKey } from "@/utils/auth"',
