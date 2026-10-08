@@ -28,7 +28,7 @@ def visual_state(page):
       let scroll=body.parentElement;
       while(scroll&&!(scroll.scrollHeight>scroll.clientHeight&&/(auto|scroll)/.test(getComputedStyle(scroll).overflowY)))scroll=scroll.parentElement;
       if(!scroll)throw Error('Missing actual overflowing article ancestor');
-      const v=visualViewport,a=document.activeElement,toggle=bar.querySelector('button[aria-pressed]');
+      const v=visualViewport,a=document.activeElement,toggle=bar.querySelector(':scope > button[aria-pressed][aria-label]');
       const layout=bar.querySelector('.review-reading-controls'),opener=layout?.querySelector('summary');
       const outline=opener?getComputedStyle(opener):null;
       const barRect=bar.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();
@@ -37,7 +37,7 @@ def visual_state(page):
         viewport:[innerWidth,innerHeight,devicePixelRatio],visual:v?{width:v.width,height:v.height,
           scale:v.scale,offsetLeft:v.offsetLeft,offsetTop:v.offsetTop,pageLeft:v.pageLeft,pageTop:v.pageTop}:null,
         fonts:document.fonts.status,focusMode:article.classList.contains('review-reading-focus'),
-        toggle:{text:toggle?.textContent,pressed:toggle?.getAttribute('aria-pressed')},
+        toggle:{label:toggle?.getAttribute('aria-label'),pressed:toggle?.getAttribute('aria-pressed')},
         title:info(article.querySelector('.article-title')),meta:info(article.querySelector('.article-meta')),
         ai:info(article.querySelector('.article-header>.ai-verdict,.article-header>.ai-pending')),
         layout:{open:layout?.open,opener:{...info(opener),focused:a===opener,
@@ -63,7 +63,7 @@ def validate_visual_state(state, width, height, theme, focus):
     assert state['viewport'][:2] == [width, height], 'wrong viewport'
     assert state['fonts'] == 'loaded', 'fonts still loading'
     assert state['focusMode'] is focus and state['toggle']['pressed'] == str(focus).lower(), 'wrong focus state'
-    assert state['toggle']['text'] == ('退出专注正文' if focus else '专注正文'), 'wrong focus control'
+    assert state['toggle']['label'] == ('退出专注正文' if focus else '专注正文'), 'wrong focus control'
     assert state['title']['text'] == 'Synthetic long reading fixture', 'article title changed'
     assert state['paragraphs'] == 40, 'original reading paragraphs missing'
     assert not state['horizontalOverflow'], 'document horizontal overflow'
