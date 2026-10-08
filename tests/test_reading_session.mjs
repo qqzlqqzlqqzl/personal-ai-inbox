@@ -26,9 +26,9 @@ w = nextWindow(w, 'category:2', 35, 60)
 assert.equal(w.stalled,false);assert.equal(w.start,20)
 assert.equal(prefetchDecision(w, 23, 500, 800).reason,'quarter')
 assert.equal(prefetchDecision(nextWindow(null,'empty',0,0),0,0,800),null)
-assert.equal(AUTO_PREFETCH_PAGES,10)
-for(let page=0;page<10;page++)assert.deepEqual(autoPrefetchDecision(w,page),{reason:'startup',page:page+1})
-assert.equal(autoPrefetchDecision(w,10),null)
+assert.equal(AUTO_PREFETCH_PAGES,5)
+for(let page=0;page<5;page++)assert.deepEqual(autoPrefetchDecision(w,page),{reason:'startup',page:page+1})
+assert.equal(autoPrefetchDecision(w,5),null)
 assert.equal(autoPrefetchDecision(null,0),null)
 assert.deepEqual(autoPrefetchDecision(nextWindow(null,'new-scope',24,24),0),{reason:'startup',page:1})
 
@@ -100,4 +100,4 @@ for(const prefetch of [true,false]){
  await context.run(async()=>({entries:[{id:1}]}),{prefetch})
  assert.equal(context.reads(),prefetch?0:1,'background pages cannot mark duplicate articles as read')
 }
-console.log('PASS per-batch threshold, bounded ten-page startup, reset, duplicates, empty')
+console.log('PASS per-batch threshold, bounded five-page startup, reset, duplicates, empty')
