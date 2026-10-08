@@ -222,9 +222,10 @@ def _reader_original_html(result):
     return _html(BodyParser(str(soup)).root)
 
 
-async def verify_original_body(entry, current_entry, *, analysis_text=None, previous_translation=None):
+async def verify_original_body(entry, current_entry, *, analysis_text=None, previous_translation=None, admission=None):
     """One explicit detail activation; no model, feed update or analysis mutation."""
     from content_quality import BODY_POLICY, body_completeness
+    check(admission)
     cached = await asyncio.to_thread(apply, entry)
     if body_completeness(cached)['status'] == 'verified':
         return {'status': 'verified', 'reason': 'original_container_verified',
@@ -265,6 +266,7 @@ async def verify_original_body(entry, current_entry, *, analysis_text=None, prev
         # Re-authenticate/re-read through the caller before saving. A revoked
         # account or changed native body cannot bind this receipt to a new item.
         fresh = await current_entry()
+        check(admission)
         if body_check_key(fresh) != key:
             return _remember_body_check(entry, {**failed, 'reason': 'original_input_changed'})
         normalize = lambda text: ' '.join((text or '').split())
@@ -274,7 +276,7 @@ async def verify_original_body(entry, current_entry, *, analysis_text=None, prev
                        if analysis_text is not None else None}
         if previous_translation and previous_translation.get('blocks_done', 0) > 0:
             receipt['previous_translation_source_hash'] = previous_translation.get('source_hash')
-        await asyncio.to_thread(remember, fresh, html, 'reader_original_html', receipt)
+        await asyncio.to_thread(remember, fresh, html, 'reader_original_html', receipt, admission=admission)
         return _remember_body_check(fresh, {'status': 'verified', 'reason': 'original_container_verified', 'checked_at': now})
 
     task = _BODY_INFLIGHT.get(key)
@@ -287,3 +289,33 @@ async def verify_original_body(entry, current_entry, *, analysis_text=None, prev
                 done.exception()  # Retrieve failures even after a detail was closed.
         task.add_done_callback(finished)
     return await asyncio.shield(task)
+
+
+async def prepare_translation_body(entry, current_entry, *, admission=None):
+    """Restore known plaintext fallback before the opted-in translator pays for it.
+
+    Native structured bodies and bound repairs keep their current source/cache.
+    The caller supplies the same authenticated current-entry read used by detail
+    verification; no new reader service or publisher extraction path is added.
+    """
+    check(admission)
+    shown = await asyncio.to_thread(core.decorate, entry, entry['user_id'], include_source_fallback=True)
+    if shown.get('prepared_source') != 'analysis_source_fallback':
+        return shown
+
+    def evidence():
+        import bilingual_translation
+        with core.connect() as db:
+            row = db.execute('SELECT source_text FROM analyses WHERE user_id=? AND entry_id=? AND url=?',
+                (entry['user_id'], entry['id'], entry['url'])).fetchone()
+        previous = bilingual_translation.attach(shown, entry['user_id']).get('translation')
+        return row['source_text'] if row else None, previous
+
+    text, previous = await asyncio.to_thread(evidence)
+    check(admission)
+    await verify_original_body(entry, current_entry, analysis_text=text,
+        previous_translation=previous, admission=admission)
+    check(admission)
+    fresh = await current_entry()
+    check(admission)
+    return await asyncio.to_thread(core.decorate, fresh, fresh['user_id'], include_source_fallback=True)

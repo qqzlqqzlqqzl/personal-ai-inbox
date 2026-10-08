@@ -5,6 +5,7 @@ and budget. Cache reads never enqueue work, replace content or fetch publishers.
 """
 import asyncio
 from collections import Counter, OrderedDict
+from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -577,11 +578,40 @@ def _technical_literal(text):
             re.fullmatch(r'[$#]\s+\S[^\r\n]*', text) or
             re.fullmatch(r'[A-Za-z_]\w*\s*=\s*[A-Z][A-Za-z0-9_-]*\(.*\)', text)):
         return True
+    # Reader markdown may contain a resource-only image or an empty share link.
+    # Its URL is source data, not English prose or a translation instruction.
+    if len(text) <= 2048 and re.fullmatch(
+            r'(?:\[\]|!\[Image \d{1,4}: (?:logo|image|Image|Logo)\])\(https?://[^\s()]+\)', text):
+        return True
     # Recognize bounded product/platform syntax, never arbitrary Title Case.
     # Qualifiers contain only technical identifiers, versions and prices; prose
     # such as "Windows PowerShell Is Better" must still be translated.
     if len(text) > 256:
         return False
+    # Exact observed identifier/value grammars, not a blanket short-English
+    # exception. The caller still requires unchanged visible source text.
+    literal = ' '.join(text.split())
+    if literal in {'AWS SigV4', 'Surface Laptop Ultra', 'Zen 3 / Vermeer',
+                   'macOS Intel (x64)', 'Workers KV', 'ACS URL', 'ACS URL:', 'ACS URL: .', '#### API'}:
+        return True
+    unit = r'(?:KiB|MiB|GiB|TiB|KB|MB|GB|TB)'
+    number = r'[0-9]{1,12}(?:\.[0-9]{1,6})?'
+    if any(re.fullmatch(pattern, literal) for pattern in (
+            r'[0-9A-F]{2}(?: [0-9A-F]{2}){1,15}',
+            number + ' ' + unit,
+            r'\$' + number + r' / ' + unit,
+            r'Python \d{1,2}(?:\.\d{1,3}){1,2}\.?',
+            r'(?:ndcg|NDCG)@\d{1,4}',
+            r'Ryzen [3579] \d{4,5}[A-Z0-9]{0,6} \(AMD\)',
+            r'(?:EP|DE) (?:\d{1,4} ){1,5}\d{1,4}(?: [A-Z]\d)?',
+            r'\d{1,2}x\d{1,3}GB G\.Skill Trident Z(?: Neo)?(?: RGB)? DDR[345]-\d{3,5}',
+            r'AMD AM[345] \(Zen [1-9](?:, Zen [1-9])*\)',
+            r'\d{1,2}TB Sabrent Rocket \d{1,2}(?: Plus)?',
+    )):
+        return True
+    metric = r'(?:pp|tg)\d{1,6}\s+~?\d+(?:\.\d+)?\s*->\s*~?\d+(?:\.\d+)?\s+tok/s\s+\([+-]\d+(?:\.\d+)?%\)'
+    if re.fullmatch(metric + r'(?:\s+' + metric + r')*', text):
+        return True
     # Environment-prefixed relative executable commands remain copyable verbatim.
     if re.fullmatch(r'(?:[A-Z][A-Z0-9_]{0,63}=[A-Za-z0-9_.+-]+\s+)*'
                     r'\./[A-Za-z0-9_./-]+(?:\s+[A-Za-z0-9_./,:=+-]+)*', text):
@@ -615,6 +645,10 @@ def _technical_literal(text):
                 re.fullmatch(gpu_token + r'(?:[ ,;()./]+' + gpu_token + r')*\)?\.?', text))
 
 
+def _format_only(text):
+    return bool(TOKEN.search(text)) and not TOKEN.sub('', text).strip()
+
+
 def _validate(raw, rows):
     data = json.loads(raw)
     items = next((data[name] for name in ('items', 'blocks', 'translations')
@@ -636,6 +670,10 @@ def _validate(raw, rows):
             continue
         visible = TOKEN.sub('', text)
         original = TOKEN.sub('', source)
+        if _format_only(source):
+            if not visible.strip():
+                result[index] = source  # Preserve source markers/whitespace exactly.
+            continue
         unchanged_literal = visible.strip() == original.strip() and _technical_literal(original)
         if (len(re.sub(r'\s', '', visible)) < max(1, int(len(re.sub(r'\s', '', original)) * 0.12))
                 or (re.search(r'[A-Za-z]{2}', original) and not re.search(r'[\u3400-\u9fff]', visible)
@@ -643,6 +681,72 @@ def _validate(raw, rows):
             continue
         result[index] = text
     return result
+
+
+def _recovery_plan(rows):
+    """Translate only text; source-owned formatting never enters a model item."""
+    items, plans = [], {}
+    for row in rows:
+        parts = []
+        for part in re.split(r'(\[\[/?t\d+\]\])', row['source_text']):
+            if TOKEN.fullmatch(part) or not part.strip():
+                parts.append(part)
+            else:
+                index = len(items)
+                items.append({'id': index, 'text': part.strip()})
+                leading = part[:len(part) - len(part.lstrip())]
+                trailing = part[len(part.rstrip()):]
+                parts.append((index, leading, trailing))
+        plans[row['block_id']] = parts
+    return items, plans
+
+
+def _validate_recovery(raw, rows, items, plans):
+    segments = _validate(raw, [{'block_id': item['id'], 'source_text': item['text']} for item in items])
+    # A text response cannot introduce HTML, URLs-as-markup or formatting tokens.
+    segments = {index: text for index, text in segments.items()
+                if not TOKEN.search(text) and not re.search(r'<\s*[!/A-Za-z][^>]*>', text)}
+    assembled = []
+    for row in rows:
+        parts = plans[row['block_id']]
+        if any(not isinstance(part, str) and part[0] not in segments for part in parts):
+            continue  # Never accept a block with even one missing text segment.
+        text = ''.join(part if isinstance(part, str) else part[1] + segments[part[0]] + part[2] for part in parts)
+        assembled.append({'id': row['block_id'], 'text': text})
+    return _validate(json.dumps({'items': assembled}, ensure_ascii=False), rows)
+
+
+def _complete_format_rows(rows, cfg, admission):
+    """Source-only chunks need no model or usage reservation; recheck under CAS."""
+    check(admission)
+    key = rows[0]['user_id'], rows[0]['entry_id'], rows[0]['source_hash']
+    with core.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not _eligible(db, *key[:2]):
+            return {'processed': 0, 'stale': True}
+        now = time.time()
+        for row in rows:
+            current = db.execute('''SELECT b.attempts,b.source_text,a.source_html FROM bilingual_blocks b
+              JOIN bilingual_current c USING(user_id,entry_id,source_hash)
+              JOIN bilingual_articles a USING(user_id,entry_id,source_hash)
+              WHERE b.user_id=? AND b.entry_id=? AND b.source_hash=? AND b.block_id=?
+                AND b.translated IS NULL AND b.attempts<? AND b.next_try<=?
+                AND a.requested_at>0 AND a.model=? AND a.version=?''',
+                (*key, row['block_id'], MAX_ATTEMPTS, now, cfg['model'], _version())).fetchone()
+            if (not current or current['attempts'] != row['attempts']
+                    or current['source_text'] != row['source_text'] or not _format_only(current['source_text'])
+                    or source_hash(current['source_html'], cfg['model']) != key[2]):
+                return {'processed': 0, 'stale': True}
+        check(admission)
+        for row in rows:
+            db.execute('''UPDATE bilingual_blocks SET translated=source_text,error=NULL,next_try=0
+              WHERE user_id=? AND entry_id=? AND source_hash=? AND block_id=?''', (*key, row['block_id']))
+        counts = db.execute('''SELECT COUNT(*),SUM(translated IS NOT NULL),SUM(translated IS NULL AND attempts<?)
+          FROM bilingual_blocks WHERE user_id=? AND entry_id=? AND source_hash=?''', (MAX_ATTEMPTS, *key)).fetchone()
+        status = 'done' if counts[0] == counts[1] else ('error' if not counts[2] else 'partial')
+        db.execute('UPDATE bilingual_articles SET status=?,updated_at=? WHERE user_id=? AND entry_id=? AND source_hash=?',
+                   (status, now, *key))
+    return {'processed': len(rows), 'failed': 0, 'status': status}
 
 
 def _next_rows():
@@ -716,7 +820,18 @@ async def _translate(client, cfg, admission):
     rows = _next_rows()
     if not rows:
         return {'processed': 0}
-    payload = json.dumps({'items': [{'id': row['block_id'], 'text': row['source_text']} for row in rows]}, ensure_ascii=False)
+    formatting = [row for row in rows if _format_only(row['source_text'])]
+    if formatting:
+        return _complete_format_rows(formatting, cfg, admission)
+    recovery = [row for row in rows if row['attempts'] >= 2 and row.get('error') == 'missing_or_invalid_blocks']
+    if recovery:
+        # Keep the existing source-block/item/character bounds. Reservation
+        # attempts are per selected block, never per article or successful block.
+        rows = recovery
+        items, plans = _recovery_plan(rows)
+    else:
+        items, plans = [{'id': row['block_id'], 'text': row['source_text']} for row in rows], None
+    payload = json.dumps({'items': items}, ensure_ascii=False)
     maximum = min(12000, max(1200, sum(len(row['source_text']) for row in rows) + 500))
     usage = _reserve(rows, payload, cfg, maximum, admission)
     key = rows[0]['user_id'], rows[0]['entry_id'], rows[0]['source_hash']
@@ -742,7 +857,13 @@ async def _translate(client, cfg, admission):
         choice = data['choices'][0]
         if choice.get('finish_reason') != 'stop':
             raise ValueError('incomplete_output')
-        translated = _validate(choice['message']['content'], rows)
+        if plans is None:
+            translated = _validate(choice['message']['content'], rows)
+        else:
+            try:
+                translated = _validate_recovery(choice['message']['content'], rows, items, plans)
+            except (TypeError, ValueError):
+                translated = {}  # Failed recovery stays within the same retry ceiling.
         if len(translated) != len(rows):
             error = 'missing_or_invalid_blocks'
     except (asyncio.CancelledError, AdmissionStopped):
@@ -902,9 +1023,10 @@ def _rolling_entry(entry, row, feed, user_id, now):
         return False
 
 
-def _discover_recent_sync(client, state, now, stopped, admission):
+def _discover_recent_sync(client, state, now, stopped, admission, loop, prepare):
     cfg = config()
-    report = {'at': now, 'status': 'disabled', 'scanned': 0, 'fetched': 0, 'enqueued': 0, 'skipped': 0, 'failed': 0}
+    report = {'at': now, 'status': 'disabled', 'scanned': 0, 'fetched': 0, 'enqueued': 0,
+              'skipped': 0, 'failed': 0, 'body_unverified': 0}
     if not cfg['rolling_enabled']:
         return report
     token = os.environ.get('MINIFLUX_API_KEY', '').strip()
@@ -974,8 +1096,45 @@ def _discover_recent_sync(client, state, now, stopped, admission):
                         if not _rolling_entry(entry, row, feed, user_id, now):
                             raise ValueError('reader_entry_identity_or_body_changed')
                         guard()
-                        entry = core.decorate(entry, user_id, include_source_fallback=True)
+
+                        async def current_entry():
+                            fresh = await asyncio.to_thread(_rolling_json, reader, '/entries/' + str(row['entry_id']),
+                                headers, deadline, guard, MAX_HTML_BYTES * 3)
+                            if not _rolling_entry(fresh, row, feed, user_id, now):
+                                raise ValueError('reader_entry_identity_changed_during_preparation')
+                            return fresh
+
+                        async def prepare_entry(native):
+                            if prepare is None:
+                                from prepared_content import prepare_translation_body
+                                return await prepare_translation_body(native, current_entry, admission=guard)
+                            return await prepare(native, current_entry, admission=guard)
+
+                        future = asyncio.run_coroutine_threadsafe(prepare_entry(entry), loop)
+                        try:
+                            while True:
+                                guard()
+                                try:
+                                    entry = future.result(timeout=max(0.001, min(0.1, deadline - time.monotonic())))
+                                    break
+                                except FutureTimeout:
+                                    if future.done():
+                                        raise  # The helper itself timed out.
+                        except (AdmissionStopped, TimeoutError):
+                            stopped.set()
+                            future.cancel()
+                            raise
                         guard()
+                        if not _rolling_entry(entry, row, feed, user_id, now):
+                            raise ValueError('prepared_reader_identity_or_body_changed')
+                        if entry.get('prepared_source') == 'analysis_source_fallback':
+                            report['body_unverified'] += 1
+                            report['skipped'] += 1
+                            skipped[key] = now + ROLLING_SKIP_SECONDS
+                            skipped.move_to_end(key)
+                            while len(skipped) > ROLLING_SKIP_LIMIT:
+                                skipped.popitem(last=False)
+                            continue
                         html = entry.get('content') or ''
                         if not isinstance(html, str) or len(html.encode()) > MAX_HTML_BYTES:
                             raise ValueError('prepared_body_too_large')
@@ -1014,11 +1173,12 @@ def _discover_recent_sync(client, state, now, stopped, admission):
     return report
 
 
-async def discover_recent(client=None, *, state=None, now=None, admission=None):
+async def discover_recent(client=None, *, state=None, now=None, admission=None, prepare=None):
     """Only the opted-in worker calls this; all reader I/O and parsing stay off-loop."""
     stopped = threading.Event()
+    loop = asyncio.get_running_loop()
     job = asyncio.create_task(asyncio.to_thread(_discover_recent_sync, client,
-        {} if state is None else state, time.time() if now is None else now, stopped, admission))
+        {} if state is None else state, time.time() if now is None else now, stopped, admission, loop, prepare))
     try:
         report = await asyncio.shield(job)
     except asyncio.CancelledError:

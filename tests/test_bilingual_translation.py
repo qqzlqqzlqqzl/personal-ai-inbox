@@ -117,7 +117,7 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(bilingual.config()['rolling_enabled'])
         self.assertEqual(result['status'], 'disabled')
         self.assertEqual(core.get_meta('bilingual_rolling_heartbeat'), result)
-        self.assertEqual(set(result), {'at', 'status', 'scanned', 'fetched', 'enqueued', 'skipped', 'failed'})
+        self.assertEqual(set(result), {'at', 'status', 'scanned', 'fetched', 'enqueued', 'skipped', 'failed', 'body_unverified'})
 
     async def test_rolling_only_recent_visible_english_and_deduplicates_skips(self):
         now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
@@ -245,6 +245,76 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         with core.connect() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 0)
 
+    async def test_rolling_preparation_bridge_uses_loop_and_verified_reread(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(151, now)
+        owner = threading.get_ident()
+        prepared_html = '<p>This is the complete verified original explanation.</p>'
+        calls = []
+
+        async def prepare(native, current_entry, *, admission):
+            self.assertEqual(threading.get_ident(), owner)
+            self.assertEqual(await current_entry(), native)
+            admission()
+            return {**native, 'content': prepared_html, 'prepared_source': 'reader_original_html'}
+
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client([entry], calls) as client:
+                result = await bilingual.discover_recent(client, now=now, prepare=prepare)
+        self.assertEqual(result['enqueued'], 1)
+        self.assertEqual(sum('/entries/' in path for path in calls), 2)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT source_html FROM bilingual_articles').fetchone()[0], prepared_html)
+
+    async def test_rolling_unverified_fallback_skips_translation_and_short_term_recheck(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(152, now)
+        state, prepared = {}, []
+
+        async def prepare(native, current_entry, *, admission):
+            prepared.append(native['id'])
+            admission()
+            return {**native, 'prepared_source': 'analysis_source_fallback'}
+
+        with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
+            with self.rolling_client([entry], []) as client:
+                result = await bilingual.discover_recent(client, now=now, state=state, prepare=prepare)
+                self.assertEqual((result['enqueued'], result['body_unverified']), (0, 1))
+                again = await bilingual.discover_recent(client, now=now+300, state=state, prepare=prepare)
+                self.assertEqual(again['fetched'], 0)
+        self.assertEqual(prepared, [152])
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 0)
+
+    async def test_rolling_preparation_timeout_or_cancel_stops_late_enqueue(self):
+        now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
+        entry = self.rolling_entry(153, now)
+        for cancel in (False, True):
+            with self.subTest(cancel=cancel):
+                entered, cancelled = asyncio.Event(), asyncio.Event()
+
+                async def prepare(native, current_entry, *, admission):
+                    entered.set()
+                    try:
+                        await asyncio.Event().wait()
+                    finally:
+                        cancelled.set()
+
+                with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}), \
+                        patch.object(bilingual, 'ROLLING_SECONDS', 2 if cancel else 0.1):
+                    with self.rolling_client([entry], []) as client:
+                        work = asyncio.create_task(bilingual.discover_recent(client, now=now, prepare=prepare))
+                        await asyncio.wait_for(entered.wait(), 1)
+                        if cancel:
+                            work.cancel()
+                            with self.assertRaises(asyncio.CancelledError):
+                                await work
+                        else:
+                            self.assertEqual((await work)['status'], 'bounded')
+                        await asyncio.wait_for(cancelled.wait(), 1)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_articles').fetchone()[0], 0)
+
     async def test_cached_read_deduplicates_and_keeps_original(self):
         original = dict(self.entry)
         self.assertTrue(bilingual.enqueue(self.entry, priority=100))
@@ -347,6 +417,73 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item['id'] for item in last], [1])
         self.assertEqual(self.attached()['status'], 'done')
 
+    async def test_segment_recovery_keeps_successful_blocks_and_original_token_order(self):
+        self.entry['content'] = ('<p>Already translated paragraph.</p>'
+            '<p>Read <a href="https://source.invalid/one">the first report</a> and '
+            '<a href="https://source.invalid/two">the second report</a>.</p>'
+            '<p>Then <code>run()</code><br>read the final explanation.</p>')
+        self.allow(self.entry)
+        bilingual.enqueue(self.entry)
+        with core.connect() as db:
+            db.execute("UPDATE bilingual_blocks SET translated='保留的成功译文。' WHERE block_id=0")
+            db.execute("UPDATE bilingual_blocks SET attempts=2,error='missing_or_invalid_blocks' WHERE block_id>0")
+        result = await self.run_mock()
+        self.assertEqual(result['processed'], 2)
+        payload = json.loads(json.loads(self.calls[0].content)['messages'][1]['content'])['items']
+        self.assertTrue(all(not bilingual.TOKEN.search(item['text']) for item in payload))
+        self.assertEqual(len({item['id'] for item in payload}), len(payload))
+        with core.connect() as db:
+            rows = db.execute('SELECT * FROM bilingual_blocks ORDER BY block_id').fetchall()
+            self.assertEqual((rows[0]['translated'], rows[0]['attempts']), ('保留的成功译文。', 0))
+            for row in rows[1:]:
+                self.assertEqual(row['attempts'], 3)
+                self.assertEqual(bilingual.TOKEN.findall(row['translated']), bilingual.TOKEN.findall(row['source_text']))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 1)
+        self.assertEqual(self.attached()['status'], 'done')
+
+    async def test_recovery_missing_segment_exhausts_only_remaining_opportunity(self):
+        self.entry['content'] = '<p>Read <a href="https://source.invalid/docs">the documentation</a> for details.</p>'
+        self.allow(self.entry)
+        bilingual.enqueue(self.entry)
+        with core.connect() as db:
+            db.execute("UPDATE bilingual_blocks SET attempts=3,error='missing_or_invalid_blocks'")
+        result = await self.run_mock(omitted={0})
+        self.assertEqual((result['processed'], result['status']), (0, 'error'))
+        self.assertEqual((await self.run_mock())['processed'], 0)
+        self.assertEqual(len(self.calls), 1)
+        with core.connect() as db:
+            row = db.execute('SELECT attempts,translated,error FROM bilingual_blocks').fetchone()
+            self.assertEqual(tuple(row), (4, None, 'missing_or_invalid_blocks'))
+
+    async def test_recovery_uses_existing_budget_before_request_or_attempt(self):
+        bilingual.enqueue(self.entry)
+        with core.connect() as db:
+            db.execute("UPDATE bilingual_blocks SET attempts=2,error='missing_or_invalid_blocks'")
+        with patch.dict('os.environ', {'BILINGUAL_DAILY_TOKENS': '1000'}):
+            self.assertTrue((await self.run_mock())['budget_paused'])
+        self.assertEqual(self.calls, [])
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], 2)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+
+    async def test_source_only_token_chunk_finishes_without_model_or_budget(self):
+        self.entry['content'] = '<p><a href="https://source.invalid/docs">' + 'A' * 3494 + '</a></p>'
+        self.allow(self.entry)
+        bilingual.enqueue(self.entry)
+        with core.connect() as db:
+            db.execute("UPDATE bilingual_blocks SET translated=? WHERE block_id=0", ('[[t1]]' + '中文' * 700,))
+
+        async def forbidden(request):
+            self.fail('Formatting-only source must not request a model')
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(forbidden)) as client:
+            self.assertEqual((await bilingual.run_once(client))['processed'], 1)
+        with core.connect() as db:
+            row = db.execute('SELECT source_text,translated,attempts FROM bilingual_blocks WHERE block_id=1').fetchone()
+            self.assertEqual(tuple(row), ('[[/t1]]', '[[/t1]]', 0))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+        self.assertEqual(self.attached()['status'], 'done')
+
     async def test_truncated_output_is_not_cached_and_has_bounded_retry(self):
         bilingual.enqueue(self.entry)
         for _ in range(bilingual.MAX_ATTEMPTS):
@@ -438,7 +575,9 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.attached()['status'], 'budget_paused')
         self.assertIn('bilingual_html', self.attached())
         for _ in range(bilingual.MAX_ATTEMPTS - 1):
-            await self.run_mock(omitted={1})
+            # Recovery numbers text fragments from zero; omit both namespaces
+            # so this provider remains broken through the retry ceiling.
+            await self.run_mock(omitted={0, 1})
             self.ready_retry()
         self.assertEqual(self.attached()['status'], 'error')
         self.assertIn('bilingual_html', self.attached())
@@ -891,6 +1030,17 @@ class TechnicalLiteralTests(unittest.TestCase):
         'GeForce GTX 970, 980, 980 Ti; GTX TITAN X (Maxwell).',
         'GeForce GTX 1060 (3/5/6 GB), 1070, 1070 Ti, 1080, 1080 Ti; TITAN X (Pascal), TITAN Xp.',
         'Quadro M4000, M5000, M6000, M6000 24GB; P2000, P2200, P4000, P5000, P6000.',
+        '0F FA', '0F FB', '0F FC', '0F FD', '0F FE', '0F FF',
+        '500 GiB', '250 GiB', '50 GiB', '25 GB', '$0.04 / GB',
+        'AWS SigV4', 'Surface Laptop Ultra', 'Zen 3 / Vermeer',
+        'Ryzen 9 5900X3D (AMD)', 'macOS Intel (x64)', 'Workers KV', 'Python 3.12.', 'ndcg@10',
+        'ACS URL', 'ACS URL:', 'ACS URL: .', '#### API',
+        'EP 3 909 047', 'DE 20 2021 004 551 U1',
+        '2x16GB G.Skill Trident Z Neo RGB DDR5-7200',
+        '4x8GB G.Skill Trident Z RGB DDR4-3200', 'AMD AM5 (Zen 5, Zen 4)',
+        'AMD AM4 (Zen 3)', '2TB Sabrent Rocket 4 Plus',
+        'pp8192   1583.9 -> 1657.1 tok/s (+4.6%)\npp64000   610.0 -> 684.5 tok/s (+12.2%)',
+        '![Image 3: logo](https://example.org/logo.svg)', '[](https://example.org/share?article=123)',
     )
 
     def validate(self, source, target):
@@ -916,6 +1066,13 @@ class TechnicalLiteralTests(unittest.TestCase):
             'GeForce GTX 970 supports the latest features.',
             'GeForce GTX 970 Versus Quadro M4000', 'The Future Of Computing',
             'Paul Graham:', 'Windows PowerShell\nWindows PowerShell',
+            '500 GiB is enough.', '$0.04 / GB is cheap.', 'AWS SigV4 is enabled.',
+            'Surface Laptop Ultra is faster.', 'Zen 3 / Vermeer benchmarks',
+            'Workers KV is available.', 'Python 3.12 is fast.', 'ndcg@10 improves ranking.',
+            '0F FA means a supported operation.',
+            'AMD AM5 (Zen 5, Zen 4) improves compatibility.',
+            '2TB Sabrent Rocket 4 Plus is faster.', 'EP 3 909 047 covers a useful invention.',
+            '#### API overview', 'pp8192 1583.9 -> 1657.1 tok/s (+4.6%) explains the improvement.',
         ):
             with self.subTest(prose=sentence):
                 self.assertFalse(bilingual._technical_literal(sentence))
@@ -948,6 +1105,69 @@ class TechnicalLiteralTests(unittest.TestCase):
                 for body in bilingual.render(html, translated):
                     self.assertEqual(body.count(label), 1)
                     self.assertIn('href="https://source.invalid/docs"', body)
+
+
+class SegmentRecoveryTests(unittest.TestCase):
+    """Pure source-token recovery; no database, provider or optional parser."""
+
+    def plan(self, html):
+        _, _, blocks = bilingual.extract(html)
+        rows = [{'block_id': block['id'], 'source_text': block['text']} for block in blocks]
+        items, plans = bilingual._recovery_plan(rows)
+        output = [{'id': item['id'], 'text': '译文' * max(2, len(item['text']) // 5)} for item in items]
+        return rows, items, plans, output
+
+    def test_omitted_middle_link_recovers_with_every_token_from_source(self):
+        html = ('<p>The <a href="https://source.invalid/first">first report</a> includes '
+                '<a href="https://source.invalid/methods">the methods</a> and '
+                '<a href="https://source.invalid/results">the results</a>.</p>')
+        rows, items, plans, output = self.plan(html)
+        source = rows[0]['source_text']
+        self.assertIn('[[t3]]', source)
+        missing = source.replace('[[t3]]', '').replace('[[/t3]]', '') + '中文译文'
+        self.assertEqual(bilingual._validate(json.dumps({'items': [{'id': 0, 'text': missing}]}), rows), {})
+        translated = bilingual._validate_recovery(json.dumps({'items': output}), rows, items, plans)
+        self.assertEqual(bilingual.TOKEN.findall(translated[0]), bilingual.TOKEN.findall(source))
+        self.assertTrue(all(not bilingual.TOKEN.search(item['text']) for item in items))
+        for rendered in bilingual.render(html, translated):
+            for part in ('first', 'methods', 'results'):
+                self.assertIn('href="https://source.invalid/' + part + '"', rendered)
+
+    def test_void_opaque_and_nested_markers_are_never_reordered(self):
+        html = '<p>Read <a href="https://source.invalid/docs">the <code>tool()</code> docs</a><br>then continue.</p>'
+        rows, items, plans, output = self.plan(html)
+        translated = bilingual._validate_recovery(json.dumps({'items': output}), rows, items, plans)
+        self.assertEqual(bilingual.TOKEN.findall(translated[0]), bilingual.TOKEN.findall(rows[0]['source_text']))
+        for rendered in bilingual.render(html, translated):
+            self.assertIn('<code>tool()</code>', rendered)
+            self.assertIn('href="https://source.invalid/docs"', rendered)
+            self.assertIn('<br>', rendered)
+
+    def test_missing_duplicate_unknown_ids_or_model_markup_fail_closed(self):
+        rows, items, plans, output = self.plan('<p>Read <a href="https://source.invalid/docs">the documentation</a> for details.</p>')
+        self.assertEqual(bilingual._validate_recovery(json.dumps({'items': output[1:]}), rows, items, plans), {})
+        for values in (output + [output[0]], output + [{'id': 999, 'text': '中文'}]):
+            with self.assertRaises(ValueError):
+                bilingual._validate_recovery(json.dumps({'items': values}), rows, items, plans)
+        for unsafe in ('中文<script>bad()</script>', '中文[[t999]]', '中文<a href="https://attacker.invalid">链接</a>'):
+            values = [{**output[0], 'text': unsafe}, *output[1:]]
+            self.assertEqual(bilingual._validate_recovery(json.dumps({'items': values}), rows, items, plans), {})
+
+    def test_missing_segment_rejects_only_its_complete_source_block(self):
+        rows, items, plans, output = self.plan('<p>The first natural paragraph.</p><p>The second natural paragraph.</p>')
+        translated = bilingual._validate_recovery(json.dumps({'items': output[1:]}), rows, items, plans)
+        self.assertEqual(set(translated), {1})
+
+    def test_format_only_cross_chunk_closing_token_is_exact_and_not_new_prose(self):
+        parts = bilingual._parts('[[t1]]' + 'A' * 3494 + '[[/t1]]')
+        self.assertEqual([len(part) for part in parts], [3500, 7])
+        rows = [{'block_id': 1, 'source_text': parts[1]}]
+        self.assertEqual(bilingual._validate(json.dumps({'items': [{'id': 1, 'text': parts[1]}]}), rows), {1: parts[1]})
+        self.assertEqual(bilingual._validate(json.dumps({'items': [{'id': 1, 'text': parts[1] + '编造文字'}]}), rows), {})
+        items, plans = bilingual._recovery_plan(rows)
+        self.assertEqual(items, [])
+        self.assertEqual(bilingual._validate_recovery('{"items":[]}', rows, items, plans), {1: '[[/t1]]'})
+        self.assertIsNone(bilingual._repair_tokens('[[/t1]]中文[[t2]]', '[[t2]]source[[/t1]]'))
 
 
 if __name__ == '__main__':
