@@ -235,7 +235,7 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
     }
     const mountCover=width=>{
       const row=document.createElement('div');row.dataset.entryId='3'
-      row.getBoundingClientRect=()=>({top:0,bottom:100})
+      row.getBoundingClientRect=()=>({top:0,bottom:100,height:100})
       const media=document.createElement('div');media.className='grid-card-media'
       media.getBoundingClientRect=()=>({width})
       row.append(media);scroll.append(row);return media
