@@ -602,7 +602,7 @@ def _technical_literal(text):
             r'\$' + number + r' / ' + unit,
             r'Python \d{1,2}(?:\.\d{1,3}){1,2}\.?',
             r'(?:ndcg|NDCG)@\d{1,4}',
-            r'Ryzen [3579] \d{4,5}[A-Z0-9]{0,6} \(AMD\)',
+            r'Ryzen [3579] \d{4,5}[A-Z0-9]{0,6} \((?:AMD|Chiphell)\)',
             r'(?:EP|DE) (?:\d{1,4} ){1,5}\d{1,4}(?: [A-Z]\d)?',
             r'\d{1,2}x\d{1,3}GB G\.Skill Trident Z(?: Neo)?(?: RGB)? DDR[345]-\d{3,5}',
             r'AMD AM[345] \(Zen [1-9](?:, Zen [1-9])*\)',
