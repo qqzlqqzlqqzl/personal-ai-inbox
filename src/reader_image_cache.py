@@ -129,6 +129,9 @@ class ImageCache:
                     path.unlink()
                     return None
                 if len(body) > MAX_IMAGE_BYTES or hashlib.sha256(body).hexdigest() != meta['sha256']:
+                    # Keep removal under the shared index lock: a same-key
+                    # replacement must not be written before this unlink.
+                    path.unlink()
                     return None
                 # A shared image belongs to its newest reference. Neither an old
                 # article nor an ordinary foreground hit can demote it.

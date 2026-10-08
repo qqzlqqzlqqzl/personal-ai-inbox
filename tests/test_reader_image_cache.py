@@ -66,8 +66,12 @@ def test_same_image_size_and_accept_keys_and_corruption(tmp_path):
 import asyncio
 import io
 import json
+import os
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import httpx
@@ -216,6 +220,105 @@ class ArticleImageCacheTests(unittest.TestCase):
 
     def metadata(self, label):
         return json.loads((self.cache.root / (key(label) + '.image')).read_bytes().split(b'\n')[0])
+
+    def corrupt_body(self, cache_key):
+        path = self.cache.root / (cache_key + '.image')
+        info = path.stat()
+        header, body = path.read_bytes().split(b'\n', 1)
+        damaged = body[:-1] + bytes([body[-1] ^ 1])
+        path.write_bytes(header + b'\n' + damaged)
+        # A checksum failure must release space even while metadata and the
+        # expiry mtime still look healthy to the inventory scan.
+        os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+        return path, damaged
+
+    def test_corrupt_body_releases_full_budget_for_background_refetch(self):
+        body = self.picture()
+        cache_key = variant_key('http://native/mf', 'https://example.org/image.jpg', 960,
+                                images.NATIVE_IMAGE_ACCEPT)
+        for limit in ('files', 'bytes'):
+            with self.subTest(limit=limit):
+                self.cache = ImageCache(self.cache.root.parent / limit,
+                    max_files=1 if limit == 'files' else 8192,
+                    max_bytes=2048 if limit == 'bytes' else 1024 * 1024 * 1024)
+                self.assertTrue(self.cache.put(cache_key, body, HEADERS, priority=100, background=True))
+                self.assertFalse(self.cache.can_admit(100))
+                path, _ = self.corrupt_body(cache_key)
+                self.assertIsNone(self.cache.get(cache_key))
+                self.assertFalse(path.exists())
+                self.assertTrue(self.cache.can_admit(100))
+                calls = []
+                def native(request):
+                    calls.append(request)
+                    return httpx.Response(200, content=body, headers=HEADERS)
+                def factory(**kwargs):
+                    return httpx.AsyncClient(transport=httpx.MockTransport(native), **kwargs)
+                response = images.fetch_variant('http://native/mf', self.path, 960, 'image/*',
+                    client_factory=factory, cache=self.cache, signature_key=self.secret,
+                    priority=100, background=True)
+                self.assertEqual(response.body, body)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(self.cache.get(cache_key)[0], body)
+                self.assertEqual(len(list(self.cache.root.glob('*.image'))), 1)
+                self.assertLessEqual(sum(p.stat().st_size for p in self.cache.root.iterdir()), self.cache.max_bytes)
+                self.assertFalse(self.cache.can_admit(100), 'healthy replacement still occupies its protected budget')
+
+    def test_corrupt_cleanup_holds_index_until_same_key_replacement_can_write(self):
+        import reader_image_cache as cache_module
+        if cache_module.fcntl is None:
+            self.skipTest('cross-instance file locking requires fcntl')
+        cache_key = key('replace-corrupt')
+        self.cache.put(cache_key, b'old image', HEADERS)
+        path, damaged = self.corrupt_body(cache_key)
+        peer = ImageCache(self.cache.root)
+        detected, release, writer_waiting = threading.Event(), threading.Event(), threading.Event()
+        original_hash, original_lock, original_store = hashlib.sha256, peer._file_lock, peer._store
+        def paused_hash(body):
+            if body == damaged:
+                detected.set()
+                if not release.wait(3):
+                    raise AssertionError('corrupt reader was not released')
+            return original_hash(body)
+        @contextmanager
+        def writer_lock(name):
+            if name == '.index.lock':
+                writer_waiting.set()
+            with original_lock(name):
+                yield
+        def replacement_store(*args, **kwargs):
+            self.assertFalse(path.exists(), 'corrupt unlink must happen before releasing the reader index lock')
+            return original_store(*args, **kwargs)
+        with patch.object(cache_module.hashlib, 'sha256', paused_hash), \
+                patch.object(peer, '_file_lock', writer_lock), \
+                patch.object(peer, '_store', replacement_store), ThreadPoolExecutor(max_workers=2) as pool:
+            reading = pool.submit(self.cache.get, cache_key)
+            try:
+                self.assertTrue(detected.wait(2))
+                writing = pool.submit(peer.put, cache_key, b'fresh image', HEADERS)
+                self.assertTrue(writer_waiting.wait(2))
+                self.assertFalse(writing.done())
+            finally:
+                release.set()
+            self.assertIsNone(reading.result(timeout=3))
+            self.assertTrue(writing.result(timeout=3))
+        self.assertEqual(self.cache.get(cache_key)[0], b'fresh image')
+
+    def test_corrupt_unlink_failure_stays_a_miss_without_releasing_budget(self):
+        self.cache.max_files = 1
+        cache_key = key('unlink-failure')
+        self.cache.put(cache_key, b'image', HEADERS, priority=100)
+        path, _ = self.corrupt_body(cache_key)
+        original_unlink, attempts = type(path).unlink, []
+        def denied_unlink(candidate, *args, **kwargs):
+            if candidate == path:
+                attempts.append(candidate)
+                raise PermissionError('synthetic cache unlink denial')
+            return original_unlink(candidate, *args, **kwargs)
+        with patch.object(type(path), 'unlink', denied_unlink):
+            self.assertIsNone(self.cache.get(cache_key))
+        self.assertEqual(attempts, [path])
+        self.assertTrue(path.exists())
+        self.assertFalse(self.cache.can_admit(100))
 
     def test_latest_reference_priority_never_demotes_and_old_background_cannot_churn(self):
         self.cache.max_files = 2
