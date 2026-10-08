@@ -43,7 +43,11 @@ export function getBilingualReading(entry, requestedMode = "bilingual") {
   const complete = ["done", "ready", "native"].includes(translation?.status)
   const ineligible = ["native", "ineligible", "not_eligible", "skipped"].includes(translation?.status)
   let message = ""
-  if (available && !complete) message = "部分段落已译"
+  if (translation?.status === "budget_paused") {
+    message = available ? "部分段落已译；已达每日翻译限额，重置后自动续译"
+      : "已达每日翻译限额，重置后自动续译；先显示原文"
+  }
+  else if (available && !complete) message = "部分段落已译"
   else if (!available && !ineligible && (translation || isTranslationEligible(entry))) {
     message = !translation || shouldPollTranslation(translation.status)
       ? "译文准备中，先显示原文" : "译文暂不可用，先显示原文"

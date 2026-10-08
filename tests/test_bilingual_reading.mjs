@@ -80,6 +80,16 @@ test('original fallback and partial HTML preserve all image URLs, signatures and
   assert.equal(JSON.stringify(entry), before)
 })
 
+test('budget pauses explain automatic resumption and preserve available reading content', () => {
+  const paused = {...entry, translation: {status: 'budget_paused'}}
+  assert.equal(getBilingualReading(paused).html, content)
+  assert.match(getBilingualReading(paused).message, /每日翻译限额.*自动续译/)
+  const partial = {...entry, translation: {...translation, status: 'budget_paused'}}
+  assert.equal(getBilingualReading(partial).html, bilingual)
+  assert.match(getBilingualReading(partial).message, /部分段落已译.*自动续译/)
+  assert.equal(getBilingualReading(partial, 'original').message, '')
+})
+
 test('score/state/full-body guards reject preloaded placeholders and native or explicit non-English content', () => {
   assert.equal(isTranslationEligible(entry), true)
   for (const item of [null, {...entry, id: undefined}, {...entry, content_deferred: true}, {...entry, content: ''},

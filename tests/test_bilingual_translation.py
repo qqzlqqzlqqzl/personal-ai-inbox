@@ -119,26 +119,28 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(core.get_meta('bilingual_rolling_heartbeat'), result)
         self.assertEqual(set(result), {'at', 'status', 'scanned', 'fetched', 'enqueued', 'skipped', 'failed', 'body_unverified'})
 
-    async def test_rolling_only_recent_visible_english_and_deduplicates_skips(self):
+    async def test_rolling_global_visible_english_excludes_future_and_deduplicates_skips(self):
         now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
         entries = [self.rolling_entry(101, now, age=100), self.rolling_entry(102, now, age=90, language='zh'),
                    self.rolling_entry(103, now, age=80, language='fr'), self.rolling_entry(104, now, age=70, hidden=True),
                    self.rolling_entry(105, now, age=8*86400), self.rolling_entry(106, now, score=7),
-                   self.rolling_entry(107, now, state='pending'), self.rolling_entry(108, now, age=50)]
+                   self.rolling_entry(107, now, state='pending'), self.rolling_entry(108, now, age=50),
+                   self.rolling_entry(109, now, age=-86400)]
         calls, state = [], {}
         transform = lambda entry: {**entry, 'url': 'https://wrong.invalid/source'} if entry['id'] == 108 else entry
         with patch.dict('os.environ', {'BILINGUAL_ROLLING_ENABLED': 'true', 'MINIFLUX_API_KEY': 'offline-reader-token'}):
             with self.rolling_client(entries, calls, transform) as client:
                 result = await bilingual.discover_recent(client, state=state, now=now)
-                self.assertEqual((result['enqueued'], result['failed']), (1, 1))
+                self.assertEqual((result['enqueued'], result['failed']), (2, 1))
                 self.assertEqual([path for path in calls if '/entries/' in path],
-                                 ['/mf/v1/entries/108', '/mf/v1/entries/103', '/mf/v1/entries/102', '/mf/v1/entries/101'])
+                                 ['/mf/v1/entries/108', '/mf/v1/entries/103', '/mf/v1/entries/102',
+                                  '/mf/v1/entries/101', '/mf/v1/entries/105'])
                 calls.clear()
                 again = await bilingual.discover_recent(client, state=state, now=now+300)
                 self.assertEqual(again['fetched'], 0)
                 self.assertFalse(any('/entries/' in path for path in calls))
         with core.connect() as db:
-            self.assertEqual([row[0] for row in db.execute('SELECT entry_id FROM bilingual_articles')], [101])
+            self.assertEqual([row[0] for row in db.execute('SELECT entry_id FROM bilingual_articles ORDER BY entry_id')], [101, 105])
             self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
         self.assertEqual(self.calls, [])
 

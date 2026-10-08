@@ -35,7 +35,6 @@ _WAKE_LOCK = threading.Lock()
 _WAKE_WAITERS = set()
 MAX_HTML_BYTES = 2 * 1024 * 1024
 ROLLING_INTERVAL = 300
-ROLLING_WINDOW = 7 * 86400
 ROLLING_SECONDS = 30
 ROLLING_BODIES = 24
 ROLLING_FRESH = 64
@@ -948,7 +947,7 @@ def _rolling_candidates(user_id, now, state, cfg):
     # A completed current version is not a source-change monitor. Explicit views
     # still discover changed bodies. Failed/cancelled/stale queues are not hidden.
     where = '''a.user_id=? AND a.state='done' AND a.score>=8
-      AND julianday(a.published_at) BETWEEN julianday(?,'unixepoch') AND julianday(?,'unixepoch')
+      AND julianday(a.published_at)<=julianday(?,'unixepoch')
       AND NOT EXISTS (
         SELECT 1 FROM bilingual_current c JOIN bilingual_articles b USING(user_id,entry_id,source_hash)
         WHERE c.user_id=a.user_id AND c.entry_id=a.entry_id AND b.model=? AND b.version=?
@@ -957,7 +956,7 @@ def _rolling_candidates(user_id, now, state, cfg):
             AND EXISTS (SELECT 1 FROM bilingual_blocks x
               WHERE x.user_id=b.user_id AND x.entry_id=b.entry_id AND x.source_hash=b.source_hash
                 AND x.translated IS NULL AND x.attempts<?))))'''
-    values = (user_id, now - ROLLING_WINDOW, now, cfg['model'], _version(), MAX_ATTEMPTS)
+    values = (user_id, now, cfg['model'], _version(), MAX_ATTEMPTS)
     select = '''SELECT a.entry_id,a.user_id,a.url,a.feed_id,a.content_hash,a.content_quality,
       a.analyzed_at,a.updated_at,julianday(a.published_at) AS published_order
       FROM analyses a WHERE '''
@@ -1018,7 +1017,7 @@ def _rolling_entry(entry, row, feed, user_id, now):
         return False
     try:
         published = datetime.fromisoformat(entry['published_at'].replace('Z', '+00:00'))
-        return published.tzinfo is not None and now - ROLLING_WINDOW <= published.timestamp() <= now
+        return published.tzinfo is not None and published.timestamp() <= now
     except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
         return False
 
