@@ -222,8 +222,7 @@ def test_disk_hit_deduplicates_fetch_and_codec_and_rejects_forged_signature(tmp_
     until = (int(images.time.time()) // 300) * 300 + 900
     assert read("image/*", hot_until=until).body == results[0].body
     assert len(fetches) == len(codecs) == 1
-    meta = json.loads(next(cache.root.glob("*.image")).read_bytes().split(b"
-", 1)[0])
+    meta = json.loads(next(cache.root.glob("*.image")).read_bytes().splitlines()[0])
     assert meta["hot_until"] == until
     assert meta["expires"] - meta["created"] == 60
     forged = path.replace(path.split('/')[1], 'A' * 43 + '=')
