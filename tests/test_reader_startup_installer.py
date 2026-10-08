@@ -88,6 +88,57 @@ class StartupInstallerTests(unittest.TestCase):
         self.assertIn('{ path: `/${path}/entry/:entryId`, lazy: loadContentPage(pageKey) }', routes)
         self.assertNotIn('mock-state.json', first)
 
+    def test_initial_route_fallback_is_synchronous_on_login_and_auth_parent(self):
+        root, web = self.make_root()
+        installer.install(root)
+        routes = (web / 'src/routes.jsx').read_text(encoding='utf-8')
+        self.assertIn(installer.STARTUP_ROUTE_FALLBACK, routes)
+        self.assertLess(routes.index('const StartupRouteFallback ='), routes.index('const router ='))
+        self.assertEqual(routes.count('HydrateFallback: StartupRouteFallback'), 2)
+        self.assertIn(installer.STARTUP_LOGIN_ROUTE, routes)
+        self.assertIn(installer.STARTUP_AUTH_GATE_ROUTE, routes)
+        self.assertIn('role="status"', installer.STARTUP_ROUTE_FALLBACK)
+        self.assertIn('aria-busy="true"', installer.STARTUP_ROUTE_FALLBACK)
+        self.assertIn('aria-live="polite"', installer.STARTUP_ROUTE_FALLBACK)
+        self.assertIn('正在加载阅读器…', installer.STARTUP_ROUTE_FALLBACK)
+        self.assertNotIn('import(', installer.STARTUP_ROUTE_FALLBACK)
+        self.assertNotIn('deferComponent', installer.STARTUP_ROUTE_FALLBACK)
+        self.assertIn(installer.STARTUP_AUTH_ROUTE_LOADER, routes)
+        self.assertIn(installer.STARTUP_CONTENT_LOADER, routes)
+
+    def test_exact_fallbackless_generation_upgrades_and_remains_idempotent(self):
+        root, web = self.make_root()
+        routes = web / 'src/routes.jsx'
+        previous = installer._routes_apply_prior_fallback(FIXTURE['files']['src/routes.jsx']['text'])
+        self.assertEqual(hashlib.sha256(previous.encode()).hexdigest(),
+                         '198cab846a25bc7d9830c90850b97eca2bb953cf027005861cb32a98a7d80d17')
+        self.assertNotIn('HydrateFallback', previous)
+        routes.write_text(previous, encoding='utf-8')
+        installer.install(root)
+        first = self.snapshot(root)
+        installer.install(root)
+        self.assertEqual(first, self.snapshot(root))
+        self.assertEqual(routes.read_text(encoding='utf-8'),
+                         installer._routes_apply(FIXTURE['files']['src/routes.jsx']['text']))
+
+    def test_fallback_drift_or_partial_route_upgrade_refuses_before_writes(self):
+        changes = [
+            lambda text: text.replace('正在加载阅读器…', 'unreviewed loading copy', 1),
+            lambda text: text.replace(installer.STARTUP_AUTH_GATE_ROUTE,
+                                      '      HydrateFallback: StartupRouteFallback,\n' + installer.STARTUP_AUTH_GATE_ROUTE, 1),
+            lambda text: text.replace(installer.STARTUP_LOGIN_ROUTE, installer.LOGIN_ROUTE, 1),
+        ]
+        for index, change in enumerate(changes):
+            with self.subTest(change=index):
+                root, web = self.make_root(str(index))
+                installer.install(root)
+                routes = web / 'src/routes.jsx'
+                routes.write_text(change(routes.read_text(encoding='utf-8')), encoding='utf-8')
+                before = self.snapshot(root)
+                with self.assertRaisesRegex(RuntimeError, 'Unreviewed authenticated routes'):
+                    installer.install(root)
+                self.assertEqual(before, self.snapshot(root))
+
     def test_upgrades_the_exact_previous_status_overlay(self):
         root, web = self.make_root()
         routes = web / 'src/routes.jsx'
