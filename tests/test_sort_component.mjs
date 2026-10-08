@@ -73,7 +73,7 @@ await build({
 export {default as useArticleList} from '@/hooks/useArticleList';
 export {ContentContext} from '@/components/Content/ContentContext';
 export {aiState,getAiQuery} from '@/store/aiState';
-export {contentState} from '@/store/contentState';
+export {contentState,invalidateArticleList} from '@/store/contentState';
 export {settingsState,updateSettings} from '@/store/settingsState';
 export {polyglotState} from '@/hooks/useLanguage';
 export {getTodayEntries} from '@/apis/entries';
@@ -133,9 +133,9 @@ app.polyglotState.set({ polyglot: { t: (key) => key } });
 app.contentState.setKey("infoFrom", "today");
 const requests = [];
 const fixtures = [
-  { id: 101, score: 9, technical: 6 },
-  { id: 102, score: 6, technical: 9 },
-  { id: 103, score: 8, technical: 7 },
+  { id: 101, score: 9, technical: 6, published_at: '2026-10-01T08:00:00Z', note_updated_at: '2026-10-01T08:20:00Z' },
+  { id: 102, score: 6, technical: 9, published_at: '2026-10-01T08:10:00Z', note_updated_at: '2026-10-01T08:00:00Z' },
+  { id: 103, score: 8, technical: 7, published_at: '2026-10-01T08:20:00Z', note_updated_at: '2026-10-01T08:10:00Z' },
 ];
 globalThis.sortApi = async (method, url) => {
   assert.equal(method, "GET", "sort never writes API state");
@@ -144,11 +144,12 @@ globalThis.sortApi = async (method, url) => {
   );
   requests.push({ url, query });
   const field = query.ai_sort || "score",
-    key = field === "technical" ? "technical" : "score";
+    key = {time: 'published_at', note_updated: 'note_updated_at'}[field] || field;
+  const sortNumber = entry => typeof entry[key] === 'string' ? Date.parse(entry[key]) : entry[key];
   return {
     total: 3,
     entries: [...fixtures]
-      .sort((a, b) => (a[key] - b[key]) * (query.direction === "asc" ? 1 : -1))
+      .sort((a, b) => (sortNumber(a) - sortNumber(b)) * (query.direction === "asc" ? 1 : -1))
       .map((e) => ({
         ...e,
         hash: String(e.id),
@@ -163,7 +164,7 @@ globalThis.sortApi = async (method, url) => {
         },
         enclosures: [],
         status: "read",
-        published_at: "2026-10-01T08:00:00Z",
+        ai: {state: 'done', score: e.score, has_note: true, note_updated_at: e.note_updated_at},
       })),
   };
 };
@@ -193,6 +194,19 @@ const settle = async () =>
     await new Promise((resolve) => setTimeout(resolve, 100));
   });
 const observations = [];
+const selectSort = async (value, expected, view = 'recommended', hasNote = false) => {
+  const before = requests.length, err = errors.length;
+  await React.act(async () => {
+    const select = document.querySelector('select[aria-label="排序方式"]');
+    select.value = value;
+    select.dispatchEvent(new window.Event('change', {bubbles: true}));
+  });
+  await settle();
+  observations.push({value, expected, view, hasNote,
+    selector: document.querySelector('select[aria-label="排序方式"]').value,
+    requested: requests.slice(before), displayed: document.querySelector('output').dataset.order,
+    persisted: JSON.parse(localStorage.getItem('ai-view-state')), errors: errors.slice(err)});
+};
 try {
   await React.act(async () =>
     root.render(
@@ -208,25 +222,24 @@ try {
   for (const [value, expected] of [
     ["score_asc", "102,103,101"],
     ["technical_desc", "102,103,101"],
-    ["published_at_asc", "102,103,101"],
+    ["published_at_asc", "101,102,103"],
   ]) {
-    const before = requests.length,
-      err = errors.length;
+    await selectSort(value, expected);
+  }
+  for (const mode of ['all', 'recommended']) {
     await React.act(async () => {
-      const select = document.querySelector('select[aria-label="排序方式"]');
-      select.value = value;
-      select.dispatchEvent(new window.Event("change", { bubbles: true }));
+      app.aiState.set({...app.aiState.get(), mode, auxiliary: 'notes', sort: 'score', direction: 'desc'});
+      app.invalidateArticleList();
     });
     await settle();
-    observations.push({
-      value,
-      selector: document.querySelector('select[aria-label="排序方式"]').value,
-      requested: requests.slice(before),
-      displayed: document.querySelector("output").dataset.order,
-      expected,
-      persisted: JSON.parse(localStorage.getItem("ai-view-state")),
-      errors: errors.slice(err),
-    });
+    const defaultField = mode === 'all' ? 'note_updated' : 'score';
+    assert.equal(document.querySelector('select[aria-label="排序方式"]').value, defaultField + '_desc');
+    assert.equal(requests.at(-1).query.ai_sort, defaultField, 'entering notes preserves its existing default');
+    assert.equal(app.aiState.get().sort, 'score', 'display fallback does not overwrite the stored preference');
+    for (const [value, expected] of [
+      ['published_at_asc', '101,102,103'], ['published_at_desc', '103,102,101'],
+      ['note_updated_asc', '102,103,101'], ['note_updated_desc', '101,103,102'],
+    ]) await selectSort(value, expected, mode === 'all' ? 'notes' : 'recommended', true);
   }
   console.log(
     JSON.stringify(
@@ -248,6 +261,8 @@ try {
     assert.equal(row.selector, row.value);
     assert.equal(row.requested.length, 1);
     assert.equal(row.displayed, row.expected);
+    assert.equal(row.requested[0].query.ai_view, row.view);
+    assert.equal(row.requested[0].query.has_note, row.hasNote ? 'true' : undefined);
     const field = row.value.slice(0, row.value.lastIndexOf("_"));
     assert.equal(
       row.requested[0].query.ai_sort,
