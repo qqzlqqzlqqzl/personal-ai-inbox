@@ -5,7 +5,7 @@ import test from 'node:test'
 // Actual pure lifecycle and selector, with a fake API. No services or packages.
 const source = await readFile(new URL('../patches/BilingualReading.jsx', import.meta.url), 'utf8')
 const plain = source.slice(0, source.indexOf('export function useBilingualTranslation')).replace(/^import .*$/gm, '')
-const {READING_MODES, TRANSLATION_POLL_MS, getBilingualReading, isTranslationEligible,
+const {READING_MODES, TRANSLATION_POLL_MS, getBilingualReading, isTranslationEligible, shouldRequestBilingualAutomatically,
   shouldPollTranslation, startBilingualTranslation} = await import(`data:text/javascript;base64,${Buffer.from(plain).toString('base64')}`)
 const signed = '/mf/proxy/' + 'A'.repeat(43) + '=/aHR0cHM6Ly9leGFtcGxlLm9yZy9pbWFnZS5qcGc='
 const content = `<h2 id="intro">Original</h2><p>This is the English article.</p><img src="${signed}"><pre><code>sample()</code></pre>`
@@ -46,6 +46,19 @@ test('three modes accept the API envelope translation without a legacy language 
   assert.equal(getBilingualReading(item, 'original').html, content)
   assert.equal(getBilingualReading(item, 'invalid').mode, 'bilingual')
   assert.equal(getBilingualReading(null).html, '')
+})
+
+test('verified source changes retain old cache without implicit replacement demand', () => {
+  const changed = {...entry, translation: {...translation, status:'source_changed'}}
+  assert.equal(getBilingualReading(changed).html, content)
+  assert.match(getBilingualReading(changed).message, /已有译文对应旧正文/)
+  assert.equal(getBilingualReading(changed,'original').message, '')
+  assert.equal(isTranslationEligible(changed), true, 'explicit server-authorized requests remain eligible')
+  assert.equal(shouldRequestBilingualAutomatically(changed), false)
+  const waiting = {...entry, ai:{...entry.ai,body_completeness:{policy_version:'reader-body-completeness-v1',status:'unverified',checked_at:null}}}
+  assert.equal(shouldRequestBilingualAutomatically(waiting), false)
+  assert.equal(shouldRequestBilingualAutomatically({...waiting,ai:{...waiting.ai,body_completeness:{...waiting.ai.body_completeness,checked_at:123}}}), true)
+  assert.equal(shouldRequestBilingualAutomatically({...entry,translation}), true)
 })
 
 test('original fallback and partial HTML preserve all image URLs, signatures and code', () => {

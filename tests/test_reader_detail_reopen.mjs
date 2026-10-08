@@ -31,6 +31,7 @@ const fixtures = {
  'framer-motion': `export const AnimatePresence=({children})=>children`,
  'react-swipeable': `export const useSwipeable=()=>({})`,
  '@/apis': `export const getEntry=(id,options)=>F.getEntry(id,options)`,
+ '@/apis/ofetch': `export default {post:(...args)=>F.verifyBody(...args)}`,
  '@/hooks/useEntryActions': `export const updateEntriesStatusOptimistically=()=>{throw Error('unexpected write')}`,
  '@/hooks/useLanguage': `export const polyglotState=F.language`,
  '@/store/settingsState': `export const settingsState=F.settings;export const articleListLayoutState=F.layout;export const contentGestureSettingsState=F.gestures`,

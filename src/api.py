@@ -396,7 +396,11 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False,
     processing_evidence = observe(ROOT, [entry['id'] for entry in entries], control_root=control_root)
     prepared_batch = prepare_many(entries)
     settings_snapshot = settings() if entries else {}
-    enqueue_cards(entries, priority=40 if detail else 30, prepared_batch=prepared_batch,
+    # A non-model original-body repair must not invalidate and enqueue an
+    # already displayed card merely because its paragraph structure improved.
+    card_entries = [entry for entry in entries
+                    if prepared_batch.apply(entry).get('prepared_source') != 'reader_original_html']
+    enqueue_cards(card_entries, priority=40 if detail else 30, prepared_batch=prepared_batch,
                   settings_snapshot=settings_snapshot, excerpt_cache=reader_excerpt_cache)
     batch = load_reader_batch(entries, uid, prepared_batch=prepared_batch,
                               settings_snapshot=settings_snapshot)
@@ -407,7 +411,7 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False,
         if detail:
             # Hover/prefetch may read details. Only the explicit POST below queues
             # paid body translations; detail GET can reuse a completed cache.
-            item = bilingual_translation.attach(item, uid if uid is not None else entry["user_id"])
+            item = attach_reader_translation(item, uid if uid is not None else entry["user_id"])
         if recommended:
             ai = item.setdefault("ai", {})
             if not ai.get("cover_url"):
@@ -1139,6 +1143,51 @@ async def reading_session(request: Request):
     return {"saved": True}
 
 
+def attach_reader_translation(entry, uid):
+    attached = bilingual_translation.attach(entry, uid)
+    translation = attached.get('translation') or {}
+    previous = (entry.get('fulltext_receipt') or {}).get('previous_translation_source_hash')
+    if (entry.get('prepared_source') == 'reader_original_html' and previous
+            and previous != translation.get('source_hash') and not translation.get('blocks_total')
+            and translation.get('status') not in {'done', 'native'}):
+        # The old completed cache remains intact. This is a source mismatch,
+        # not a claim that an old successful translation was incomplete.
+        translation['status'] = 'source_changed'
+    return attached
+
+
+@app.post('/mf/v1/ai/body/{entry_id}/verify')
+async def verify_reader_body(entry_id: int, request: Request):
+    """Explicit detail activation only. No model enqueue or article-list crawl."""
+    from prepared_content import verify_original_body
+    uid = await authorize(request)
+    eid = positive_id(entry_id)
+
+    async def current():
+        value = await require_readable_entry(request, uid, eid, strict_auth=True)
+        if type(value.get('user_id')) is not int or value['user_id'] != uid:
+            raise HTTPException(404, 'Article not found')
+        return value
+
+    native = await current()
+    before = await reader_work.run(decorate, native, uid, include_source_fallback=True)
+    old_translation = (await reader_work.run(attach_reader_translation, before, uid)).get('translation')
+    rows = await reader_work.run(reader_rows,
+        'SELECT source_text FROM analyses WHERE entry_id=? AND user_id=? AND url=?',
+        (eid, uid, native.get('url')))
+    outcome = await verify_original_body(native, current,
+        analysis_text=rows[0]['source_text'] if rows else None, previous_translation=old_translation)
+    fresh = await current()
+    result = await reader_work.run(decorate, fresh, uid, include_source_fallback=True)
+    if outcome['status'] != 'verified':
+        body = result['ai']['body_completeness']
+        body.update({**outcome, 'status': 'incomplete' if body['status'] == 'incomplete' else outcome['status']})
+    result = await reader_work.run(attach_reader_translation, result, uid)
+    # Match the native detail response's safe same-origin representation.
+    return Response(json.dumps(result, ensure_ascii=False).replace(
+        'http://127.0.0.1:8092/mf', '/mf').encode(), media_type='application/json')
+
+
 async def bilingual_article(entry_id, request, *, request_translation=False):
     uid = await authorize(request)
     eid = positive_id(entry_id)
@@ -1156,7 +1205,7 @@ async def bilingual_article(entry_id, request, *, request_translation=False):
         if not eligible or (ai.get("content_quality") or {}).get("recommendation_eligible") is False:
             raise HTTPException(409, "Only current score >=8 eligible articles can be translated")
         await reader_work.run(bilingual_translation.enqueue, decorated, priority=100)
-    attached = await reader_work.run(bilingual_translation.attach, decorated, uid)
+    attached = await reader_work.run(attach_reader_translation, decorated, uid)
     translation = dict(attached.get("translation") or {})
     for key in ("bilingual_html", "chinese_html"):
         if isinstance(translation.get(key), str):

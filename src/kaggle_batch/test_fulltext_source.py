@@ -132,6 +132,46 @@ class FulltextTests(unittest.TestCase):
         for url,raw,needle in cases:
             with self.subTest(url=url):self.assertIn(needle,extract(raw,url)['source_text'])
 
+class RepairProxyFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def check(self, status=None, enabled=True):
+        import fulltext_source
+        routes = []
+        original = httpx.AsyncClient
+        html = '<div class="entry-content wp-block-post-content"><p>' + ('Synthetic article words. ' * 15) + '</p></div>'
+
+        def client(admission=None, **kwargs):
+            route = kwargs.get('proxy')
+            routes.append(route)
+
+            def respond(request):
+                if status is not None:
+                    return httpx.Response(status, text='Denied')
+                if route:
+                    raise httpx.ConnectError('synthetic proxy unavailable', request=request)
+                return httpx.Response(200, text=html, headers={'content-type': 'text/html'})
+
+            return original(transport=httpx.MockTransport(respond))
+
+        with mock.patch.dict(os.environ, {'AI_NEWS_OUTBOUND_PROXY': 'http://127.0.0.1:17890'}), \
+                mock.patch.object(fulltext_source, 'http_client', side_effect=client):
+            try:
+                result = await fetch('https://techcrunch.com/2026/10/07/synthetic/', direct_on_connect_error=enabled)
+            except FulltextUnavailable:
+                result = None
+        return result, routes
+
+    async def test_repair_only_connect_failure_retries_direct(self):
+        result, routes = await self.check()
+        self.assertIsNotNone(result)
+        self.assertEqual(routes, ['http://127.0.0.1:17890', None])
+
+    async def test_http_denial_and_default_call_never_try_direct(self):
+        for status, enabled in [(403, True), (401, True), (None, False)]:
+            result, routes = await self.check(status, enabled)
+            self.assertIsNone(result)
+            self.assertEqual(routes, ['http://127.0.0.1:17890'])
+
+
 class GitHubReleaseTests(unittest.IsolatedAsyncioTestCase):
     url = 'https://github.com/ggml-org/llama.cpp/releases/tag/b11385'
 

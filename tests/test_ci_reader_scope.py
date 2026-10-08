@@ -131,6 +131,24 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(classify(changes), 'full')
         self.assertEqual(classify([{'path': 'src/core.py', 'status': 'M'}]), 'full')
 
+    def test_body_recovery_selects_related_consumers_and_rejects_mixed_changes(self):
+        from ci_reader_scope import BODY_COMPLETENESS
+        owned = {'src/prepared_content.py', 'src/content_quality.py', 'src/api.py',
+                 'src/core.py', 'src/kaggle_batch/fulltext_source.py',
+                 'patches/BilingualReading.jsx', 'patches/reader-entry-detail.js'}
+        for path in owned:
+            self.write(path, '# single-article recovery\n')
+        result = self.pr(self.commit(rebind=True))
+        self.assertEqual(result['scope'], 'body-completeness')
+        self.assertFalse(result['native'])
+        self.assertTrue(result['verified_src_pin_only'])
+        self.assertIn('tests/test_prepared_content.py', PYTHON_TESTS['body-completeness'])
+        self.assertIn('src/kaggle_batch/test_fulltext_source.py', PYTHON_TESTS['body-completeness'])
+        self.assertTrue(owned <= BODY_COMPLETENESS)
+        for extra in ('src/worker.py', 'src/notes_metadata.py', 'src/reader_image_cache.py'):
+            self.assertEqual(classify([{'path': p, 'status': 'M'} for p in owned | {extra}]), 'full')
+        self.assertEqual(classify([{'path': p, 'status': 'D'} for p in owned]), 'full')
+
     def test_article_cache_only_uses_api_and_cache_checks_with_native_gate(self):
         owned = ['src/api.py', 'src/reader_image_cache.py', 'src/reader_image_proxy.py',
                  'src/warm_reader_covers.py', 'tests/test_api.py', 'tests/test_ci_reader_scope.py']
@@ -443,7 +461,7 @@ class WiringTests(unittest.TestCase):
         full = text[text.index('  full-regression:'):text.index('    runs-on:')]
         self.assertIn("needs.scope-job.result != 'success'", full)
         accepted = json.loads(re.search(r"fromJSON\('([^']+)'\)", full)[1])
-        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'article-cache', 'bilingual', 'enrichment'})
+        self.assertEqual(set(accepted), {'docs', 'fulltext', 'backup', 'interfaces', 'images', 'performance', 'article-cache', 'bilingual', 'enrichment', 'body-completeness'})
         self.assertIn('!contains(', full)
 
     def test_original_required_gate_rejects_failed_skipped_or_cancelled_selected_job(self):

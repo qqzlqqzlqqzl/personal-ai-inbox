@@ -47,6 +47,17 @@ export function qualityLabels(quality) {
   return result
 }
 
+export function bodyCompletenessLabel(body) {
+  if (!body || body.policy_version !== 'reader-body-completeness-v1') return '正文完整性未验证'
+  if (body.status === 'verified' && body.structure === 'preserved')
+    return body.analysis_text_matches === false ? '已核对原文正文区；与原分析文本不同' : '已核对原文正文区 · 保留原文结构'
+  if (body.status === 'incomplete') return '非完整正文 · 当前为来源介绍或摘要'
+  if (body.structure === 'lost') return '完整性未验证 · 纯文本回退未完整保留原文结构'
+  if (body.reason === 'original_access_restricted') return '完整性未验证 · 原站访问受限'
+  if (body.reason === 'original_check_failed') return '完整性未验证 · 本次原文核对未成功'
+  return '正文完整性未验证'
+}
+
 function evidenceTime(value) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null
   const date = new Date(value * 1000)
@@ -84,7 +95,7 @@ export default function AiBadge({ entry, detailed = false }) {
   const sourcePolicyLabel = sourcePolicy(ai)
   const note = ai?.has_note ? <span className="ai-note-chip">📝 有笔记</span> : null
   const quality = qualityLabels(ai?.content_quality)
-  const qualityNote = quality.length ? <p className="ai-content-quality">{quality.join("；")}</p> : null
+  const qualityNote = <p className="ai-content-quality">{[...quality, bodyCompletenessLabel(ai?.body_completeness)].join("；")}</p>
   if (!ai || ai.state !== "done") {return <div className="ai-pending" title={waitRequired ? "" : sourcePolicyLabel || ai?.error || ""}>{note}{waitRequired ? (claimHeld ? "提交结果未确认 · 等待核实" : "处理状态未确认 · 等待核实") : sourcePolicyLabel || (Object.hasOwn(labels, ai?.state || "pending") ? labels[ai?.state || "pending"] : "处理状态待确认")}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && !waitRequired && <p>处理详情：{sourcePolicyLabel || ai.error}</p>}</div>}
   const excluded = ai.content_quality?.policy_version === "reader-content-quality-v1" && ai.content_quality.recommendation_eligible === false
   return <div className={detailed ? "ai-verdict ai-verdict-detail" : "ai-verdict"}>
