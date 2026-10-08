@@ -2,7 +2,7 @@
 const SIGNED_PROXY = /^\/mf\/proxy\/[A-Za-z0-9_-]{43}=\/[A-Za-z0-9_=-]{1,8192}$/
 // Keep resized natural width above the existing 768px big-image threshold.
 const WIDTHS = [960, 1600]
-const THUMBNAIL_PREFETCH_SLOTS = 2
+const THUMBNAIL_PREFETCH_SLOTS = 6
 
 export function readerImageProps(props, viewport = 768, ratio = 1, origin) {
   let path = props.src
