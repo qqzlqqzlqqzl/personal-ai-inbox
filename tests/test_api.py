@@ -643,11 +643,11 @@ async def test_status_optional_native_count_shapes_preserve_resources(
     async def upstream(request):
         calls.append(request)
         assert request.headers["x-auth-token"] == "synthetic-status-session"
-        if request.url.path == "/v1/entries":
+        if request.url.path == httpx.URL(api.MF + "/v1/entries").path:
             assert dict(request.url.params) == {"limit": "1"}
             data = entries_data
         else:
-            assert request.url.path == "/v1/feeds" and not request.url.query
+            assert request.url.path == httpx.URL(api.MF + "/v1/feeds").path and not request.url.query
             data = feeds_data
         return httpx.Response(200, content=json.dumps(data).encode(), headers={"content-type": "application/json"})
 
