@@ -585,6 +585,8 @@ def _technical_literal(text):
         return True
     # Reader markdown may contain a resource-only image or an empty share link.
     # Its URL is source data, not English prose or a translation instruction.
+    if len(text) <= 2048 and re.fullmatch(r'https?://[^\s<>]+', text):
+        return True
     if len(text) <= 2048 and re.fullmatch(
             r'(?:\[\]|!\[Image \d{1,4}: (?:logo|image|Image|Logo)\])\(https?://[^\s()]+\)', text):
         return True
