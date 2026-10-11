@@ -1325,11 +1325,16 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_hundred_concurrent_batches_have_distinct_claims(self):
         active, peak = 0, 0
+        reader_turns = []
         started, release = asyncio.Event(), asyncio.Event()
         async def respond(request):
             nonlocal active, peak
             active += 1
             peak = max(peak, active)
+            if active == 1:
+                # An HTTP readiness callback must run during claim admission,
+                # before all 100 synchronous queue scans have accumulated.
+                asyncio.get_running_loop().call_soon(lambda: reader_turns.append(active))
             if active == 100:
                 started.set()
             await release.wait()
@@ -1351,6 +1356,8 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
                 try:
                     await asyncio.wait_for(started.wait(), timeout=15)
                     self.assertEqual(peak, 100)
+                    self.assertTrue(reader_turns)
+                    self.assertLess(reader_turns[0], 100)
                 finally:
                     release.set()
                     result = await asyncio.wait_for(work, timeout=15)
@@ -1366,6 +1373,47 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         for value, expected in [('0', 1), ('101', 100), ('invalid', 3)]:
             with patch.dict('os.environ', {'BILINGUAL_CONCURRENCY': value}):
                 self.assertEqual(bilingual.config()['concurrency'], expected)
+
+    async def test_cancel_during_batch_admission_joins_requests_before_unlock(self):
+        for index in range(100, 120):
+            entry = {**self.entry, 'id': index}
+            self.allow(entry)
+            bilingual.enqueue(entry)
+        started, cancelling, release_cleanup = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        requests, cancelled = [], []
+
+        async def respond(request):
+            requests.append(request)
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelling.set()
+                await release_cleanup.wait()
+                cancelled.append(request)
+
+        with patch.dict('os.environ', {'BILINGUAL_CONCURRENCY': '100',
+                                      'BILINGUAL_DAILY_TOKENS': '1000000'}):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+                work = asyncio.create_task(bilingual.run_once(client))
+                try:
+                    await asyncio.wait_for(started.wait(), 2)
+                    work.cancel()
+                    await asyncio.wait_for(cancelling.wait(), 2)
+                    self.assertTrue((await bilingual.run_once(client))['busy'])
+                finally:
+                    release_cleanup.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await asyncio.wait_for(work, 2)
+        self.assertTrue(requests)
+        self.assertLess(len(requests), 20)
+        self.assertEqual(cancelled, requests)
+        # A subsequent worker can acquire the lock; cancelled claims are kept.
+        result = await self.run_mock()
+        self.assertNotIn('busy', result)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage WHERE actual IS NULL').fetchone()[0],
+                             len(requests))
 
     async def test_enqueue_from_thread_wakes_idle_worker(self):
         idle, woke = asyncio.Event(), asyncio.Event()
