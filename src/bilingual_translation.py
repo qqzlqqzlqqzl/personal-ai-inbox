@@ -1018,6 +1018,8 @@ async def _run_batches(client, cfg, admission):
             prepared = await _prepare_claim(cfg, admission)
             if isinstance(prepared, dict):
                 immediate.append(prepared)
+                if prepared.get('budget_paused'):
+                    break  # Repeating the same highest-priority claim cannot fit.
             else:
                 tasks.append(asyncio.create_task(_translate(client, cfg, admission, prepared)))
         results = immediate + await asyncio.gather(*tasks, return_exceptions=True)

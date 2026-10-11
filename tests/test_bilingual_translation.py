@@ -1451,6 +1451,19 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], 0)
 
+    async def test_budget_pause_does_not_rescan_same_claim_for_every_slot(self):
+        for index in range(100, 110):
+            entry = {**self.entry, 'id': index}
+            self.allow(entry)
+            bilingual.enqueue(entry)
+        with patch.dict('os.environ', {'BILINGUAL_CONCURRENCY': '100', 'BILINGUAL_DAILY_TOKENS': '1'}), \
+                patch.object(bilingual, '_prepare_claim', wraps=bilingual._prepare_claim) as claim:
+            self.assertTrue((await self.run_mock())['budget_paused'])
+            self.assertEqual(claim.await_count, 1)
+        self.assertFalse(self.calls)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+
     async def test_enqueue_from_thread_wakes_idle_worker(self):
         idle, woke = asyncio.Event(), asyncio.Event()
         count = 0
