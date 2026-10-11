@@ -1,3 +1,18 @@
+## 2026-10-11 follow-up: protect today's translation budget, Issue237
+
+User authorized raising the production ceiling to 5,000,000 tokens / 10,000
+requests per UTC day, with 1,000,000 tokens / 2,000 requests reserved for articles
+published today in Asia/Shanghai. Explicit historical opens cannot use that
+allocation. Prioritize today, then recent seven-day selections, then history;
+today's discovery is independent of the historical cursor. Keep all existing
+usage charges, cached translations, original-before-Chinese rendering and >=8
+eligibility. No new service, cache or runtime. See BILINGUAL-READER.md for policy.
+
+Entry9545 was budget_paused with 0/7 blocks and zero attempts: 996,583 of the
+old 1,000,000-token UTC-day limit was accounted for at 2026-10-11 07:18 UTC.
+Deployment and functional evidence belong in Issue237. Older limits below are
+historical and superseded by this follow-up.
+
 ## 2026-10-08 follow-up: rolling bilingual translation, Issue181
 
 Latest user request supersedes the earlier explicit-open-only policy: automatically

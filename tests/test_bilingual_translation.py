@@ -64,6 +64,12 @@ class RollingBodyVersionTests(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertEqual(self.selected(state), [7])
 
+    def test_today_is_discovered_when_analysis_and_history_cursors_are_past_it(self):
+        self.db.execute("UPDATE bilingual_articles SET status='error'")
+        self.db.execute('UPDATE analyses SET analyzed_at=?', (self.now - 3600,))
+        cursor = self.db.execute("SELECT julianday(?,'unixepoch')", (self.now - 86400,)).fetchone()[0]
+        self.assertEqual(self.selected({'since': self.now + 1, 'cursor': (cursor, 999)}), [7])
+
     def test_older_prepared_body_cannot_replace_newer_native_admission(self):
         self.db.execute('UPDATE bilingual_articles SET requested_at=?', (self.now-15,))
         self.assertEqual(self.selected(), [])
@@ -827,7 +833,7 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(missing)
             self.assertTrue(all(row['attempts'] == attempts+1 for row in missing))
             usage = [tuple(row) for row in db.execute('SELECT * FROM bilingual_usage ORDER BY id')]
-            self.assertIsNone(usage[-1][-1])  # The cancelled request's actual usage is unknown.
+            self.assertIsNone(usage[-1][5])  # The cancelled request's actual usage is unknown.
             return max(row['next_try'] for row in missing), usage
 
     async def test_restart_settles_expired_final_cancelled_claim_without_refund(self):
@@ -1060,6 +1066,89 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(bilingual.AdmissionStopped):
                 await bilingual.run_once(client, admission=denied)
         self.assertEqual(self.calls, [])
+
+    def test_today_and_recent_precede_explicit_historical_demand(self):
+        now = datetime(2026, 10, 11, 7, tzinfo=timezone.utc).timestamp()
+        entries = [
+            {**self.entry, 'id': 8, 'published_at': '2026-10-11T07:00:00+08:00'},
+            {**self.entry, 'id': 9, 'published_at': '2026-10-10T23:00:00+08:00'},
+            {**self.entry, 'id': 10, 'published_at': '2026-09-01T10:00:00Z'},
+        ]
+        for entry in entries:
+            self.allow(entry)
+            bilingual.enqueue(entry, priority=100 if entry['id'] == 10 else 10)
+        with patch.object(bilingual, '_today_start', return_value=bilingual._today_start(now)):
+            for entry in entries:
+                rows = bilingual._next_rows()
+                self.assertEqual(rows[0]['entry_id'], entry['id'])
+                self.assertIsNot(bilingual._reserve(rows, '{}', bilingual.config(), 1200, None), None)
+
+    def test_today_reserve_is_atomic_and_old_views_cannot_spend_it(self):
+        now = datetime(2026, 10, 11, 7, tzinfo=timezone.utc).timestamp()
+        charge = len('{}') + len(bilingual.PROMPT.encode()) + 1200
+        cfg = {**bilingual.config(), 'daily_tokens': 3 * charge, 'today_tokens': 2 * charge,
+               'daily_requests': 3, 'today_requests': 2}
+        bilingual.enqueue(self.entry, priority=100)
+        with patch.object(bilingual, '_today_start', return_value=bilingual._today_start(now)):
+            rows = bilingual._next_rows()
+            self.assertIsInstance(bilingual._reserve(rows, '{}', cfg, 1200, None), int)
+            old = {**self.entry, 'id': 8}
+            self.allow(old)
+            bilingual.enqueue(old, priority=100)
+            rows = bilingual._next_rows()
+            self.assertIsNone(bilingual._reserve(rows, '{}', cfg, 1200, None))
+            # No attempt or bill is written when only protected capacity remains.
+            with core.connect() as db:
+                self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks WHERE entry_id=8').fetchone()[0], 0)
+            for entry_id in (9, 10, 11):
+                today = {**self.entry, 'id': entry_id, 'published_at': '2026-10-11T07:00:00+08:00'}
+                self.allow(today)
+                bilingual.enqueue(today)
+                rows = bilingual._next_rows()
+                usage = bilingual._reserve(rows, '{}', cfg, 1200, None)
+                if entry_id == 11:
+                    self.assertIsNone(usage)  # Total cap still protects today's work.
+                else:
+                    self.assertIsInstance(usage, int)
+        with core.connect() as db:
+            self.assertEqual(tuple(db.execute('SELECT COUNT(*),SUM(reserved),SUM(today) FROM bilingual_usage').fetchone()),
+                             (3, 3 * charge, 2))
+
+    def test_token_and_request_reserves_work_independently(self):
+        bilingual.enqueue(self.entry)
+        rows = bilingual._next_rows()
+        charge = len('{}') + len(bilingual.PROMPT.encode()) + 1200
+        for tokens, requests in ((charge, 0), (0, 1)):
+            cfg = {**bilingual.config(), 'daily_tokens': charge, 'today_tokens': tokens,
+                   'daily_requests': 1, 'today_requests': requests}
+            self.assertIsNone(bilingual._reserve(rows, '{}', cfg, 1200, None))
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+
+    def test_today_budget_classification_resets_at_reader_midnight(self):
+        entry = {**self.entry, 'published_at': '2026-10-11T00:01:00+08:00'}
+        self.allow(entry)
+        bilingual.enqueue(entry)
+        charge = len('{}') + len(bilingual.PROMPT.encode()) + 1200
+        cfg = {**bilingual.config(), 'daily_tokens': charge, 'today_tokens': charge,
+               'daily_requests': 1, 'today_requests': 1}
+        midnight = datetime(2026, 10, 11, 16, tzinfo=timezone.utc).timestamp()
+        with patch.object(bilingual, '_today_start', return_value=bilingual._today_start(midnight)):
+            rows = bilingual._next_rows()
+            self.assertIsNone(bilingual._reserve(rows, '{}', cfg, 1200, None))
+        with patch.object(bilingual, '_today_start', return_value=bilingual._today_start(midnight - 1)):
+            self.assertIsInstance(bilingual._reserve(rows, '{}', cfg, 1200, None), int)
+
+    def test_usage_migration_preserves_existing_charges(self):
+        with core.connect() as db:
+            db.execute('ALTER TABLE bilingual_usage DROP COLUMN today')
+            db.execute('INSERT INTO bilingual_usage(day,user_id,entry_id,reserved,actual) VALUES(?,?,?,?,?)',
+                       ('2026-10-11', 3, 7, 3000, 2000))
+        bilingual.migrate()
+        bilingual.migrate()
+        with core.connect() as db:
+            self.assertEqual(tuple(db.execute('SELECT reserved,actual,today FROM bilingual_usage').fetchone()),
+                             (3000, 2000, 0))
 
     async def test_no_history_scan_or_source_get(self):
         for index in range(11, 20):
