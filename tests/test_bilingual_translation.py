@@ -1452,6 +1452,22 @@ class TechnicalLiteralTests(unittest.TestCase):
         return bilingual._validate(json.dumps({'items': [{'id': 1, 'text': target}]}),
                                    [{'block_id': 1, 'source_text': source}])
 
+    def test_long_resource_url_keeps_source_markers_and_needs_no_chinese(self):
+        url = 'https://cdn-blog.adafruit.com/uploads/2026/10/ai-math-flash-explainer-20261010.mp4'
+        source = '[[t1]][[t2]][[t3]]' + url + '[[/t3]][[/t1]]\n'
+        self.assertTrue(bilingual._technical_literal(url))
+        self.assertEqual(self.validate(source, source), {1: source})
+        self.assertEqual(self.validate(source, source.replace('20261010', '20261011')), {})
+        self.assertEqual(self.validate(url + ' is the complete explanation.', url + ' is the complete explanation.'), {})
+        self.assertFalse(bilingual._technical_literal('https://source.invalid/' + 'a' * 2048))
+
+    def test_resource_url_survives_segment_recovery_without_model_markup(self):
+        source = '[[t1]]https://source.invalid/a-very-long-resource-address-exceeding-sixty-four-characters.mp4[[/t1]]'
+        rows = [{'block_id': 1, 'source_text': source}]
+        items, plans = bilingual._recovery_plan(rows)
+        output = [{'id': item['id'], 'text': item['text']} for item in items]
+        self.assertEqual(bilingual._validate_recovery(json.dumps({'items': output}), rows, items, plans), {1: source})
+
     def test_exact_platform_product_and_gpu_labels_are_accepted(self):
         for label in self.LABELS:
             with self.subTest(label=label):
