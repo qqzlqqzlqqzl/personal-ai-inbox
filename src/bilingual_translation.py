@@ -982,11 +982,24 @@ async def run_once(client=None, *, admission=None):
 
 
 async def _run_batches(client, cfg, admission):
-    # Each task reserves its distinct unfinished blocks synchronously before the
-    # first network await. The reservation CAS also protects alternate callers.
-    results = await asyncio.gather(*(
-        _translate(client, cfg, admission) for _ in range(_ready_slots(cfg))),
-        return_exceptions=True)
+    # Claims are synchronous until the first model request. Admit one batch per
+    # loop turn so up to 100 queue scans cannot starve Reader HTTP/startup work.
+    # Requests still overlap and each claim retains its reservation CAS.
+    tasks = []
+    try:
+        for _ in range(_ready_slots(cfg)):
+            check(admission)
+            tasks.append(asyncio.create_task(_translate(client, cfg, admission)))
+            await asyncio.sleep(0)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        # Cancellation may arrive while admitting batches, before gather owns
+        # them. Join every started request before run_once releases its lock.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
     # Keep the process lock until every request has finished or been cancelled.
     for result in results:
         if isinstance(result, BaseException):
