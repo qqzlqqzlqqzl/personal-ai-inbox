@@ -1412,8 +1412,44 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
         result = await self.run_mock()
         self.assertNotIn('busy', result)
         with core.connect() as db:
-            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage WHERE actual IS NULL').fetchone()[0],
-                             len(requests))
+            unsettled = db.execute('SELECT COUNT(*) FROM bilingual_usage WHERE actual IS NULL').fetchone()[0]
+            self.assertGreaterEqual(unsettled, len(requests))
+            # A single claim may commit just before cancellation is delivered;
+            # keep that reservation too, even if its HTTP request never started.
+            self.assertLessEqual(unsettled, len(requests) + 1)
+
+    async def test_slow_claim_keeps_loop_responsive_and_cannot_reserve_after_cancel(self):
+        bilingual.enqueue(self.entry)
+        entered, release = threading.Event(), threading.Event()
+        original = bilingual._next_rows
+
+        def slow_selection():
+            entered.set()
+            if not release.wait(2):
+                raise AssertionError('Reader loop was blocked by queue selection')
+            return original()
+
+        with patch.object(bilingual, '_next_rows', side_effect=slow_selection):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(self.reply)) as client:
+                work = asyncio.create_task(bilingual.run_once(client))
+                try:
+                    self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+                    # Serve a loop callback while the SQLite selector is blocked.
+                    served = asyncio.Event()
+                    asyncio.get_running_loop().call_soon(served.set)
+                    await asyncio.wait_for(served.wait(), 1)
+                    work.cancel()
+                    await asyncio.sleep(0)
+                    self.assertFalse(work.done(), 'Claim thread must be joined before unlocking')
+                    self.assertTrue((await bilingual.run_once(client))['busy'])
+                finally:
+                    release.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await asyncio.wait_for(work, 2)
+        self.assertFalse(self.calls)
+        with core.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT MAX(attempts) FROM bilingual_blocks').fetchone()[0], 0)
 
     async def test_enqueue_from_thread_wakes_idle_worker(self):
         idle, woke = asyncio.Event(), asyncio.Event()
