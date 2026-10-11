@@ -846,7 +846,8 @@ def _reserve(rows, payload, cfg, maximum, admission):
     return usage
 
 
-async def _translate(client, cfg, admission):
+def _prepare_batch(cfg, admission):
+    check(admission)
     rows = _next_rows()
     if not rows:
         return {'processed': 0}
@@ -872,6 +873,32 @@ async def _translate(client, cfg, admission):
         with core.connect() as db:
             db.execute("UPDATE bilingual_articles SET status='budget_paused' WHERE user_id=? AND entry_id=? AND source_hash=?", key)
         return {'processed': 0, 'budget_paused': True}
+    return rows, items, plans, payload, maximum, usage
+
+
+async def _prepare_claim(cfg, admission):
+    # One claim at a time, off the HTTP loop. Joining on cancellation prevents
+    # a late SQLite reservation after the process lock has been released.
+    stopped = threading.Event()
+
+    def guard():
+        check(admission)
+        if stopped.is_set():
+            raise AdmissionStopped('translation_claim_stopped')
+
+    job = asyncio.create_task(asyncio.to_thread(_prepare_batch, cfg, guard))
+    try:
+        return await asyncio.shield(job)
+    except asyncio.CancelledError:
+        stopped.set()
+        with suppress(Exception):
+            await job
+        raise
+
+
+async def _translate(client, cfg, admission, prepared):
+    rows, items, plans, payload, maximum, usage = prepared
+    key = rows[0]['user_id'], rows[0]['entry_id'], rows[0]['source_hash']
     translated, error, tokens = {}, None, None
     try:
         check(admission)
@@ -982,16 +1009,20 @@ async def run_once(client=None, *, admission=None):
 
 
 async def _run_batches(client, cfg, admission):
-    # Claims are synchronous until the first model request. Admit one batch per
-    # loop turn so up to 100 queue scans cannot starve Reader HTTP/startup work.
-    # Requests still overlap and each claim retains its reservation CAS.
-    tasks = []
+    # Serialize selection+reservation so no two batches choose the same blocks.
+    # Only the model requests overlap; SQLite claim work stays off the HTTP loop.
+    tasks, immediate = [], []
     try:
         for _ in range(_ready_slots(cfg)):
             check(admission)
-            tasks.append(asyncio.create_task(_translate(client, cfg, admission)))
-            await asyncio.sleep(0)
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            prepared = await _prepare_claim(cfg, admission)
+            if isinstance(prepared, dict):
+                immediate.append(prepared)
+                if prepared.get('budget_paused'):
+                    break  # Repeating the same highest-priority claim cannot fit.
+            else:
+                tasks.append(asyncio.create_task(_translate(client, cfg, admission, prepared)))
+        results = immediate + await asyncio.gather(*tasks, return_exceptions=True)
     finally:
         # Cancellation may arrive while admitting batches, before gather owns
         # them. Join every started request before run_once releases its lock.
