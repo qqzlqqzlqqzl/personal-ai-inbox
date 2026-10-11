@@ -340,6 +340,8 @@ def config():
         'concurrency': _number('BILINGUAL_CONCURRENCY', 3, 1, MAX_CONCURRENT_BATCHES),
         'daily_requests': _number('BILINGUAL_DAILY_REQUESTS', 40, 1, 10000),
         'daily_tokens': _number('BILINGUAL_DAILY_TOKENS', 250000, 1000, 10000000),
+        'today_requests': _number('BILINGUAL_TODAY_REQUESTS', 0, 0, 10000),
+        'today_tokens': _number('BILINGUAL_TODAY_TOKENS', 0, 0, 10000000),
     }
 
 
@@ -403,7 +405,7 @@ def migrate(*, admission=None):
           CREATE INDEX IF NOT EXISTS bilingual_queue ON bilingual_blocks(next_try,attempts);
           CREATE TABLE IF NOT EXISTS bilingual_usage (
             id INTEGER PRIMARY KEY, day TEXT NOT NULL, user_id INTEGER, entry_id INTEGER,
-            reserved INTEGER NOT NULL, actual INTEGER);
+            reserved INTEGER NOT NULL, actual INTEGER, today INTEGER NOT NULL DEFAULT 0);
         ''')
         columns = {row[1] for row in db.execute('PRAGMA table_info(bilingual_articles)')}
         if 'version' not in columns:
@@ -412,6 +414,10 @@ def migrate(*, admission=None):
             # Historical pending/partial/budget-paused rows are cache only until
             # a new explicit view asks for exactly this body version.
             db.execute("ALTER TABLE bilingual_articles ADD COLUMN requested_at REAL NOT NULL DEFAULT 0")
+        if 'today' not in {row[1] for row in db.execute('PRAGMA table_info(bilingual_usage)')}:
+            # Existing charges remain accounted for; do not refund or recategorize
+            # old requests without a reliable request-time publication identity.
+            db.execute('ALTER TABLE bilingual_usage ADD COLUMN today INTEGER NOT NULL DEFAULT 0')
 
 
 def _eligible(db, user_id, entry_id, entry=None):
@@ -748,8 +754,16 @@ def _complete_format_rows(rows, cfg, admission):
     return {'processed': len(rows), 'failed': 0, 'status': status}
 
 
+def _today_start(now=None):
+    # Reader's Today view uses Asia/Shanghai. Accounting still resets at UTC
+    # midnight; publication priority and reserved capacity use the reader's day.
+    now = datetime.now(timezone.utc).timestamp() if now is None else now
+    return (now + 8 * 3600) // 86400 * 86400 - 8 * 3600
+
+
 def _next_rows():
     cfg = config()
+    today = _today_start()
     with core.connect() as db:
         candidates = db.execute('''SELECT b.*,a.model FROM bilingual_blocks b
           JOIN bilingual_current c USING(user_id,entry_id,source_hash)
@@ -758,8 +772,12 @@ def _next_rows():
           WHERE b.translated IS NULL AND b.attempts<? AND b.next_try<=?
             AND a.requested_at>0 AND a.model=? AND a.version=?
             AND d.state='done' AND d.score>=8
-          ORDER BY a.priority DESC,a.requested_at DESC,a.published_at DESC,a.entry_id DESC,b.block_id''',
-          (MAX_ATTEMPTS, time.time(), cfg['model'], _version()))
+          ORDER BY CASE
+            WHEN julianday(a.published_at)>=julianday(?,'unixepoch') THEN 0
+            WHEN julianday(a.published_at)>=julianday(?,'unixepoch') THEN 1
+            ELSE 2 END,
+            julianday(a.published_at) DESC,a.priority DESC,a.requested_at DESC,a.entry_id DESC,b.block_id''',
+          (MAX_ATTEMPTS, time.time(), cfg['model'], _version(), today, today - 7 * 86400))
         selected, chars, key = [], 0, None
         rejected = set()
         for record in candidates:
@@ -803,11 +821,22 @@ def _reserve(rows, payload, cfg, maximum, admission):
                     or current['source_text'] != row['source_text']
                     or source_hash(current['source_html'], cfg['model']) != key[2]):
                 return False
-        totals = db.execute('SELECT COUNT(*),COALESCE(SUM(COALESCE(actual,reserved)),0) FROM bilingual_usage WHERE day=?', (day,)).fetchone()
+        totals = db.execute('''SELECT COUNT(*),COALESCE(SUM(COALESCE(actual,reserved)),0),
+          COALESCE(SUM(today=0),0),COALESCE(SUM(CASE WHEN today=0 THEN COALESCE(actual,reserved) ELSE 0 END),0)
+          FROM bilingual_usage WHERE day=?''', (day,)).fetchone()
         if totals[0] >= cfg['daily_requests'] or totals[1] + reserve > cfg['daily_tokens']:
             return None
-        usage = db.execute('INSERT INTO bilingual_usage(day,user_id,entry_id,reserved) VALUES (?,?,?,?)',
-                           (day, rows[0]['user_id'], rows[0]['entry_id'], reserve)).lastrowid
+        today_start = _today_start()
+        today = bool(db.execute('''SELECT 1 FROM bilingual_articles
+          WHERE user_id=? AND entry_id=? AND source_hash=?
+            AND julianday(published_at)>=julianday(?,'unixepoch')
+            AND julianday(published_at)<julianday(?,'unixepoch')''',
+          (*key, today_start, today_start + 86400)).fetchone())
+        if not today and (totals[2] >= max(0, cfg['daily_requests'] - cfg['today_requests'])
+                or totals[3] + reserve > max(0, cfg['daily_tokens'] - cfg['today_tokens'])):
+            return None
+        usage = db.execute('INSERT INTO bilingual_usage(day,user_id,entry_id,reserved,today) VALUES (?,?,?,?,?)',
+                           (day, rows[0]['user_id'], rows[0]['entry_id'], reserve, int(today))).lastrowid
         for row in rows:
             db.execute('''UPDATE bilingual_blocks SET attempts=attempts+1,next_try=?
               WHERE user_id=? AND entry_id=? AND source_hash=? AND block_id=?''',
@@ -996,8 +1025,9 @@ def _rolling_candidates(user_id, now, state, cfg):
       FROM analyses a WHERE '''
     order = ' ORDER BY julianday(a.published_at) DESC,a.entry_id DESC LIMIT ?'
     with core.connect() as db:
-        fresh = [dict(row) for row in db.execute(select + where + ' AND a.analyzed_at>=?' + order,
-            (*values, state.get('since', now - ROLLING_INTERVAL), ROLLING_FRESH))]
+        fresh = [dict(row) for row in db.execute(select + where +
+            " AND (a.analyzed_at>=? OR julianday(a.published_at)>=julianday(?,'unixepoch'))" + order,
+            (*values, state.get('since', now - ROLLING_INTERVAL), _today_start(now), ROLLING_FRESH))]
         cursor = state.get('cursor')
         tail = ' AND (julianday(a.published_at)<? OR (julianday(a.published_at)=? AND a.entry_id<?))' if cursor else ''
         after = (cursor[0], cursor[0], cursor[1]) if cursor else ()
