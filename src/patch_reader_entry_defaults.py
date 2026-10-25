@@ -9,7 +9,7 @@ WEB = ROOT / "upstream/reactflux"
 def patch(name, old, new, previous=None):
     path = WEB / name
     text = path.read_text()
-    authored = ROOT / 'frontend-review/after' / name
+    authored = WEB.parent.parent / 'frontend-review/after' / name
     if authored.is_file() and text == authored.read_text():
         return
     if new in text:
@@ -26,6 +26,23 @@ def patch(name, old, new, previous=None):
 
 # Keep the native All default and restore only this account's last reading view.
 import shutil
+import hashlib
+import json
+# Upgrade only exact previously reviewed root components. Historical releases
+# already contain the Today rewrite and the draft-aware logout overlay; do not
+# try to partially patch those into a second copy of the new imports/effect.
+home = WEB / 'src/components/HomeRedirect.jsx'
+history = json.loads((ROOT / 'frontend-review/previous-hashes.json').read_text())
+if hashlib.sha256(home.read_bytes()).hexdigest() in history.get('src/components/HomeRedirect.jsx', []):
+    home.write_bytes((ROOT / 'frontend-review/after/src/components/HomeRedirect.jsx').read_bytes())
+for old, new in [
+    ('id: "today" })', 'id: "all" })'),
+    ('legacyHomePage = "today"', 'legacyHomePage = "all"'),
+]:
+    path = WEB / 'src/utils/home-page.js'
+    current = path.read_text()
+    if old in current:
+        path.write_text(current.replace(old, new))
 shutil.copy2(ROOT / "patches/reading-landing.js", WEB / "src/store/readingLandingState.js")
 patch("src/components/HomeRedirect.jsx",
       'import { Navigate, useNavigate } from "react-router"',

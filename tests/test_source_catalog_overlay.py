@@ -173,6 +173,16 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_sort).hexdigest(), sort_sha)
         self.assertNotIn(sort_sha, old.get(sort_name, []))
         old.setdefault(sort_name, []).append(sort_sha)
+        # #244 upgrades only these exact prior/current generated overlays.
+        feedback_base = 'ff0994047d4dccb88a3c79f68c47299e30660394'
+        baseline_history = json.loads(subprocess.check_output(
+            ['git', 'show', feedback_base + ':frontend-review/previous-hashes.json'], cwd=ROOT, timeout=15))
+        self.assertEqual(old, baseline_history)
+        approved_feedback = {'src/components/Ai/AiToolbar.jsx': ['ca8723c283ac71c1965674da6f73025f91f62656dc8b7d886ccacc07f6f178d6', 'dd13ef0e1d8f10d438812f2d8199602573e901821e776b394265985be3d9ea46'], 'src/utils/settings-schema.js': ['dc38ce53e52b6a9ff447a16dd0fd63b2812088bf4bed24cdfc27cf7e2581c29c', 'd94904e9091156c5ac88a6365bae60f5a14d89d980f34066b5f173be80f750c2'], 'src/components/Article/reader-image-variants.js': ['eb741399390c6713d63e238d776b3dc7bbfdbcf170792a6e1e1b764db1e015e8'], 'src/components/Article/SearchAndSortBar.jsx': ['a8ba0973ae7f193e23e6b9cccc3906de07e52c78365ba64ca5f93c1578f07dd9', '6fad0bdafcd4d034537dbf19c65ca4c8e179b2c910d9df48b8c290131d5279af'], 'src/components/Article/ArticleGridCard.jsx': ['05e2eefa2edee425c27fa1f35675fc70cb41cf90ea449c52805eb94b9f7632d9'], 'src/components/HomeRedirect.jsx': ['7d1eaf7710294dc5cd9f3fdf53ca92d849988d00a6a969f7bd0e389e25869159', 'ba4981906190599d87de175a95cfeef19bef891cc23467fac43b31597ca8392c']}
+        for name, values in approved_feedback.items():
+            for value in values:
+                self.assertNotIn(value, old.get(name, []))
+                old.setdefault(name, []).append(value)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
