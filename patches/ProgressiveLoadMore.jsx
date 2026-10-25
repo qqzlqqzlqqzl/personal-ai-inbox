@@ -133,6 +133,9 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const visible = [...root.querySelectorAll('[data-entry-id]')].filter(el => el.getBoundingClientRect().bottom > bounds.top + 1 && el.getBoundingClientRect().top < bounds.bottom)
       const first = visible[0]
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
+      const coverWidth = root.querySelector('.grid-card-cover, .grid-card-media')?.getBoundingClientRect().width
+      if (index >= 0 && coverWidth > 0) thumbnailsRef.current?.prioritize(
+        s.entries.slice(index, index + 12), coverWidth, window.location.origin, window.devicePixelRatio)
       if (!offerCovers()) waitForCovers()
       if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current?.snapshot === s.snapshot) return
       // Mounted short lists also look near their tail before any scrolling.

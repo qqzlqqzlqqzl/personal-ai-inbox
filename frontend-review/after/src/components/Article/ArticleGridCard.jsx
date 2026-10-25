@@ -55,6 +55,8 @@ const ArticleGridCard = ({ entry, previewContent }) => {
   const { showCardSummary, showDetailedRelativeTime, showEstimatedReadingTime, showFeedIcon } =
     useStore(articleGridCardSettingsState)
   const [coverState, setCoverState] = useState(() => getInitialCoverState(entry))
+  const [retryState, setRetryState] = useState({ source: entry.coverSource, count: 0 })
+  const retries = retryState.source === entry.coverSource ? retryState.count : 0
   const isCurrentCover = coverState.coverSource === entry.coverSource
   const currentCoverState = isCurrentCover ? coverState : getInitialCoverState(entry)
   const { hasError, isReady, shouldCrop } = currentCoverState
@@ -105,6 +107,12 @@ const ArticleGridCard = ({ entry, previewContent }) => {
               <FeedIcon className="grid-card-fallback-feed-icon" feed={entry.feed} />
             )}
             <span>{entry.feed.title}</span>
+            {hasError && <button type="button" disabled={retries >= 3} onClick={event => {
+              event.preventDefault(); event.stopPropagation()
+              if (retries >= 3) return
+              setRetryState({ source: entry.coverSource, count: retries + 1 })
+              setCoverState(getInitialCoverState(entry))
+            }}>{retries >= 3 ? '封面暂不可用' : '重试封面'}</button>}
           </div>
         )}
       </div>

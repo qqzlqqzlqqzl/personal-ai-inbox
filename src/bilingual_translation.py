@@ -363,7 +363,7 @@ def _image_independent_source(html):
     return fingerprint(BodyParser(html).root)
 
 
-def _completed_image_variant(db, user_id, entry_id, html, model):
+def _completed_image_variant(db, user_id, entry_id, html, model, entry=None):
     candidates = db.execute("""SELECT * FROM bilingual_articles
       WHERE user_id=? AND entry_id=? AND model=? AND version=? AND status='done'
       ORDER BY updated_at DESC LIMIT 5""", (user_id, entry_id, model, _version())).fetchall()
@@ -371,9 +371,23 @@ def _completed_image_variant(db, user_id, entry_id, html, model):
         return None, []
     fingerprint = _image_independent_source(html)
     expected = [(item['id'], item['text']) for item in extract(html)[2]]
+    # A verified publisher body may use different outer block containers while
+    # retaining every translation block. Keep inline link/code semantics exact;
+    # current markup/images always come from render(html), never the old cache.
+    from content_quality import body_completeness
+    verified = bool(entry and body_completeness(entry)['status'] == 'verified')
+    def inline_identity(value):
+        def walk(node):
+            if isinstance(node, str):
+                return []
+            own = [(node.tag, sorted(node.attrs))] if node.tag in ALLOWED - BLOCK - {'img', 'picture', 'source'} else []
+            return own + [part for child in node.children for part in walk(child)]
+        return walk(BodyParser(value).root)
+    inline = inline_identity(html) if verified else None
     for row in candidates:
         if (source_hash(row['source_html'], model) != row['source_hash']
-                or _image_independent_source(row['source_html']) != fingerprint):
+                or (_image_independent_source(row['source_html']) != fingerprint
+                    and not (verified and inline_identity(row['source_html']) == inline))):
             continue
         blocks = db.execute("""SELECT block_id,source_text,translated FROM bilingual_blocks
           WHERE user_id=? AND entry_id=? AND source_hash=? ORDER BY block_id""",
@@ -476,7 +490,7 @@ def enqueue(entry, priority=0, admission=None, *, expected_source=None):
             return False
         if expected_source is not None and not _matches_discovered_source(db, entry, expected_source):
             return False
-        if row is None and _completed_image_variant(db, *key[:2], html, model)[0] is not None:
+        if row is None and _completed_image_variant(db, *key[:2], html, model, entry)[0] is not None:
             # No alias rows or another paid job for expiring image addresses.
             return False
         now = time.time()
@@ -521,7 +535,7 @@ def attach(entry, user_id):
             blocks = db.execute('SELECT block_id,translated FROM bilingual_blocks WHERE user_id=? AND entry_id=? AND source_hash=? ORDER BY block_id',
                                 (user_id, entry['id'], digest)).fetchall() if row else []
             if not row and _eligible(db, user_id, entry['id'], entry):
-                row, blocks = _completed_image_variant(db, user_id, entry['id'], html, cfg['model'])
+                row, blocks = _completed_image_variant(db, user_id, entry['id'], html, cfg['model'], entry)
         if not row:
             with core.connect() as db:
                 eligible = _eligible(db, user_id, entry['id'], entry)
@@ -1056,7 +1070,9 @@ def _rolling_candidates(user_id, now, state, cfg):
       AND NOT EXISTS (
         SELECT 1 FROM bilingual_current c JOIN bilingual_articles b USING(user_id,entry_id,source_hash)
         WHERE c.user_id=a.user_id AND c.entry_id=a.entry_id AND b.model=? AND b.version=?
-          AND ((b.status IN ('done','native') AND NOT EXISTS (
+          AND ((b.status IN ('done','native') AND EXISTS (
+            SELECT 1 FROM prepared_articles p WHERE p.entry_id=a.entry_id AND p.user_id=a.user_id
+              AND p.url=a.url AND p.kind='reader_original_html') AND NOT EXISTS (
             SELECT 1 FROM prepared_articles p WHERE p.entry_id=a.entry_id AND p.user_id=a.user_id
               AND p.url=a.url AND p.kind='reader_original_html'
               AND p.prepared_at>CASE WHEN b.requested_at>0 THEN b.requested_at ELSE b.updated_at END
@@ -1236,7 +1252,7 @@ def _discover_recent_sync(client, state, now, stopped, admission, loop, prepare)
                         guard()
                         if not _rolling_entry(entry, row, feed, user_id, now):
                             raise ValueError('prepared_reader_identity_or_body_changed')
-                        if entry.get('prepared_source') == 'analysis_source_fallback':
+                        if entry.get('prepared_source') == 'analysis_source_fallback' or entry.get('_translation_body_unverified'):
                             report['body_unverified'] += 1
                             report['skipped'] += 1
                             skipped[key] = now + ROLLING_SKIP_SECONDS

@@ -84,13 +84,13 @@ class RollingBodyVersionTests(unittest.TestCase):
         self.db.execute('UPDATE prepared_articles SET prepared_at=?', (self.now-5,))
         self.assertEqual(self.selected(), [7])
 
-    def test_restoration_must_still_match_owner_entry_url_and_kind(self):
+    def test_unmatched_restoration_requires_background_verification_of_current_body(self):
         for field, value in (('user_id', 4), ('entry_id', 8), ('url', 'https://other.invalid/'),
                              ('kind', 'body_images_repaired')):
             with self.subTest(field=field):
                 self.db.execute('SAVEPOINT mismatch')
                 self.db.execute('UPDATE prepared_articles SET '+field+'=?', (value,))
-                self.assertEqual(self.selected(), [])
+                self.assertEqual(self.selected(), [7])  # Discovery is not permission to reuse the mismatched receipt.
                 self.db.execute('ROLLBACK TO mismatch')
                 self.db.execute('RELEASE mismatch')
 
@@ -298,7 +298,7 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM bilingual_usage').fetchone()[0], 0)
         self.assertEqual(self.calls, [])
 
-    async def test_rolling_current_done_skips_body_but_failed_changed_source_is_discovered(self):
+    async def test_rolling_unverified_done_is_checked_without_retranslation_and_failed_source_is_discovered(self):
         now = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).timestamp()
         done = self.rolling_entry(121, now)
         failed = self.rolling_entry(122, now)
@@ -317,7 +317,7 @@ class BilingualTests(unittest.IsolatedAsyncioTestCase):
             with self.rolling_client([done, failed], calls) as client:
                 result = await bilingual.discover_recent(client, now=now)
         self.assertEqual(result['enqueued'], 1)
-        self.assertEqual([path for path in calls if '/entries/' in path], ['/mf/v1/entries/122'])
+        self.assertEqual([path for path in calls if '/entries/' in path], ['/mf/v1/entries/122', '/mf/v1/entries/121'])
         with core.connect() as db:
             current = db.execute('SELECT source_hash FROM bilingual_current WHERE entry_id=122').fetchone()[0]
             self.assertNotEqual(current, old_hash)

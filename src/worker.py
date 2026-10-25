@@ -335,7 +335,7 @@ async def process_one(client, row, cfg, *,admission=None):
             detail += ": validation failed"
         mutate(update,
             entry_id,
-            state=phase,
+            state="requires_model_review" if phase == "ai_error" and attempts >= 3 else phase,
             attempts=attempts,
             next_try=time.time() + min(86400, 300 * 2 ** min(attempts, 8)),
             error=detail,

@@ -131,6 +131,25 @@ class ImportTests(unittest.TestCase):
         self.validation['items']=[{'id':'cards-0','valid':True,'input_hash':'cards-v1',
             'result':{'10':['中文标题甲','中文简介甲'],'11':['中文标题乙','中文简介乙']}}]
 
+    def test_removed_article_is_terminal_without_changing_archived_analysis(self):
+        class Current(set):
+            removed = {1}
+        before = self.read()
+        result = import_validated(self.path, self.manifest, self.validation, Current())
+        self.assertEqual('upstream_removed', result['items'][0]['state'])
+        self.assertEqual(before, self.read())
+        with self.db() as db:
+            self.assertEqual(0, db.execute('SELECT count(*) FROM kaggle_imports').fetchone()[0])
+
+    def test_mixed_translation_group_imports_only_current_articles(self):
+        self.cards()
+        class Current(set):
+            removed = {11}
+        result = import_validated(self.path, self.manifest, self.validation, Current({10}))
+        self.assertEqual('imported', result['items'][0]['state'])
+        self.assertEqual('done', self.read('card_translations', 10)['status'])
+        self.assertEqual('pending', self.read('card_translations', 11)['status'])
+
     def test_translation_updates_cache_and_repeated_import_changes_nothing(self):
         self.cards()
         self.assertEqual('imported',self.apply((10,11))['items'][0]['state'])

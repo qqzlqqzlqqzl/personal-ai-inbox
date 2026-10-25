@@ -241,7 +241,9 @@ async def ai_status(request: Request):
     campaign = await asyncio.to_thread(month_status)
     summary = status_summary(uid)
     reader_total = summary["coverage"].get("total_articles", 0)
+    native_total_known = False
     source_count = 0
+    current_feed_ids = None
     try:
         entries_response, feeds_response = await asyncio.gather(
             app.state.client.get(
@@ -254,12 +256,22 @@ async def ai_status(request: Request):
             total = entries_data.get("total") if isinstance(entries_data, dict) else None
             if type(total) is int and total >= 0:
                 reader_total = total
+                native_total_known = True
         if feeds_response.status_code == 200:
             feeds_data = feeds_response.json()
             if isinstance(feeds_data, list):
                 source_count = len(feeds_data)
+            if isinstance(feeds_data, list) and all(isinstance(feed, dict) and type(feed.get('id')) is int
+                    and feed.get('user_id') == uid for feed in feeds_data):
+                source_count = len(feeds_data)
+                current_feed_ids = [feed['id'] for feed in feeds_data]
     except (httpx.HTTPError, ValueError, TypeError):
         pass
+    if current_feed_ids is not None:
+        summary = await reader_work.run(status_summary, uid, feed_ids=current_feed_ids)
+        if not native_total_known:
+            reader_total = summary['coverage'].get('total_articles', 0)
+    summary['counts_scope'] = 'current_subscriptions' if current_feed_ids is not None else 'historical_unverified'
     summary["coverage"] = {
         **summary["coverage"],
         "reader_total": reader_total,
@@ -436,6 +448,9 @@ def enrich_reader_entries(entries, uid=None, *, recommended=False, detail=False,
             # Fingerprint/enqueue must see the real content before it is deferred.
             item["content"] = ""
             item["content_deferred"] = True
+        if detail:
+            from reader_cover_proxy import reader_body_images
+            item = reader_body_images(item)
         result.append(item)
     return result
 
@@ -1188,6 +1203,8 @@ async def verify_reader_body(entry_id: int, request: Request):
         body = result['ai']['body_completeness']
         body.update({**outcome, 'status': 'incomplete' if body['status'] == 'incomplete' else outcome['status']})
     result = await reader_work.run(attach_reader_translation, result, uid)
+    from reader_cover_proxy import reader_body_images
+    result = await reader_work.run(reader_body_images, result)
     # Match the native detail response's safe same-origin representation.
     return Response(json.dumps(result, ensure_ascii=False).replace(
         'http://127.0.0.1:8092/mf', '/mf').encode(), media_type='application/json')
@@ -1211,6 +1228,8 @@ async def bilingual_article(entry_id, request, *, request_translation=False):
             raise HTTPException(409, "Only current score >=8 eligible articles can be translated")
         await reader_work.run(bilingual_translation.enqueue, decorated, priority=100)
     attached = await reader_work.run(attach_reader_translation, decorated, uid)
+    from reader_cover_proxy import reader_body_images
+    attached = await reader_work.run(reader_body_images, attached)
     translation = dict(attached.get("translation") or {})
     for key in ("bilingual_html", "chinese_html"):
         if isinstance(translation.get(key), str):

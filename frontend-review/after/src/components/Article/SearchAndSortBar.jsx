@@ -29,6 +29,7 @@ import { settingsState, updateSettings } from "@/store/settingsState"
 import { aiFilterEnabled, aiState } from "@/store/aiState"
 import { getStartOfToday } from "@/utils/date"
 import { readingCalendarState } from "@/store/readingCalendarState"
+import { calendarSelection, calendarValue, calendarRange } from "@/utils/reading-calendar"
 import "./SearchAndSortBar.css"
 
 const SearchModal = memo(({ aiSearch, notesSearch, value, visible, onCancel, onConfirm, onChange, returnFocusRef }) => {
@@ -139,9 +140,12 @@ const DateFilter = ({ filterDate, polyglot }) => {
   const [calendarVisible, setCalendarVisible] = useState(false)
   const selectDateLabel = polyglot.t("search.select_date")
   const calendar = useStore(readingCalendarState)
+  const selection = filterDate ? calendarSelection(filterDate) : null
+  const [period, setPeriod] = useState(selection?.period || "day")
+  const activePeriod = selection?.period || period
 
   const setDateAndClose = (date) => {
-    setFilterDate(date)
+    setFilterDate(calendarValue(date, activePeriod))
     setCalendarVisible(false)
   }
 
@@ -150,9 +154,16 @@ const DateFilter = ({ filterDate, polyglot }) => {
       popupVisible={calendarVisible}
       position="bottom"
       showNowBtn={false}
-      value={filterDate}
+      value={selection?.day || null}
       extra={
         <div className="calendar-actions">
+          <label>日期范围 <select aria-label="日期范围" value={activePeriod} onChange={event => {
+            const next = event.target.value
+            setPeriod(next)
+            if (selection) setFilterDate(calendarValue(selection.day, next))
+          }}>
+            <option value="day">日</option><option value="week">周（周一至周日）</option><option value="month">月</option>
+          </select></label>
           <Button
             long
             size="mini"
@@ -186,7 +197,7 @@ const DateFilter = ({ filterDate, polyglot }) => {
         boundaryDistance: { bottom: 8, left: 8, right: 8, top: 8 },
         className: "mobile-date-picker-popup",
       }}
-      onChange={setFilterDate}
+      onChange={setDateAndClose}
       onVisibleChange={setCalendarVisible}
     />
   )
@@ -344,6 +355,7 @@ const SearchAndSortBar = ({ fullWidth = false }) => {
               style={{ fontWeight: 500 }}
             >
               {displayTitle}
+              {filterDate && <small className="reading-timezone"> · {calendarRange(filterDate).start} 至 {calendarRange(filterDate).end}</small>}
               {(infoFrom === "today" || filterDate) && <small className="reading-timezone" title="日期范围按账号阅读时区计算"> · {calendar.zone || "时区待确认"}</small>}
             </Typography.Ellipsis>
           ) : (

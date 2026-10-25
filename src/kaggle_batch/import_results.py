@@ -48,6 +48,11 @@ def import_validated(database, manifest, validation, upstream_unchanged, *,admis
                         raise ValueError('Import identity collision')
                     outcome.append({'id':key,'state':'already_imported'})
                     continue
+                removed = getattr(upstream_unchanged, 'removed', set())
+                refs = [ref for ref in refs if ref['entry_id'] not in removed]
+                if not refs:
+                    outcome.append({'id':key,'state':'upstream_removed'})
+                    continue
                 if not all(ref['entry_id'] in upstream_unchanged for ref in refs):
                     outcome.append({'id':key,'state':'upstream_changed_or_unavailable'})
                     continue

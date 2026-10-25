@@ -30,7 +30,9 @@ export function readerFetchedBody(entry, content) {
 export const needsReaderBodyCheck = entry =>
   entry?.prepared_source !== 'reader_native_fetch' &&
   entry?.ai?.body_completeness?.policy_version === 'reader-body-completeness-v1' &&
-  entry.ai.body_completeness.status !== 'verified'
+  entry.ai.body_completeness.status !== 'verified' &&
+  entry.ai.body_completeness.retry_exhausted !== true &&
+  !(entry.ai.body_completeness.next_retry_at > Date.now() / 1000)
 
 // Notes and other presentation metadata clone the DTO. They do not create a
 // new body version; a different account, native identity or body does.

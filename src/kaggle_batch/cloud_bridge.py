@@ -362,7 +362,7 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
 
 class UpstreamVerification(set):
     def __init__(self):
-        super().__init__();self.unavailable=set()
+        super().__init__();self.unavailable=set();self.removed=set()
 
 
 async def verify_upstream(source,manifest, *,admission=None):
@@ -380,6 +380,8 @@ async def verify_upstream(source,manifest, *,admission=None):
             except (httpx.HTTPError,TimeoutError,KeyError,TypeError,ValueError) as exc:
                 if not isinstance(exc,httpx.HTTPStatusError) or exc.response.status_code not in (404,410):
                     unchanged.unavailable.add(entry_id)
+                else:
+                    unchanged.removed.add(entry_id)
                 continue
             if ref.get('upstream_hash') and upstream_hash(entry)==ref['upstream_hash']:
                 unchanged.add(entry_id)
@@ -596,7 +598,7 @@ def main():
         guard()
         atomic_json(folder/'import-report.json',outcome)
         unresolved=[item for item in outcome['items'] if item['state'] not in
-                    ('imported','already_imported','existing_result_preserved')]
+                    ('imported','already_imported','existing_result_preserved','upstream_removed')]
         unavailable=getattr(unchanged,'unavailable',set())
         waiting={item['id'] for item in business['items']
                  if any(ref['entry_id'] in unavailable for ref in item['source_refs'])

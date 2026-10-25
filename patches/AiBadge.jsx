@@ -4,7 +4,7 @@ const labels = {
   content_excluded: "原始条目已保留 · 暂不推荐 · 未评分",
   requires_fulltext_adapter: "需要论文全文适配 · 未评分", insufficient_content: "原文信息过少 · 未评分", removed: "原条目已移除", pending: "等待后台处理", fetching: "正在抓取原文", analyzing: "正在分析",
   waiting_model: "原文已抓取 · 等待分析", fetch_error: "原文抓取受限",
-  ai_error: "AI 分析失败，可重试", budget_paused: "已达今日预算 · 稍后重试",
+  ai_error: "AI 分析暂未成功 · 自动重试中", requires_model_review: "分析已尝试 3 次仍失败 · 已跳过", budget_paused: "已达今日预算 · 稍后重试",
 }
 
 // Only the fixed cache-only API contract is displayable here. Never infer access,
@@ -48,14 +48,18 @@ export function qualityLabels(quality) {
 }
 
 export function bodyCompletenessLabel(body) {
-  if (!body || body.policy_version !== 'reader-body-completeness-v1') return '正文完整性未验证'
+  if (!body || body.policy_version !== 'reader-body-completeness-v1') return '正文待核对 · 打开后自动检查'
   if (body.status === 'verified' && body.structure === 'preserved')
     return body.analysis_text_matches === false ? '已核对原文正文区；与原分析文本不同' : '已核对原文正文区 · 保留原文结构'
   if (body.status === 'incomplete') return '非完整正文 · 当前为来源介绍或摘要'
+  if (body.reason === 'original_check_unsupported') return '当前站点尚无全文核验适配 · 保留现有正文'
+  if (body.reason === 'original_http_404' || body.reason === 'original_http_410') return '原文已无法访问 · 保留现有正文'
+  if (body.retry_exhausted && body.reason !== 'original_access_restricted') return `原文核对已尝试 ${body.attempts || 3} 次 · 暂停自动重试`
+  if (body.next_retry_at) return `原文核对暂未成功（${body.attempts || 1}/3）· 稍后自动重试`
   if (body.structure === 'lost') return '完整性未验证 · 纯文本回退未完整保留原文结构'
   if (body.reason === 'original_access_restricted') return '完整性未验证 · 原站访问受限'
   if (body.reason === 'original_check_failed') return '完整性未验证 · 本次原文核对未成功'
-  return '正文完整性未验证'
+  return '正文待核对 · 打开后自动检查'
 }
 
 function evidenceTime(value) {

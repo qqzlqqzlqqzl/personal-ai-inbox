@@ -1,4 +1,4 @@
-"""Make inbox entry Today + AI picks and align active sidebar counts with visible results."""
+"""Restore account reading state and align active sidebar counts with visible results."""
 import os
 from pathlib import Path
 
@@ -21,93 +21,45 @@ def patch(name, old, new, previous=None):
     path.write_text(text.replace(old, new, 1))
 
 
-# Fresh/reset home targets use Today instead of the full historical library.
-patch(
-    "src/utils/home-page.js",
-    'export const DEFAULT_HOME_TARGET = Object.freeze({ type: "view", id: "all" })',
-    'export const DEFAULT_HOME_TARGET = Object.freeze({ type: "view", id: "today" })',
-)
-patch(
-    "src/utils/home-page.js",
-    'export const getHomeTargetForIdentity = (homePages, identity, legacyHomePage = "all") => {',
-    'export const getHomeTargetForIdentity = (homePages, identity, legacyHomePage = "today") => {',
-)
-patch(
-    "src/utils/home-page.js",
-    'export const ensureHomeIdentity = (homePages, identity, legacyHomePage = "all") => {',
-    'export const ensureHomeIdentity = (homePages, identity, legacyHomePage = "today") => {',
-)
-patch(
-    "src/utils/settings-schema.js",
-    'homePage: enumSetting("all", ["all", "today", "starred", "history"])',
-    'homePage: enumSetting("today", ["all", "today", "starred", "history"])',
-)
-
-# Opening the inbox root starts a new reading session in the primary AI-picks lens.
-patch(
-    "src/store/aiState.js",
-    'export const getAiQuery = () => {',
-    '''export const resetInboxLandingView = () => {
-  const current = normalizeAiState(aiState.get())
-  aiState.set(normalizeAiState({
-    ...current,
-    mode: "recommended",
-    auxiliary: "none",
-    sort: current.sort === "note_updated" ? "score" : current.sort,
-  }))
-}
-
-export const getAiQuery = () => {''',
-)
-patch(
-    "src/components/HomeRedirect.jsx",
-    'import { Navigate, useNavigate } from "react-router"',
-    'import { useLayoutEffect } from "react"\nimport { Navigate, useNavigate } from "react-router"',
-)
-patch(
-    "src/components/HomeRedirect.jsx",
-    'import { dataState, visibleCategoriesState, visibleFeedsState } from "@/store/dataState"',
-    'import { resetInboxLandingView } from "@/store/aiState"\nimport { dataState, visibleCategoriesState, visibleFeedsState } from "@/store/dataState"',
-)
-patch(
-    "src/components/HomeRedirect.jsx",
-    'import { currentHomeTargetState, homeIdentityState } from "@/store/homePageState"',
-    'import { currentHomeTargetState, homeIdentityState, setCurrentHomeTarget } from "@/store/homePageState"',
-)
-patch(
-    "src/components/HomeRedirect.jsx",
-    'import { getHomeTargetPath, isHomeTargetInCatalog } from "@/utils/home-page"',
-    'import { createViewHomeTarget, getHomeTargetPath, isHomeTargetInCatalog } from "@/utils/home-page"',
-)
-patch(
-    "src/components/HomeRedirect.jsx",
-    '  const navigate = useNavigate()\n\n  const handleLogout = () => {',
-    '''  const navigate = useNavigate()
-
-  useLayoutEffect(() => {
-    if (!identity) return
-    resetInboxLandingView()
-    if (target.type === "view" && target.id === "all") {
-      setCurrentHomeTarget(createViewHomeTarget("today"))
-    }
-  }, [identity, target])
+# Keep the native All default and restore only this account's last reading view.
+import shutil
+shutil.copy2(ROOT / "patches/reading-landing.js", WEB / "src/store/readingLandingState.js")
+patch("src/components/HomeRedirect.jsx",
+      'import { Navigate, useNavigate } from "react-router"',
+      '''import { useLayoutEffect } from "react"
+import { Navigate, useNavigate } from "react-router"''')
+patch("src/components/HomeRedirect.jsx",
+      'import { currentHomeTargetState, homeIdentityState } from "@/store/homePageState"',
+      '''import { currentHomeTargetState, homeIdentityState } from "@/store/homePageState"
+import { lastReading, restoreReading } from "@/store/readingLandingState"''')
+patch("src/components/HomeRedirect.jsx",
+      '  const target = useStore(currentHomeTargetState)',
+      '''  const homeTarget = useStore(currentHomeTargetState)
+  const target = lastReading(identity)?.target || (homeTarget.type === "view" ? { type: "view", id: "all" } : homeTarget)''')
+patch("src/components/HomeRedirect.jsx",
+      '''  const navigate = useNavigate()
 
   const handleLogout = () => {''',
-)
-patch(
-    "src/components/HomeRedirect.jsx",
-    '''  if (target.type === "view") {
-    return <Navigate replace to={getHomeTargetPath(target)} />
-  }''',
-    '''  if (target.type === "view") {
-    return <Navigate replace to={target.id === "all" ? "/today" : getHomeTargetPath(target)} />
-  }''',
-)
-patch(
-    "src/components/HomeRedirect.jsx",
-    '  return <Navigate replace to={targetExists ? getHomeTargetPath(target) : "/all"} />',
-    '  return <Navigate replace to={targetExists ? getHomeTargetPath(target) : "/today"} />',
-)
+      '''  const navigate = useNavigate()
+  useLayoutEffect(() => { if (identity) restoreReading(identity) }, [identity])
+
+  const handleLogout = () => {''')
+patch("src/components/HomePageManager.jsx",
+      'import { settingsState } from "@/store/settingsState"',
+      '''import { settingsState } from "@/store/settingsState"
+import { contentState } from "@/store/contentState"
+import { aiState } from "@/store/aiState"
+import { rememberReading } from "@/store/readingLandingState"''')
+patch("src/components/HomePageManager.jsx", '  const identityLoadState = loadState.identity',
+      '''  useEffect(() => {
+    if (!identityKey || !calendar.ready) return
+    const save = () => rememberReading(identity, location.pathname)
+    save()
+    const stopContent = contentState.listen(save), stopAi = aiState.listen(save), stopSettings = settingsState.listen(save)
+    return () => { stopContent(); stopAi(); stopSettings() }
+  }, [identityKey, calendar.ready, location.pathname])
+
+  const identityLoadState = loadState.identity''')
 
 patch(
     "src/components/Sidebar/Sidebar.jsx",

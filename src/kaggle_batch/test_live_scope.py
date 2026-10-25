@@ -36,6 +36,13 @@ class LiveScopeTests(unittest.TestCase):
             self.assertNotIn(3,resolve_entry_ids(self.cfg));self.assertNotIn(4,resolve_entry_ids(self.cfg))
     def test_empty_feed_catalog_does_not_mean_whole_database(self):
         with patch('live_scope.enabled_feeds',return_value=[]):self.assertEqual([],resolve_entry_ids(self.cfg))
+    def test_dynamic_feed_deletion_removes_candidates_without_erasing_history(self):
+        with patch('live_scope.enabled_feeds', return_value=self.feeds):
+            self.assertEqual([1, 2], resolve_entry_ids(self.cfg))
+        with patch('live_scope.enabled_feeds', return_value=[]):
+            self.assertEqual([], resolve_entry_ids(self.cfg))
+        with sqlite3.connect(self.db) as db:
+            self.assertEqual(5, db.execute('SELECT count(*) FROM analyses').fetchone()[0])
     def test_reader_failure_is_not_silently_widened(self):
         with patch('live_scope.enabled_feeds',side_effect=RuntimeError('offline')):
             with self.assertRaises(RuntimeError):resolve_entry_ids(self.cfg)

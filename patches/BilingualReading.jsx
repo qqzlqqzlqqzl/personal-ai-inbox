@@ -35,7 +35,7 @@ export function getBilingualReading(entry, requestedMode = "bilingual") {
   if (mode === "original") return { mode, html: original, message: "" }
   const translation = entry?.translation
   if (translation?.status === 'source_changed') return {
-    mode, html: original, message: '正文已按原文更新；已有译文对应旧正文，当前显示原文',
+    mode, html: original, message: '已补取原文正文；已有译文对应另一份正文，正在准备当前版本',
   }
   const candidate = !translation?.language || translation.language === "zh-CN"
     ? translation?.[mode === "chinese" ? "chinese_html" : "bilingual_html"] : null
@@ -131,7 +131,7 @@ export function shouldRequestBilingualAutomatically(entry) {
   // Unknown/unverified changes keep the old successful cache isolated.
   const body = entry?.ai?.body_completeness
   const bodyCheckPending = body?.policy_version === 'reader-body-completeness-v1' &&
-    body.status !== 'verified' && !body.checked_at
+    body.status !== 'verified' && body.reason !== 'original_check_unsupported'
   const restored = entry?.prepared_source === 'reader_original_html' &&
     body?.policy_version === 'reader-body-completeness-v1' && body.status === 'verified'
   return isTranslationEligible(entry) &&

@@ -65,9 +65,10 @@ export function readerThumbnailProps(entry, origin) {
 }
 
 // Queue already-loaded covers using the mounted card's width and shared slots.
-export function createThumbnailPreloader(createImage, onSettled = () => {}) {
+export function createThumbnailPreloader(createImage, onSettled = () => {}, { setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const seen = new Set(), pending = new Set(), pendingKeys = new Set()
   const queuedKeys = new Set()
+  const timers = new Map()
   let queue = []
   let closed = false
   const drain = () => {
@@ -78,6 +79,11 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}) {
     }
   }
   const loader = {
+    prioritize(entries, width, origin, ratio = 1) {
+      const wanted = new Set(entries.map(entry => readerThumbnailProps(entry, origin).srcSet).filter(Boolean))
+      queue.sort((left, right) => Number(wanted.has(readerThumbnailProps(right.entry, right.origin).srcSet)) - Number(wanted.has(readerThumbnailProps(left.entry, left.origin).srcSet)))
+      loader.enqueue(entries, width, origin, ratio)
+    },
     enqueue(entries, width, origin, ratio = 1) {
       if (closed || !Number.isFinite(width) || width <= 0) return
       const candidate = [480, 960, 1600].find(value => value >= width * ratio) ?? 1600
@@ -114,6 +120,8 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}) {
           if (oldest) seen.delete(oldest)
         }
         image.onload = image.onerror = () => {
+          clearTimer(timers.get(image))
+          timers.delete(image)
           image.onload = image.onerror = null
           pending.delete(image)
           pendingKeys.delete(key)
@@ -124,6 +132,12 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}) {
         image.sizes = `${width}px`
         image.srcset = props.srcSet
         image.src = props.src
+        timers.set(image, setTimer(() => {
+          // A hung or cancelled old download must not occupy one of the six
+          // lookahead slots for the remainder of a long reading session.
+          const settle = image.onerror
+          if (settle) { image.src = ""; settle() }
+        }, 15000))
       }
     },
     dispose() {
@@ -131,6 +145,8 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}) {
       queue = []
       queuedKeys.clear()
       for (const image of pending) image.onload = image.onerror = null
+      for (const timer of timers.values()) clearTimer(timer)
+      timers.clear()
       pending.clear()
       pendingKeys.clear()
       seen.clear()

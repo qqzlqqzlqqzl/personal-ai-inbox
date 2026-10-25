@@ -1,3 +1,7 @@
+## 2026-10-26 实际阅读反馈修复
+
+本轮目标、证据、删源约束、修复与实际发布回执见 [FEEDBACK-20261026.md](FEEDBACK-20261026.md)，跟踪 Issue244。用户已删除普通开源发布 / release notes 源，后续接手者不得自动恢复。未取得该文档末尾的实际部署与验收回执前，不宣称本轮已上线。
+
 ## 2026-10-11 follow-up: protect today's translation budget, Issue237
 
 User authorized raising the production ceiling to 5,000,000 tokens / 10,000

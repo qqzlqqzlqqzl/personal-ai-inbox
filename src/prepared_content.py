@@ -17,6 +17,7 @@ _BODY_INFLIGHT = {}
 BODY_CHECK_SECONDS = 12
 BODY_CHECK_TTL = 900
 BODY_CHECK_LIMIT = 128
+BODY_CHECK_ATTEMPTS = 3
 
 
 def migrate(*,admission=None):
@@ -29,6 +30,10 @@ def migrate(*,admission=None):
         columns = {row[1] for row in db.execute('PRAGMA table_info(prepared_articles)')}
         if 'source_receipt' not in columns:
             db.execute('ALTER TABLE prepared_articles ADD COLUMN source_receipt TEXT')
+        db.execute('''CREATE TABLE IF NOT EXISTS reader_body_checks (
+          user_id INTEGER,entry_id INTEGER,url TEXT,title TEXT,input_hash TEXT,
+          attempts INTEGER NOT NULL,result TEXT NOT NULL,next_try REAL NOT NULL,
+          PRIMARY KEY(user_id,entry_id,url,title,input_hash))''')
 
 
 def text_hash(html):
@@ -186,13 +191,33 @@ def body_check_status(entry):
             _BODY_CHECKS.move_to_end(key)
             return dict(cached[1])
         _BODY_CHECKS.pop(key, None)
+    with core.connect() as db:
+        row = db.execute('''SELECT result,next_try FROM reader_body_checks
+          WHERE user_id=? AND entry_id=? AND url=? AND title=? AND input_hash=?''', key[1:]).fetchone()
+    if row and (not row['next_try'] or row['next_try'] > time.time()):
+        return json.loads(row['result'])
     return None
 
 
 def _remember_body_check(entry, result):
+    key = body_check_key(entry)
+    if result['status'] != 'verified' and result.get('reason') != 'original_input_changed':
+        with core.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('''SELECT attempts FROM reader_body_checks
+              WHERE user_id=? AND entry_id=? AND url=? AND title=? AND input_hash=?''', key[1:]).fetchone()
+            attempts = (row['attempts'] if row else 0) + 1
+            terminal = attempts >= BODY_CHECK_ATTEMPTS or result['reason'] in {
+                'original_check_unsupported', 'original_access_restricted', 'original_http_404', 'original_http_410'}
+            retry = 0 if terminal else time.time() + (60 if attempts == 1 else 300)
+            result = {**result, 'attempts': attempts, 'retry_exhausted': terminal,
+                      'next_retry_at': retry or None}
+            db.execute('INSERT OR REPLACE INTO reader_body_checks VALUES (?,?,?,?,?,?,?,?)',
+                       (*key[1:], attempts, json.dumps(result), retry))
+    expires = min(time.time() + BODY_CHECK_TTL, result.get('next_retry_at') or float('inf'))
     with _BODY_CHECK_LOCK:
-        _BODY_CHECKS[body_check_key(entry)] = (time.time() + BODY_CHECK_TTL, dict(result))
-        _BODY_CHECKS.move_to_end(body_check_key(entry))
+        _BODY_CHECKS[key] = (expires, dict(result))
+        _BODY_CHECKS.move_to_end(key)
         while len(_BODY_CHECKS) > BODY_CHECK_LIMIT:
             _BODY_CHECKS.popitem(last=False)
     return result
@@ -206,6 +231,8 @@ def _reader_original_html(result):
     if not isinstance(source, str) or not source.strip() or len(source.encode()) > 2 * 1024 * 1024:
         raise ValueError('invalid_original_body')
     base = result['receipt']['url']
+    from media_repair import repair_html
+    source, _ = repair_html(source, source, base)
     soup = BeautifulSoup(source, 'html.parser')
     for node in soup.find_all(True):
         for attr in ('href', 'src'):
@@ -261,7 +288,14 @@ async def verify_original_body(entry, current_entry, *, analysis_text=None, prev
             html = await asyncio.to_thread(_reader_original_html, result)
             if len(html.encode()) > 2 * 1024 * 1024:
                 raise ValueError('original_body_too_large')
-        except (FulltextUnavailable, asyncio.TimeoutError, ValueError, TypeError, KeyError):
+        except (FulltextUnavailable, asyncio.TimeoutError, ValueError, TypeError, KeyError) as exc:
+            code = str(exc)
+            if code == 'requires_site_fulltext_rule':
+                failed['reason'] = 'original_check_unsupported'
+            if code in {'original_http_401', 'original_http_403'}:
+                failed['reason'] = 'original_access_restricted'
+            elif code in {'original_http_404', 'original_http_410'}:
+                failed['reason'] = code
             return _remember_body_check(entry, failed)
         # Re-authenticate/re-read through the caller before saving. A revoked
         # account or changed native body cannot bind this receipt to a new item.
@@ -292,15 +326,16 @@ async def verify_original_body(entry, current_entry, *, analysis_text=None, prev
 
 
 async def prepare_translation_body(entry, current_entry, *, admission=None):
-    """Restore known plaintext fallback before the opted-in translator pays for it.
+    """Verify supported original bodies before automatic translation pays for them.
 
-    Native structured bodies and bound repairs keep their current source/cache.
-    The caller supplies the same authenticated current-entry read used by detail
-    verification; no new reader service or publisher extraction path is added.
+    Native RSS markup can also be a teaser. Use the same durable checked body
+    as detail activation; reuse matching receipts without another source fetch.
+    Unsupported native bodies retain an explicit unverified limitation.
     """
     check(admission)
     shown = await asyncio.to_thread(core.decorate, entry, entry['user_id'], include_source_fallback=True)
-    if shown.get('prepared_source') != 'analysis_source_fallback':
+    from content_quality import body_completeness
+    if body_completeness(shown)['status'] == 'verified':
         return shown
 
     def evidence():
@@ -313,9 +348,20 @@ async def prepare_translation_body(entry, current_entry, *, admission=None):
 
     text, previous = await asyncio.to_thread(evidence)
     check(admission)
-    await verify_original_body(entry, current_entry, analysis_text=text,
+    outcome = await verify_original_body(entry, current_entry, analysis_text=text,
         previous_translation=previous, admission=admission)
     check(admission)
+    if outcome['status'] != 'verified':
+        shown['ai']['body_completeness'].update(outcome)
+        shown['_translation_body_unverified'] = outcome['reason'] != 'original_check_unsupported'
+        return shown
     fresh = await current_entry()
     check(admission)
-    return await asyncio.to_thread(core.decorate, fresh, fresh['user_id'], include_source_fallback=True)
+    shown = await asyncio.to_thread(core.decorate, fresh, fresh['user_id'], include_source_fallback=True)
+    if outcome['status'] != 'verified':
+        shown['ai']['body_completeness'].update(outcome)
+        # Native bodies on unsupported sites remain readable/translatable, with
+        # an explicit limitation. A supported but failed extraction must settle
+        # before paying to translate a possibly incomplete source.
+        shown['_translation_body_unverified'] = outcome['reason'] != 'original_check_unsupported'
+    return shown

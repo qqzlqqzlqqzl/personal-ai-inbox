@@ -6,6 +6,28 @@ const origin = "https://reader.example.test"
 const signed = "/mf/proxy/" + "A".repeat(43) + "=/aHR0cHM6Ly9leGFtcGxlLm9yZy9jb3Zlci5qcGc="
 const original = "https://example.org/cover.jpg"
 
+test("deep visible covers take the next free slot and stalled preloads release slots", () => {
+  const images = [], timers = new Map(); let timerId = 0
+  const loader = createThumbnailPreloader(() => { const value = {}; images.push(value); return value }, () => {}, {
+    setTimer: fn => { timers.set(++timerId, fn); return timerId }, clearTimer: id => timers.delete(id),
+  })
+  const entries = Array.from({ length: 20 }, (_, id) => {
+    const coverSource = `https://example.org/deep-${id}.jpg`
+    return { coverSource, ai: { cover_proxy_url: '/mf/proxy/' + 'A'.repeat(43) + '=/' + btoa(coverSource) } }
+  })
+  loader.enqueue(entries, 320, origin)
+  assert.equal(images.length, 6)
+  loader.prioritize([entries[19]], 320, origin)
+  images[0].onload()
+  assert.equal(images[6].src, readerThumbnailProps(entries[19], origin).src)
+  const timeout = [...timers.values()][0]
+  timeout()
+  assert.equal(images.length, 8, 'a stalled slot continues draining without another scroll')
+  assert.equal(images.filter(value => value.onload).length, 6)
+  loader.dispose()
+  assert.equal(timers.size, 0)
+})
+
 test("native enclosure provides responsive thumbnails without mutating article or preview", () => {
   const entry = {coverSource:original, attachments:{images:[{url:signed}]}}
   const before = JSON.stringify(entry)
