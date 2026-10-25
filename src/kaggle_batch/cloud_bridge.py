@@ -40,6 +40,28 @@ def upstream_hash(entry):
     return digest({key:entry.get(key) for key in ('id','user_id','title','url','content')})
 
 
+def retire_out_of_scope(control, config, batch, *, admission=None):
+    """Retire only a provably never-submitted draft after live source removal.
+
+    Keep the manifest and native ledger; a following prepare rebuilds current
+    work. Running or uncertain submissions must instead reconcile normally.
+    An unavailable reader raises and cannot authorize either submit or retire.
+    """
+    if config.get('queue_scope') != 'all_enabled_feeds':
+        return None
+    row = control.row(batch)
+    if row['state'] != 'prepared' or row.get('remote_status') is not None:
+        return None
+    check(admission)
+    allowed = set(resolve_entry_ids(config, **options(admission)))
+    manifest = control.manifest(batch)
+    entries = {ref['entry_id'] for item in manifest['items'] for ref in item.get('source_refs', [])}
+    if entries - allowed:
+        check(admission)
+        return control.retire(batch, 'live_subscription_scope_changed_before_submit')
+    return None
+
+
 def resolve_recovery(control,database,batch,replacements, *,admission=None):
     original=control.manifest(batch)
     candidates=[original]
@@ -555,6 +577,10 @@ def main():
         if row['state']=='prepared':
             if recovery_only:raise DispatchStopped('manual_recovery_cannot_submit')
             guard()
+            retired = retire_out_of_scope(control, config, args.batch, admission=guard)
+            if retired is not None:
+                print(json.dumps(retired))
+                return
             print(json.dumps(control.submit(args.batch)))
             return
         guard()

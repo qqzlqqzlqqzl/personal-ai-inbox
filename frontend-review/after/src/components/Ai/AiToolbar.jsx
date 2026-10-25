@@ -147,7 +147,7 @@ export default function AiToolbar({ source }) {
     {!progress && <span role="status" className="ai-progress">{statusLoading?"正在读取资源状态…":"尚未取得资源状态"}{statusUnavailable&&" · 读取失败，当前状态未确认"}</span>}
     {statusUnavailable && <button disabled={statusLoading} onClick={()=>retryStatus.current()}>重试资源状态</button>}
     {progress && <span className="ai-progress" data-sampled-at={statusSampled||''}>
-      已分析 {progress.counts?.done || 0} / {Object.values(progress.counts||{}).reduce((a,b)=>a+b,0)}
+      {progress.counts_scope === 'historical_unverified' ? '历史分析（订阅范围待核实）' : '当前订阅已分析'} {progress.counts?.done || 0} / {progress.coverage?.reader_total ?? Object.values(progress.counts||{}).reduce((a,b)=>a+b,0)}
       {" · "}{statusUnavailable ? "Kaggle 状态暂不可读 · 显示上次快照" : kaggleStatus(progress.kaggle).text}
       {statusSampled&&` · 上次成功读取 ${new Date(statusSampled).toLocaleTimeString()}`}{statusLoading&&" · 正在读取，显示上次快照"}
     </span>}

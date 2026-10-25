@@ -122,7 +122,7 @@ const SETTINGS_SCHEMA = {
     precision: 2,
   }),
   // Retained for local data and v1/v2 backup migration. New settings use homePages.
-  homePage: enumSetting("today", ["all", "today", "starred", "history"]),
+  homePage: enumSetting("all", ["all", "today", "starred", "history"]),
   homePages: {
     defaultValue: createDefaultHomePages(),
     sanitize: sanitizeHomePages,

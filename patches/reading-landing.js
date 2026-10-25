@@ -3,6 +3,7 @@ import { aiState } from "@/store/aiState"
 import { contentState, setFilterDate, setFilterString } from "@/store/contentState"
 import { getHomeIdentityKey } from "@/utils/home-page"
 import { settingsState, updateSettings } from "@/store/settingsState"
+import { getDataSessionRevision } from "@/store/dataState"
 
 const saved = persistentJSON("reader-last-reading-v1", { entries: {} })
 const AI_KEYS = ["mode", "auxiliary", "minimum", "sort", "direction"]
@@ -29,7 +30,8 @@ export function rememberReading(identity, pathname) {
   const content = contentState.get(), scope = match[1]
   // A route selected before its list commits must not save the preceding
   // scope's filters under the new route, or across an account transition.
-  if (content.infoFrom !== scope || String(content.infoId ?? "") !== String(match[2] ?? "")) return
+  if (!content.isArticleListReady || content.articleListResultOwner?.sessionRevision !== getDataSessionRevision() ||
+      content.infoFrom !== scope || String(content.infoId ?? "") !== String(match[2] ?? "")) return
   const target = ["feed", "category"].includes(scope)
     ? { type: scope, id: Number(match[2]) } : { type: "view", id: scope }
   const ai = aiState.get()

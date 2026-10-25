@@ -5,10 +5,10 @@ import { Navigate, useNavigate } from "react-router"
 
 import useAppData from "@/hooks/useAppData"
 import { polyglotState } from "@/hooks/useLanguage"
-import { resetInboxLandingView } from "@/store/aiState"
+import { lastReading, restoreReading } from "@/store/readingLandingState"
 import { dataState, visibleCategoriesState, visibleFeedsState } from "@/store/dataState"
-import { currentHomeTargetState, homeIdentityState, setCurrentHomeTarget } from "@/store/homePageState"
-import { createViewHomeTarget, getHomeTargetPath, isHomeTargetInCatalog } from "@/utils/home-page"
+import { currentHomeTargetState, homeIdentityState } from "@/store/homePageState"
+import { getHomeTargetPath, isHomeTargetInCatalog } from "@/utils/home-page"
 import { confirmDraftLogout } from "@/components/Ai/LogoutConfirm"
 
 import "./HomeRedirect.css"
@@ -40,7 +40,8 @@ const ErrorState = ({ description, logoutLabel, retryLabel, title, onLogout, onR
 
 const HomeRedirect = () => {
   const identity = useStore(homeIdentityState)
-  const target = useStore(currentHomeTargetState)
+  const homeTarget = useStore(currentHomeTargetState)
+  const target = lastReading(identity)?.target || (homeTarget.type === "view" ? { type: "view", id: "all" } : homeTarget)
   const { loadState } = useStore(dataState, { keys: ["loadState"] })
   const categories = useStore(visibleCategoriesState)
   const feeds = useStore(visibleFeedsState)
@@ -48,13 +49,7 @@ const HomeRedirect = () => {
   const { refreshFeedData, refreshIdentity } = useAppData()
   const navigate = useNavigate()
 
-  useLayoutEffect(() => {
-    if (!identity) return
-    resetInboxLandingView()
-    if (target.type === "view" && target.id === "all") {
-      setCurrentHomeTarget(createViewHomeTarget("today"))
-    }
-  }, [identity, target])
+  useLayoutEffect(() => { if (identity) restoreReading(identity) }, [identity])
 
   const handleLogout = () => {
     confirmDraftLogout({
@@ -82,7 +77,7 @@ const HomeRedirect = () => {
   }
 
   if (target.type === "view") {
-    return <Navigate replace to={target.id === "all" ? "/today" : getHomeTargetPath(target)} />
+    return <Navigate replace to={getHomeTargetPath(target)} />
   }
 
   if (!loadState.catalog.hasSnapshot) {
@@ -103,7 +98,7 @@ const HomeRedirect = () => {
   }
 
   const targetExists = isHomeTargetInCatalog(target, feeds, categories)
-  return <Navigate replace to={targetExists ? getHomeTargetPath(target) : "/today"} />
+  return <Navigate replace to={targetExists ? getHomeTargetPath(target) : "/all"} />
 }
 
 export default HomeRedirect

@@ -355,8 +355,8 @@ const SearchAndSortBar = ({ fullWidth = false }) => {
               style={{ fontWeight: 500 }}
             >
               {displayTitle}
-              {filterDate && <small className="reading-timezone"> · {calendarRange(filterDate).start} 至 {calendarRange(filterDate).end}</small>}
               {(infoFrom === "today" || filterDate) && <small className="reading-timezone" title="日期范围按账号阅读时区计算"> · {calendar.zone || "时区待确认"}</small>}
+              {filterDate && <small className="reading-timezone"> · {calendarRange(filterDate).start} 至 {calendarRange(filterDate).end}</small>}
             </Typography.Ellipsis>
           ) : (
             <div className="placeholder-title"></div>

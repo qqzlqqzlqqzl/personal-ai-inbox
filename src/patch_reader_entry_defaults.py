@@ -9,6 +9,9 @@ WEB = ROOT / "upstream/reactflux"
 def patch(name, old, new, previous=None):
     path = WEB / name
     text = path.read_text()
+    authored = ROOT / 'frontend-review/after' / name
+    if authored.is_file() and text == authored.read_text():
+        return
     if new in text:
         return
     if text.count(old) != 1 and previous is not None:
