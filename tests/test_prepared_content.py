@@ -209,7 +209,9 @@ async def test_translation_preparation_recovers_plaintext_fallback_and_reuses_it
 
 
 @pytest.mark.asyncio
-async def test_translation_preparation_leaves_native_structured_body_unchanged(db, entry, monkeypatch):
+async def test_translation_preparation_leaves_unsupported_native_body_readable(db, entry, monkeypatch):
+    import bilingual_translation
+    bilingual_translation.migrate()
     from kaggle_batch import fulltext_source
 
     async def unexpected(*args, **kwargs):

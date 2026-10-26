@@ -66,6 +66,57 @@ def _decode(value):
     return raw
 
 
+def reader_body_images(entry, *, key=None):
+    """Sign display copies only; source/receipt/translation identities stay intact.
+
+    Restored publisher HTML bypasses native Miniflux's HTML image rewriting.
+    Route those images through the same signed proxy/cache as native bodies.
+    No network, persistence, or browser credentials are involved here.
+    """
+    if entry.get('prepared_source') != 'reader_original_html':
+        return entry
+    key = media_proxy_key() if key is None else key
+    if not key:
+        return entry
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+    from stabilize_media import signed_url
+
+    def rewrite(value):
+        if not isinstance(value, str) or not value or '<' not in value:
+            return value
+        soup = BeautifulSoup(value, 'html.parser')
+        changed = False
+        def sign(url):
+            nonlocal changed
+            if url.startswith('/mf/proxy/'):
+                return url
+            try:
+                result = signed_url(urljoin(entry['url'], url), key)
+                changed = True
+                return result
+            except (ValueError, UnicodeError):
+                return url
+        for node in soup.select('img, picture source'):
+            if node.get('src'):
+                node['src'] = sign(node['src'])
+            if node.get('srcset'):
+                parts = []
+                for candidate in node['srcset'].split(','):
+                    words = candidate.split()
+                    if words:
+                        parts.append(' '.join([sign(words[0]), *words[1:]]))
+                node['srcset'] = ', '.join(parts)
+        return str(soup) if changed else value
+    result = {**entry, 'content': rewrite(entry.get('content'))}
+    if isinstance(entry.get('translation'), dict):
+        result['translation'] = {**entry['translation']}
+        for name in ('bilingual_html', 'chinese_html'):
+            if isinstance(result['translation'].get(name), str):
+                result['translation'][name] = rewrite(result['translation'][name])
+    return result
+
+
 def _source_url(value):
     parts = urlsplit(value)
     if (parts.scheme not in {"http", "https"} or not parts.hostname

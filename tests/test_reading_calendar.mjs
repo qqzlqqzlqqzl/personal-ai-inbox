@@ -19,6 +19,14 @@ let now = NativeDate.parse("2026-10-02T01:37:00Z");
 globalThis.Date = class extends NativeDate {constructor(...args){super(...(args.length?args:[now]))} static now(){return now}};
 try {
   const app = require(join(dir,"test.cjs"));
+  assert.deepEqual(app.calendarRange("2026-10-25|week"), {start:"2026-10-19",end:"2026-10-25",period:"week"});
+  assert.deepEqual(app.calendarRange("2026-10-26|week"), {start:"2026-10-26",end:"2026-11-01",period:"week"});
+  assert.deepEqual(app.calendarRange("2028-02-18|month"), {start:"2028-02-01",end:"2028-02-29",period:"month"});
+  assert.equal(app.calendarStart("2026-10-25|month","Asia/Shanghai").unix(),NativeDate.parse("2026-09-30T16:00:00Z")/1000);
+  assert.equal(app.calendarEndTimestamp("2026-10-25|week","Asia/Shanghai"),NativeDate.parse("2026-10-25T15:59:59Z")/1000);
+  assert.equal(app.calendarEndTimestamp("2026-03-08|week","America/New_York") + 1 - app.calendarStart("2026-03-08|week","America/New_York").unix(),167*3600);
+  assert.throws(()=>app.calendarRange("2026-10-25|invalid"));
+
   const auth={server:"https://synthetic.test/mf",token:"synthetic",username:"",password:""};
   app.setAuth(auth); app.commitIdentityData({id:1,timezone:"Asia/Shanghai"});
   app.aiState.set({...app.aiState.get(),mode:"recommended",minimum:8,auxiliary:"none"});
@@ -50,6 +58,15 @@ try {
     });
     return {total:selected.length,entries:selected.slice(0,Number(q.searchParams.get("limit")))};
   };
+  for (const value of ["2026-10-02|week", "2026-10-02|month"]) {
+    app.setFilterDate(value);
+    await app.getAllEntries("unread", {limit:24});
+    const query = calls.at(-1).searchParams;
+    assert.equal(Number(query.get("published_after")), app.getCalendarStartTimestamp(value));
+    assert.equal(Number(query.get("published_before")), app.getDayEndTimestamp(value));
+    assert.equal(query.get("ai_view"), "recommended");
+  }
+  app.setFilterDate(null);
   for(const browserZone of ["America/Los_Angeles","UTC","Asia/Shanghai"]){
     process.env.TZ=browserZone;
     assert.equal(app.getTimestamp(app.getStartOfToday()),NativeDate.parse("2026-10-01T16:00:00Z")/1000,"same account cutoff in "+browserZone);

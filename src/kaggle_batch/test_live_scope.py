@@ -36,6 +36,55 @@ class LiveScopeTests(unittest.TestCase):
             self.assertNotIn(3,resolve_entry_ids(self.cfg));self.assertNotIn(4,resolve_entry_ids(self.cfg))
     def test_empty_feed_catalog_does_not_mean_whole_database(self):
         with patch('live_scope.enabled_feeds',return_value=[]):self.assertEqual([],resolve_entry_ids(self.cfg))
+    def test_dynamic_feed_deletion_removes_candidates_without_erasing_history(self):
+        with patch('live_scope.enabled_feeds', return_value=self.feeds):
+            self.assertEqual([1, 2], resolve_entry_ids(self.cfg))
+        with patch('live_scope.enabled_feeds', return_value=[]):
+            self.assertEqual([], resolve_entry_ids(self.cfg))
+        with sqlite3.connect(self.db) as db:
+            self.assertEqual(5, db.execute('SELECT count(*) FROM analyses').fetchone()[0])
+
+    def test_only_never_submitted_prepared_batch_can_retire_after_source_removal(self):
+        from cloud_bridge import retire_out_of_scope
+        from types import SimpleNamespace
+        retired = []
+        control = SimpleNamespace(root=self.lane, row=lambda _: {'state': 'prepared', 'remote_status': None},
+            manifest=lambda _: {'items': [{'source_refs': [{'entry_id': 1}, {'entry_id': 2}]}]},
+            retire=lambda batch, reason: retired.append((batch, reason)) or {'state': 'retired'})
+        with patch('cloud_bridge.resolve_entry_ids', return_value=[1]):
+            self.assertEqual({'state': 'retired'}, retire_out_of_scope(control, self.cfg, 'draft'))
+        self.assertEqual(1, len(retired))
+
+        control.row = lambda _: {'state': 'prepared', 'remote_status': None}
+        control.manifest = lambda _: {'operations_only': True, 'items': []}
+        with patch('cloud_bridge.resolve_entry_ids', side_effect=AssertionError('operations are not article subscriptions')):
+            self.assertIsNone(retire_out_of_scope(control, self.cfg, 'operations'))
+        for state in ['running', 'submit_unknown', 'quarantined']:
+            control.row = lambda _, state=state: {'state': state, 'remote_status': None}
+            with patch('cloud_bridge.resolve_entry_ids', side_effect=AssertionError('must not change running work')):
+                self.assertIsNone(retire_out_of_scope(control, self.cfg, 'active'))
+        self.assertEqual(1, len(retired))
+
+    def test_submission_receipts_prevent_scope_retirement_even_with_prepared_ledger(self):
+        from cloud_bridge import retire_out_of_scope
+        from types import SimpleNamespace
+        for index, name in enumerate(['submit-receipt.json', 'submit-receipt.json.pending', 'submit-diagnostic.json']):
+            with self.subTest(receipt=name):
+                batch = 'uncertain-' + str(index)
+                folder = self.lane / batch
+                folder.mkdir()
+                (folder / name).write_text('{}')
+                control = SimpleNamespace(root=self.lane,
+                    row=lambda _: {'state': 'prepared', 'remote_status': None})
+                with patch('cloud_bridge.resolve_entry_ids', side_effect=AssertionError('must preserve uncertain work')):
+                    self.assertIsNone(retire_out_of_scope(control, self.cfg, batch))
+
+    def test_unavailable_catalog_neither_retires_nor_submits_prepared_work(self):
+        from cloud_bridge import retire_out_of_scope
+        from types import SimpleNamespace
+        control = SimpleNamespace(root=self.lane, row=lambda _: {'state': 'prepared', 'remote_status': None}, manifest=lambda _: {'items': []})
+        with patch('cloud_bridge.resolve_entry_ids', side_effect=RuntimeError('reader unavailable')):
+            with self.assertRaises(RuntimeError): retire_out_of_scope(control, self.cfg, 'draft')
     def test_reader_failure_is_not_silently_widened(self):
         with patch('live_scope.enabled_feeds',side_effect=RuntimeError('offline')):
             with self.assertRaises(RuntimeError):resolve_entry_ids(self.cfg)

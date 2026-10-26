@@ -654,7 +654,7 @@ async def test_status_optional_native_count_shapes_preserve_resources(
     request = api.Request({"type": "http", "headers": [(b"x-auth-token", b"synthetic-status-session")]})
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
         with patch.object(api, "authorize", authorize), patch.object(api, "health", health), \
-             patch.object(api, "status_summary", side_effect=lambda uid: copy.deepcopy(local)), \
+             patch.object(api, "status_summary", side_effect=lambda uid, **kwargs: copy.deepcopy(local)), \
              patch.object(api.app.state, "client", client, create=True), \
              patch.object(api.shutil, "disk_usage", return_value=SimpleNamespace(total=100, used=40, free=60)), \
              patch.object(api.Path, "read_text", return_value="MemTotal: 100 kB\nMemAvailable: 60 kB\n"), \

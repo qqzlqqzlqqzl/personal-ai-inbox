@@ -70,6 +70,7 @@ def install_reader_entry_detail(root, web):
     helper = (root / 'patches/reader-entry-detail.js').read_bytes()
     target = web / 'src/utils/reader-entry-detail.js'
     previous_helper_shas = {
+        '1498236aa7e5b462f2cb394d7e34af780cb823b1a190e83aa11080228e3a6e5a',
         '6fd755d1c5723c70779580755cb19163ec9e8a1e798b6d05dac08d072da65016',
         '17bce4248c73d81574c82c6570edc18db786520b095785f7dc4eb1c484b6f206',
         '82cc620457d6ee140e90a1edc85523d3c39532d5b51c36d0b9d26bf1cecc9ee4',

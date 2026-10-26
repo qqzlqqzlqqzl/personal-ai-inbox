@@ -290,6 +290,7 @@ def decorate(entry, user_id, include_source_fallback=False, processing_evidence=
     from content_quality import public_for_row, unknown, body_completeness
     from processing_status import for_entry
     from prepared_content import apply as apply_prepared
+    native_entry = entry
     # Unexpected identity types retain the single-entry path's existing behavior.
     if type(user_id) is not int or type(entry.get('id')) is not int:
         batch = None
@@ -340,17 +341,25 @@ def decorate(entry, user_id, include_source_fallback=False, processing_evidence=
     row = dict(r)
     if include_source_fallback:
         entry = _source_text_fallback(entry, row)
+    body_status = body_completeness(entry, row)
+    if include_source_fallback and body_status['status'] != 'verified':
+        from prepared_content import body_check_status
+        checked = body_check_status(native_entry)
+        if checked:
+            body_status.update(checked)
     result = json.loads(row.pop("result") or "{}")
     has_note = bool(row.pop("has_note", 0))
     note_updated_at = row.pop("note_updated_at", None)
     metadata = {
         "content_quality": public_for_row(row, current_entry=entry),
-        "body_completeness": body_completeness(entry, row),
+        "body_completeness": body_status,
         "processing": for_entry(row, processing_evidence),
         **{
             k: row[k]
             for k in [
                 "state",
+                "attempts",
+                "next_try",
                 "input_chars",
                 "image_count",
                 "truncated",
@@ -420,12 +429,18 @@ def close_budget(usage_id, tokens):
         )
 
 
-def status_summary(user_id):
+def status_summary(user_id, feed_ids=None):
     from card_translation import status as translation_status
     with connect() as c:
+        scope = ''
+        if feed_ids is not None:
+            c.execute('CREATE TEMP TABLE current_status_feeds(id INTEGER PRIMARY KEY)')
+            c.executemany('INSERT OR IGNORE INTO current_status_feeds VALUES (?)',
+                          ((value,) for value in feed_ids if type(value) is int and value > 0))
+            scope = ' AND feed_id IN (SELECT id FROM current_status_feeds)'
         counts = dict(
             c.execute(
-                "SELECT state,COUNT(*) FROM analyses WHERE user_id=? GROUP BY state",
+                "SELECT state,COUNT(*) FROM analyses WHERE user_id=?" + scope + " GROUP BY state",
                 (user_id,),
             ).fetchall()
         )
@@ -436,7 +451,7 @@ def status_summary(user_id):
                           COALESCE(SUM(CASE WHEN source_text IS NOT NULL AND length(trim(source_text))>=120 THEN 1 ELSE 0 END),0) AS source_text_ready,
                           COALESCE(SUM(CASE WHEN source_chars>=800 THEN 1 ELSE 0 END),0) AS substantial_source_text,
                           COALESCE(SUM(CASE WHEN state IN ('fetch_error','requires_fulltext_adapter','requires_model_review','requires_source_review','insufficient_content') THEN 1 ELSE 0 END),0) AS needs_attention
-                   FROM analyses WHERE user_id=?""",
+                   FROM analyses WHERE user_id=?""" + scope,
                 (user_id,),
             ).fetchone()
         )
@@ -569,7 +584,7 @@ def next_batch(states, now, limit=6):
    WHERE state NOT IN ('pending','removed') GROUP BY feed_id
  ), candidates AS (
    SELECT a.*,ROW_NUMBER() OVER(PARTITION BY feed_id ORDER BY published_at DESC,entry_id DESC) position
-   FROM analyses a WHERE state IN ({placeholders}) AND next_try<=? AND attempts<5
+   FROM analyses a WHERE state IN ({placeholders}) AND next_try<=? AND attempts<3
  )
  SELECT candidates.* FROM candidates LEFT JOIN activity USING(feed_id)
  WHERE position=1 ORDER BY COALESCE(last_work,0),published_at DESC LIMIT ?"""

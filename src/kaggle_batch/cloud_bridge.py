@@ -40,6 +40,34 @@ def upstream_hash(entry):
     return digest({key:entry.get(key) for key in ('id','user_id','title','url','content')})
 
 
+def retire_out_of_scope(control, config, batch, *, admission=None):
+    """Retire only a provably never-submitted draft after live source removal.
+
+    Keep the manifest and native ledger; a following prepare rebuilds current
+    work. Running or uncertain submissions must instead reconcile normally.
+    An unavailable reader raises and cannot authorize either submit or retire.
+    """
+    if config.get('queue_scope') != 'all_enabled_feeds':
+        return None
+    row = control.row(batch)
+    if row['state'] != 'prepared' or row.get('remote_status') is not None:
+        return None
+    folder = Path(control.root) / batch
+    if any((folder / name).exists() for name in (
+            'submit-receipt.json', 'submit-receipt.json.pending', 'submit-diagnostic.json')):
+        return None
+    check(admission)
+    manifest = control.manifest(batch)
+    if manifest.get('operations_only') is True:
+        return None
+    allowed = set(resolve_entry_ids(config, **options(admission)))
+    entries = {ref['entry_id'] for item in manifest['items'] for ref in item.get('source_refs', [])}
+    if entries - allowed:
+        check(admission)
+        return control.retire(batch, 'live_subscription_scope_changed_before_submit')
+    return None
+
+
 def resolve_recovery(control,database,batch,replacements, *,admission=None):
     original=control.manifest(batch)
     candidates=[original]
@@ -362,7 +390,7 @@ async def prepare_sample(source, limit, excluded_entry_ids=(), allowed_entry_ids
 
 class UpstreamVerification(set):
     def __init__(self):
-        super().__init__();self.unavailable=set()
+        super().__init__();self.unavailable=set();self.removed=set()
 
 
 async def verify_upstream(source,manifest, *,admission=None):
@@ -380,6 +408,8 @@ async def verify_upstream(source,manifest, *,admission=None):
             except (httpx.HTTPError,TimeoutError,KeyError,TypeError,ValueError) as exc:
                 if not isinstance(exc,httpx.HTTPStatusError) or exc.response.status_code not in (404,410):
                     unchanged.unavailable.add(entry_id)
+                else:
+                    unchanged.removed.add(entry_id)
                 continue
             if ref.get('upstream_hash') and upstream_hash(entry)==ref['upstream_hash']:
                 unchanged.add(entry_id)
@@ -553,6 +583,10 @@ def main():
         if row['state']=='prepared':
             if recovery_only:raise DispatchStopped('manual_recovery_cannot_submit')
             guard()
+            retired = retire_out_of_scope(control, config, args.batch, admission=guard)
+            if retired is not None:
+                print(json.dumps(retired))
+                return
             print(json.dumps(control.submit(args.batch)))
             return
         guard()
@@ -596,7 +630,7 @@ def main():
         guard()
         atomic_json(folder/'import-report.json',outcome)
         unresolved=[item for item in outcome['items'] if item['state'] not in
-                    ('imported','already_imported','existing_result_preserved')]
+                    ('imported','already_imported','existing_result_preserved','upstream_removed')]
         unavailable=getattr(unchanged,'unavailable',set())
         waiting={item['id'] for item in business['items']
                  if any(ref['entry_id'] in unavailable for ref in item['source_refs'])

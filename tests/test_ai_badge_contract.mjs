@@ -24,11 +24,11 @@ try {
   reason_codes:[],access:'unknown',information:'unknown',...values})
  const render=(ai)=>renderToStaticMarkup(React.createElement(Badge,{entry:{ai},detailed:true}))
  const done={state:'done',score:8.5,technical_score:8,business_score:7,reason:'Synthetic historical analysis',tags:[]}
- assert.match(bodyCompletenessLabel(),/完整性未验证/)
+ assert.match(bodyCompletenessLabel(),/正文待核对/)
  assert.match(bodyCompletenessLabel({policy_version:'reader-body-completeness-v1',status:'unverified',structure:'lost'}),/纯文本回退/)
  assert.match(bodyCompletenessLabel({policy_version:'reader-body-completeness-v1',status:'verified',structure:'preserved'}),/已核对原文正文区/)
  const card=renderToStaticMarkup(React.createElement(Badge,{entry:{ai:done},detailed:false}))
- assert.match(card,/正文完整性未验证/)
+ assert.match(card,/正文待核对/)
  for(const state of ['__proto__','constructor','toString','hasOwnProperty','not_a_state']) {
   const html=render({state});assert.match(html,/处理状态待确认/);
   checks.push('prototype/unknown state is safe: '+state)
@@ -76,7 +76,10 @@ try {
  assert.match(text,/提交结果未确认/);assert.doesNotMatch(text,/等待模型配置|等待分析|可重试/)
  checks.push('unknown submission overrides the legacy waiting_model label')
  text=render({state:'ai_error',processing:{claim_held:false,reason_code:'source_review_required',reason_codes:['source_review_required','submission_unknown']}})
- assert.match(text,/AI 分析失败，可重试/);checks.push('unrelated global unknown does not pretend this entry holds a claim')
+ assert.match(text,/AI 分析暂未成功.*自动重试中/);checks.push('unrelated global unknown does not pretend this entry holds a claim')
+ text=render({state:'requires_model_review',attempts:3})
+ assert.match(text,/已尝试 3 次仍失败.*已跳过/);assert.doesNotMatch(text,/自动重试中/)
+ checks.push('three failed model attempts stop automatically instead of advertising another retry')
  text=render({state:'ai_error',error:'可重试',processing:{claim_held:false,reason_code:'unknown',reason_codes:['unknown','ledger_unavailable']}})
  assert.match(text,/处理状态未确认.*等待核实/);assert.doesNotMatch(text,/可重试|AI 分析失败/);checks.push('unavailable claim ledger cannot offer retry or invent a held claim')
  text=render({state:'requires_fulltext_adapter',error:'synthetic',processing:{claim_held:false,reason_code:'rss_summary_only',reason_codes:['rss_summary_only','ledger_unavailable']}})

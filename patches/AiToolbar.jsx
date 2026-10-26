@@ -110,8 +110,8 @@ export default function AiToolbar() {
       </select></label>
     </>}
     {saveStatus && <span role="status">{saveStatus}</span>}
-    {progress && <span className="ai-progress">
-      已分析 {progress.counts.done || 0} / {Object.values(progress.counts).reduce((a,b)=>a+b,0)}
+    {progress && <span className="ai-progress" title="当前仍存在的订阅，包含已读和未读文章；与侧栏未读数口径不同">
+      {progress.counts_scope === 'historical_unverified' ? '历史分析（订阅范围待核实）' : '当前订阅已分析'} {progress.counts.done || 0} / {progress.coverage?.reader_total ?? Object.values(progress.counts).reduce((a,b)=>a+b,0)}
       {" · "}{progress.kaggle?.enabled ? "Kaggle 持续增量处理" : "处理已暂停"}
     </span>}
     {updatesAvailable && <button className="ai-updates" onClick={() => {

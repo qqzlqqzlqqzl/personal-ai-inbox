@@ -19,14 +19,29 @@ export const resolveReadingTimezone = (value) => {
 export const calendarDay = (zone, now = Date.now()) => dayjs(now).tz(zone).format("YYYY-MM-DD")
 
 export const selectedCalendarDay = (value) => {
-  const day = typeof value === "string" ? value : value?.format?.("YYYY-MM-DD")
+  const day = typeof value === "string" ? value.split("|")[0] : value?.format?.("YYYY-MM-DD")
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "") || dayjs.utc(day).format("YYYY-MM-DD") !== day)
     throw new Error("Invalid calendar date")
   return day
 }
 
-export const calendarStart = (day, zone) => dayjs.tz(selectedCalendarDay(day), zone).startOf("day")
-export const calendarEndTimestamp = (day, zone) => dayjs.tz(selectedCalendarDay(day), zone).endOf("day").unix()
+export const calendarSelection = value => {
+  const period = typeof value === "string" ? value.split("|")[1] || "day" : "day"
+  if ((typeof value === "string" && value.split("|").length > 2) || !["day", "week", "month"].includes(period)) throw new Error("Invalid calendar period")
+  return { day: selectedCalendarDay(value), period }
+}
+export const calendarValue = (day, period = "day") => day == null || day === "" ? null
+  : (period === "day" ? selectedCalendarDay(day) : `${selectedCalendarDay(day)}|${period}`)
+export const calendarRange = value => {
+  const { day, period } = calendarSelection(value)
+  const date = dayjs.utc(day)
+  const start = period === "month" ? date.startOf("month")
+    : period === "week" ? date.subtract((date.day() + 6) % 7, "day") : date
+  const end = period === "month" ? start.endOf("month") : period === "week" ? start.add(6, "day") : start
+  return { start: start.format("YYYY-MM-DD"), end: end.format("YYYY-MM-DD"), period }
+}
+export const calendarStart = (day, zone) => dayjs.tz(calendarRange(day).start, zone).startOf("day")
+export const calendarEndTimestamp = (day, zone) => dayjs.tz(calendarRange(day).end, zone).endOf("day").unix()
 
 // Today keeps its existing lower-bound-only contract. Raw >, AI/notes >=.
 // Preserve sub-millisecond membership at the exact seconds boundary.

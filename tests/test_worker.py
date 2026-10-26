@@ -83,6 +83,18 @@ async def test_bad_json_accounts_usage(db, entry, full_html, model_result, monke
 
 
 @pytest.mark.asyncio
+async def test_third_model_failure_stops_automatic_analysis_without_resetting_attempts(db, entry, full_html, model_result, monkeypatch):
+    import time
+    core.discover([entry])
+    core.update(entry['id'], attempts=2)
+    _, after = await execute(entry, full_html, model_result, monkeypatch, "bad_json")
+    assert after['state'] == 'requires_model_review' and after['attempts'] == 3
+    assert core.next_batch(['ai_error', 'requires_model_review'], time.time() + 86400) == []
+    with core.connect() as c:
+        assert c.execute("SELECT actual FROM usage").fetchone()[0] == 123
+
+
+@pytest.mark.asyncio
 async def test_fabricated_evidence_rejected(
     db, entry, full_html, model_result, monkeypatch
 ):
