@@ -54,6 +54,10 @@ class LiveScopeTests(unittest.TestCase):
         with patch('cloud_bridge.resolve_entry_ids', return_value=[1]):
             self.assertEqual({'state': 'retired'}, retire_out_of_scope(control, self.cfg, 'draft'))
         self.assertEqual(1, len(retired))
+        control.row = lambda _: {'state': 'prepared', 'remote_status': None}
+        control.manifest = lambda _: {'operations_only': True, 'items': []}
+        with patch('cloud_bridge.resolve_entry_ids', side_effect=AssertionError('operations are not article subscriptions')):
+            self.assertIsNone(retire_out_of_scope(control, self.cfg, 'operations'))
         for state in ['running', 'submit_unknown', 'quarantined']:
             control.row = lambda _, state=state: {'state': state, 'remote_status': None}
             with patch('cloud_bridge.resolve_entry_ids', side_effect=AssertionError('must not change running work')):
@@ -63,7 +67,7 @@ class LiveScopeTests(unittest.TestCase):
     def test_unavailable_catalog_neither_retires_nor_submits_prepared_work(self):
         from cloud_bridge import retire_out_of_scope
         from types import SimpleNamespace
-        control = SimpleNamespace(row=lambda _: {'state': 'prepared', 'remote_status': None})
+        control = SimpleNamespace(row=lambda _: {'state': 'prepared', 'remote_status': None}, manifest=lambda _: {'items': []})
         with patch('cloud_bridge.resolve_entry_ids', side_effect=RuntimeError('reader unavailable')):
             with self.assertRaises(RuntimeError): retire_out_of_scope(control, self.cfg, 'draft')
     def test_reader_failure_is_not_silently_widened(self):

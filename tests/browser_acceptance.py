@@ -38,7 +38,7 @@ def login(page):
     expect(page.locator("#username_input")).to_have_value("qqzl")
     page.locator("#password_input").fill(password)
     page.get_by_role("button", name="登录", exact=True).click()
-    page.wait_for_url("**/today", timeout=30000)
+    page.wait_for_url("**/all", timeout=30000)
     page.locator(".page-info").wait_for(timeout=45000)
 
 
@@ -100,8 +100,8 @@ with client() as api:
             a.screenshot(path=str(OUT / "login.png"), full_page=True)
             login(a)
             login(b)
-            check("desktop_login_defaults_today", a.url.endswith("/today"))
-            check("mobile_login_defaults_today", b.url.endswith("/today"))
+            check("desktop_login_defaults_all", a.url.endswith("/all"))
+            check("mobile_login_defaults_all", b.url.endswith("/all"))
             a.goto(APP + "/all", wait_until="domcontentloaded")
             b.goto(APP + "/all", wait_until="domcontentloaded")
             a.locator(".grid-card-title,.card-title").first.wait_for(timeout=45000)

@@ -53,8 +53,10 @@ def retire_out_of_scope(control, config, batch, *, admission=None):
     if row['state'] != 'prepared' or row.get('remote_status') is not None:
         return None
     check(admission)
-    allowed = set(resolve_entry_ids(config, **options(admission)))
     manifest = control.manifest(batch)
+    if manifest.get('operations_only') is True:
+        return None
+    allowed = set(resolve_entry_ids(config, **options(admission)))
     entries = {ref['entry_id'] for item in manifest['items'] for ref in item.get('source_refs', [])}
     if entries - allowed:
         check(admission)

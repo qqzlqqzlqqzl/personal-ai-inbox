@@ -58,6 +58,15 @@ try {
     });
     return {total:selected.length,entries:selected.slice(0,Number(q.searchParams.get("limit")))};
   };
+  for (const value of ["2026-10-02|week", "2026-10-02|month"]) {
+    app.setFilterDate(value);
+    await app.getAllEntries("unread", {limit:24});
+    const query = calls.at(-1).searchParams;
+    assert.equal(Number(query.get("published_after")), app.getCalendarStartTimestamp(value));
+    assert.equal(Number(query.get("published_before")), app.getDayEndTimestamp(value));
+    assert.equal(query.get("ai_view"), "recommended");
+  }
+  app.setFilterDate(null);
   for(const browserZone of ["America/Los_Angeles","UTC","Asia/Shanghai"]){
     process.env.TZ=browserZone;
     assert.equal(app.getTimestamp(app.getStartOfToday()),NativeDate.parse("2026-10-01T16:00:00Z")/1000,"same account cutoff in "+browserZone);

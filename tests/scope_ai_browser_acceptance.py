@@ -48,7 +48,7 @@ def login(page):
     page.goto(APP+"/login",wait_until="domcontentloaded")
     page.locator("#password_input").fill(pw)
     page.get_by_role("button",name="登录",exact=True).click()
-    page.wait_for_url("**/today",timeout=30000)
+    page.wait_for_url("**/all",timeout=30000)
     page.locator(".page-info").wait_for(timeout=40000)
 
 with client() as api:
@@ -98,15 +98,15 @@ with client() as api:
                 skipMarkAllReadConfirmation:true,orderBy:'published_at',orderDirection:'desc'
               }))
               localStorage.setItem('ai-view-state',JSON.stringify({
-                mode:'all',auxiliary:'none',minimum:__MINIMUM__,sort:'time',direction:'desc',hydrated:true
+                mode:'recommended',auxiliary:'none',minimum:__MINIMUM__,sort:'time',direction:'desc',hydrated:true
               }))
             }""".replace("__MINIMUM__",str(minimum)))
             page=ctx.new_page()
             page.on("pageerror",lambda e: errors.append(str(e)))
             login(page)
-            expect(page.locator(".page-info")).to_contain_text("今天 · AI精选")
-            ck("today_ai_default",page.url.endswith("/today"))
-            ck("legacy_all_lens_migrated",
+            expect(page.locator(".page-info")).to_contain_text("全部 · AI精选")
+            ck("all_ai_default",page.url.endswith("/all"))
+            ck("saved_recommended_lens_retained",
                page.get_by_role("button",name="AI 精选",exact=True).get_attribute("aria-pressed")=="true")
 
             # Today is a natural local day and keeps AI.
