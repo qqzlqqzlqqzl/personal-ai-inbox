@@ -52,6 +52,10 @@ def retire_out_of_scope(control, config, batch, *, admission=None):
     row = control.row(batch)
     if row['state'] != 'prepared' or row.get('remote_status') is not None:
         return None
+    folder = Path(control.root) / batch
+    if any((folder / name).exists() for name in (
+            'submit-receipt.json', 'submit-receipt.json.pending', 'submit-diagnostic.json')):
+        return None
     check(admission)
     manifest = control.manifest(batch)
     if manifest.get('operations_only') is True:
