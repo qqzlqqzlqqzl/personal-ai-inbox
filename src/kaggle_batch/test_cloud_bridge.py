@@ -110,6 +110,27 @@ class SourceVersionTests(unittest.TestCase):
         self.assertFalse((folder/'backup-complete.json').exists())
         self.assertEqual(b'incomplete',next(folder.glob('incomplete-backup-*.sqlite3')).read_bytes())
 
+    def test_failed_backup_leaves_no_partial_copy(self):
+        import cloud_bridge
+        folder=Path(__file__).parent/'test-runs'/uuid.uuid4().hex
+        folder.mkdir(parents=True)
+        database=folder/'source.sqlite3'
+        db=sqlite3.connect(database)
+        try:
+            db.execute('CREATE TABLE example (value TEXT)')
+            db.commit()
+        finally:
+            db.close()
+        previous=cloud_bridge.BACKUP_DEADLINE_SECONDS
+        cloud_bridge.BACKUP_DEADLINE_SECONDS=-1
+        try:
+            with self.assertRaises(TimeoutError):
+                backup_before_import(database,folder)
+        finally:
+            cloud_bridge.BACKUP_DEADLINE_SECONDS=previous
+        self.assertEqual([],list(folder.glob('backup-*')))
+        self.assertFalse((folder/'before-import.sqlite3').exists())
+
 
 if __name__=='__main__':
     unittest.main()

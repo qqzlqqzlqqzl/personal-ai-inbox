@@ -37,7 +37,9 @@ RECEIPTS = ('submit-receipt.json', 'submit-receipt.json.pending',
             'submit-diagnostic.json', 'quarantine-reviewed.json',
             'download-verified.json', 'verified-results.json')
 RETAIN = 2
-MAX_BYTES = 1024 ** 3
+# Two retained points of a ~450 MB data set no longer fit in 1 GiB, which made
+# every nightly backup refuse with sqlite_exceeds_remaining_budget.
+MAX_BYTES = 4 * 1024 ** 3
 MIN_FREE_BYTES = 1024 ** 3
 TIMEOUT_SECONDS = 600
 PRODUCER = 'personal-ai-inbox.backup/online-v2'

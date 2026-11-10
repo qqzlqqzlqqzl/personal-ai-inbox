@@ -113,6 +113,34 @@ class SnapshotRetentionTests(unittest.TestCase):
         self.assertEqual(0,report['deleted_count'])
         self.assertEqual(report['before_bytes'],report['after_bytes'])
 
+    def orphan(self,folder,name,mtime):
+        folder.mkdir(parents=True,exist_ok=True)
+        path=folder/name
+        path.write_bytes(b'x'*4096)
+        os.utime(path,(mtime,mtime))
+        return path
+
+    def test_prunes_only_stale_interrupted_backup_copies(self):
+        lane=self.lane('primary',[('qwen-inbox-b1','submitted')])
+        now=100000
+        stale=self.orphan(lane/'qwen-inbox-b1','backup-123.partial',now-7*3600)
+        journal=self.orphan(lane/'qwen-inbox-b1','backup-123.partial-journal',now-7*3600)
+        live=self.orphan(lane/'qwen-inbox-b1','backup-456.partial',now-60)
+        kept=self.orphan(lane/'qwen-inbox-b1','incomplete-backup-1.sqlite3',now-7*3600)
+        manifest=self.orphan(lane/'qwen-inbox-b1','manifest.json',now-7*3600)
+        report=prune(self.root,now=now)
+        self.assertFalse(stale.exists());self.assertFalse(journal.exists())
+        self.assertTrue(live.exists());self.assertTrue(kept.exists());self.assertTrue(manifest.exists())
+        self.assertEqual(2,report['orphan_deleted_count'])
+        self.assertGreater(report['orphan_deleted_bytes'],0)
+
+    def test_dry_run_keeps_stale_interrupted_backup_copies(self):
+        lane=self.lane('primary')
+        stale=self.orphan(lane/'qwen-inbox-b1','backup-123.partial',1)
+        report=prune(self.root,now=100000,dry_run=True)
+        self.assertTrue(stale.exists())
+        self.assertEqual(1,report['orphan_deleted_count'])
+
 
 if __name__=='__main__':
     unittest.main(verbosity=2)

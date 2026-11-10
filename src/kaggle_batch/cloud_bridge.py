@@ -95,6 +95,9 @@ def resolve_recovery(control,database,batch,replacements, *,admission=None):
     return {'batch_id':batch,'state':'resolved','coverage':coverage}
 
 
+BACKUP_DEADLINE_SECONDS=300  # 60s was too short for a ~400 MB database on a busy 2 GB host.
+
+
 def backup_before_import(database,folder):
     target=folder/'before-import.sqlite3';receipt=folder/'backup-complete.json'
     if target.exists() and receipt.exists():return
@@ -103,13 +106,21 @@ def backup_before_import(database,folder):
     if target.exists():target.rename(folder/('incomplete-backup-'+str(time.time_ns())+'.sqlite3'))
     temporary=folder/('backup-'+str(os.getpid())+'.partial')
     source=sqlite3.connect(Path(database).resolve().as_uri()+'?mode=ro',uri=True,timeout=15)
-    backup=sqlite3.connect(temporary,timeout=15);deadline=time.monotonic()+60
+    backup=sqlite3.connect(temporary,timeout=15);deadline=time.monotonic()+BACKUP_DEADLINE_SECONDS
     def progress(status,remaining,total):
         if time.monotonic()>deadline:raise TimeoutError('Database backup exceeded deadline')
     try:
-        source.backup(backup,pages=256,progress=progress,sleep=.01)
-        if backup.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('Backup integrity failure')
-    finally:backup.close();source.close()
+        try:
+            source.backup(backup,pages=256,progress=progress,sleep=.01)
+            if backup.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('Backup integrity failure')
+        finally:backup.close();source.close()
+    except BaseException:
+        # A failed or interrupted copy is worthless and as large as the whole
+        # database; every retry used to leak one until the disk filled up.
+        for leftover in (temporary,Path(str(temporary)+'-journal')):
+            try:leftover.unlink()
+            except OSError:pass
+        raise
     os.replace(temporary,target)
     atomic_json(receipt,{'completed':time.time(),'bytes':target.stat().st_size})
 

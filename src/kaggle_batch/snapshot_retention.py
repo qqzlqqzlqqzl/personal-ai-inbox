@@ -17,6 +17,7 @@ ROOT=Path('/home/ubuntu/ai-news')
 CAP_BYTES=5*1024**3
 MIN_HISTORY_PER_LANE=1
 YOUNG_PROTECTION_SECONDS=1800
+ORPHAN_STALE_SECONDS=6*3600
 FINISHED={'imported','retired','resolved'}
 
 try:
@@ -86,6 +87,27 @@ def discover(root=ROOT):
     return snapshots
 
 
+def orphans(root=ROOT,now=None,stale_seconds=ORPHAN_STALE_SECONDS):
+    """Interrupted backup_before_import copies: never published, never reused.
+
+    Each one is as large as the whole analysis database. A new attempt always
+    writes backup-<its own pid>.partial, so an old file has no reader.
+    """
+    root=Path(root);now=time.time() if now is None else float(now)
+    found=[]
+    for lane_root in sorted((root/'state').glob('kaggle-month-*')):
+        if not lane_root.is_dir() or lane_root.is_symlink():
+            continue
+        for pattern in ('*/backup-*.partial','*/backup-*.partial-journal'):
+            for path in lane_root.glob(pattern):
+                if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
+                    continue
+                if now-path.stat().st_mtime<stale_seconds:
+                    continue
+                found.append(path)
+    return found
+
+
 def _delete(item):
     file_path=item['file'];receipt=item['receipt']
     if file_path.is_symlink() or receipt.is_symlink():
@@ -102,6 +124,10 @@ def _delete(item):
 def prune(root=ROOT,cap_bytes=CAP_BYTES,min_history_per_lane=MIN_HISTORY_PER_LANE,
           young_seconds=YOUNG_PROTECTION_SECONDS,now=None,dry_run=False):
     root=Path(root);now=time.time() if now is None else float(now)
+    orphan_bytes=0;orphan_count=0
+    for path in orphans(root,now=now):
+        orphan_bytes+=allocated_bytes(path);orphan_count+=1
+        if not dry_run:path.unlink()
     snapshots=discover(root)
     before=sum(item['bytes'] for item in snapshots)
     lanes=sorted({item['lane'] for item in snapshots})
@@ -139,6 +165,7 @@ def prune(root=ROOT,cap_bytes=CAP_BYTES,min_history_per_lane=MIN_HISTORY_PER_LAN
         'deleted_bytes':sum(x['bytes'] for x in deleted),'deleted_count':len(deleted),
         'snapshot_count_before':len(snapshots),
         'protected_count':sum(1 for x in snapshots if x['protected']),
+        'orphan_deleted_bytes':orphan_bytes,'orphan_deleted_count':orphan_count,
         'lanes':lanes,'dry_run':bool(dry_run),'at':now,
     }
     out=root/'state/kaggle-month-dispatch/snapshot-retention.json'
