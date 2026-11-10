@@ -134,6 +134,25 @@ class SnapshotRetentionTests(unittest.TestCase):
         self.assertEqual(2,report['orphan_deleted_count'])
         self.assertGreater(report['orphan_deleted_bytes'],0)
 
+    def test_prunes_bulky_files_of_old_finished_batches_only(self):
+        lane=self.lane('primary',[('qwen-inbox-old','imported'),('qwen-inbox-new','imported'),
+                                  ('qwen-inbox-live','submitted'),('../escape','imported')])
+        now=30*86400;old=now-8*86400;new=now-3600
+        runner=self.orphan(lane/'qwen-inbox-old','runner.py',old)
+        log=self.orphan(lane/'qwen-inbox-old'/'output','server.log',old)
+        gpu=self.orphan(lane/'qwen-inbox-old'/'output','gpu-memory.jsonl',old)
+        kept=[self.orphan(lane/'qwen-inbox-old',name,old) for name in
+              ('manifest.json','verified-results.json','prepared-code.json')]
+        kept.append(self.orphan(lane/'qwen-inbox-old'/'output','results.jsonl',old))
+        kept.append(self.orphan(lane/'qwen-inbox-new','runner.py',new))
+        kept.append(self.orphan(lane/'qwen-inbox-live','runner.py',old))
+        kept.append(self.orphan(self.root/'state'/'escape','runner.py',old))
+        report=prune(self.root,now=now)
+        for path in (runner,log,gpu):self.assertFalse(path.exists())
+        for path in kept:self.assertTrue(path.exists(),path)
+        self.assertEqual(3,report['artifact_deleted_count'])
+        self.assertGreater(report['artifact_deleted_bytes'],0)
+
     def test_dry_run_keeps_stale_interrupted_backup_copies(self):
         lane=self.lane('primary')
         stale=self.orphan(lane/'qwen-inbox-b1','backup-123.partial',1)
