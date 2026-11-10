@@ -3,7 +3,7 @@ Description=Continue newest recommended Reader article image warming
 
 [Timer]
 OnBootSec=3min
-OnUnitInactiveSec=30s
+OnUnitInactiveSec=5min
 AccuracySec=5s
 Unit=ai-news-reader-covers.service
 
