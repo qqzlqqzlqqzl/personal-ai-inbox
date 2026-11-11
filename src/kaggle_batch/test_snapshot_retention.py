@@ -153,6 +153,32 @@ class SnapshotRetentionTests(unittest.TestCase):
         self.assertEqual(3,report['artifact_deleted_count'])
         self.assertGreater(report['artifact_deleted_bytes'],0)
 
+    def test_burst_of_finished_batches_does_not_pin_young_copies(self):
+        rows=[(f'qwen-inbox-b{i}','resolved') for i in range(4)]+[('qwen-inbox-live','submitted')]
+        lane=self.lane('primary',rows)
+        now=100000
+        imports=[self.snapshot(lane/f'qwen-inbox-b{i}',now-600+i*60) for i in range(4)]
+        extractions=[self.snapshot(lane/f'before-extraction-{i}',now-590+i*60) for i in range(4)]
+        live=self.snapshot(lane/'qwen-inbox-live',now-30)
+        report=prune(self.root,now=now)
+        # One newest historical copy per lane, the newest (possibly live)
+        # extraction copy, and the unfinished batch's copy survive.
+        self.assertTrue(live.exists())
+        self.assertTrue(extractions[-1].exists())
+        survivors=[p for p in imports+extractions[:-1] if p.exists()]
+        self.assertEqual(1,len(survivors))
+        self.assertEqual(6,report['deleted_count'])
+
+    def test_young_copy_of_unfinished_batch_stays_protected(self):
+        lane=self.lane('primary',[('qwen-inbox-a','downloaded'),('qwen-inbox-b','resolved')])
+        now=100000
+        unfinished=self.snapshot(lane/'qwen-inbox-a',now-120)
+        older=self.snapshot(lane/'qwen-inbox-b',now-60)
+        newer=self.snapshot(lane/'before-extraction-1',now-30)
+        prune(self.root,now=now,cap_bytes=1)
+        self.assertTrue(unfinished.exists())
+        self.assertTrue(newer.exists())
+
     def test_dry_run_keeps_stale_interrupted_backup_copies(self):
         lane=self.lane('primary')
         stale=self.orphan(lane/'qwen-inbox-b1','backup-123.partial',1)

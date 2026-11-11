@@ -168,7 +168,24 @@ def prune(root=ROOT,cap_bytes=CAP_BYTES,min_history_per_lane=MIN_HISTORY_PER_LAN
         historical.sort(key=lambda x:x['mtime'],reverse=True)
         for item in historical[:max(0,int(min_history_per_lane))]:
             item['protected']=True;item['reason']='latest_lane_history'
+    newest_extraction={}
     for item in snapshots:
+        if item['kind']=='before_extraction':
+            best=newest_extraction.get(item['lane'])
+            if best is None or item['mtime']>best['mtime']:
+                newest_extraction[item['lane']]=item
+    for item in snapshots:
+        # Young protection exists so a prune never races a copy that a live
+        # extraction or import is about to rely on. A finished batch has no
+        # live import, and a lane extracts serially, so only its newest
+        # extraction copy can be live. Protecting every young copy let a run of
+        # quickly failing batches pile up ~800 MB per batch for 30 minutes.
+        # The lane's newest finished copy keeps its post-import rollback window.
+        if (item['kind']=='before_import' and item['state'] in FINISHED
+                and item['reason']!='latest_lane_history'):
+            continue
+        if item['kind']=='before_extraction' and newest_extraction.get(item['lane']) is not item:
+            continue
         # Young protection also outranks the soft per-lane history minimum.
         if now-item['mtime']<young_seconds and (
                 not item['protected'] or item['reason']=='latest_lane_history'):
