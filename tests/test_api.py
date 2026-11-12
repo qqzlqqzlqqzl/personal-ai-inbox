@@ -491,13 +491,16 @@ async def test_unauthorized_list_never_uses_worker_token(browser_api, monkeypatc
 
     def upstream(req):
         calls.append(req)
-        return httpx.Response(401)
+        # Miniflux serves /healthcheck without authentication.
+        return httpx.Response(200, text="OK") if req.url.path.endswith("/healthcheck") else httpx.Response(401)
 
     await api.app.state.client.aclose()
     api.app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
     response = await browser_api.get("/mf/v1/entries?ai_view=recommended", headers=headers)
     assert response.status_code == 401
-    assert all(r.url.path.endswith("/v1/me") and "x-auth-token" not in r.headers for r in calls)
+    assert all("x-auth-token" not in r.headers for r in calls)
+    assert all(r.url.path.endswith("/v1/me") or (r.url.path.endswith("/healthcheck")
+               and "authorization" not in r.headers) for r in calls)
 
 
 @pytest.mark.asyncio
@@ -668,3 +671,35 @@ async def test_status_optional_native_count_shapes_preserve_resources(
                                    "memory_total_bytes": 102400, "memory_used_bytes": 40960,
                                    "memory_available_bytes": 61440, "analysis_db_bytes": 0}
     assert result["ready"] is True and result["kaggle"] == {"state": "synthetic"}
+
+
+def _miniflux_with_database(healthy):
+    def upstream(req):
+        if req.url.path.endswith("/healthcheck"):
+            return httpx.Response(200, text="OK") if healthy else httpx.Response(500, text="Database Connection Error")
+        if req.url.path.endswith("/v1/me"):
+            # Miniflux answers 401 both for a wrong password and for a failed
+            # password lookup while its database is down.
+            return httpx.Response(401, json={"error_message": "Access Unauthorized"})
+        return httpx.Response(200, json={})
+    return upstream
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/mf/v1/me", "/mf/v1/ai/settings"])
+async def test_database_outage_is_not_reported_as_wrong_password(browser_api, path):
+    await api.app.state.client.aclose()
+    api.app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(_miniflux_with_database(False)))
+    response = await browser_api.get(path, headers={"Authorization": "Basic cXF6bDpjb3JyZWN0"})
+    assert response.status_code == 503
+    body = response.json()
+    message = body.get("error_message") or body.get("detail")
+    assert "不是账号或密码错误" in message
+
+
+@pytest.mark.asyncio
+async def test_wrong_password_with_healthy_database_stays_401(browser_api):
+    await api.app.state.client.aclose()
+    api.app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(_miniflux_with_database(True)))
+    response = await browser_api.get("/mf/v1/me", headers={"Authorization": "Basic cXF6bDp3cm9uZw=="})
+    assert response.status_code == 401
