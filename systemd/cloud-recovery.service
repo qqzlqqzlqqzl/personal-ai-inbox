@@ -1,0 +1,20 @@
+[Unit]
+Description=Bounded cloud health checks, feed retry and unknown-job isolation
+After=ai-news-miniflux.service ai-news-web.service
+StartLimitIntervalSec=300
+StartLimitBurst=2
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/ai-news/runtime/venv/bin/python -B /home/ubuntu/cloud-maintenance/recovery_agent.py --apply
+ExecStopPost=/home/ubuntu/ai-news/runtime/venv/bin/python -B /home/ubuntu/cloud-maintenance/repair_guard.py --recover
+TimeoutStartSec=240
+TimeoutStopSec=65
+KillMode=control-group
+MemoryMax=128M
+CPUQuota=25%
+Nice=10
+UMask=0077
+NoNewPrivileges=true
+LogRateLimitIntervalSec=60s
+LogRateLimitBurst=10

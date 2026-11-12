@@ -1,0 +1,8 @@
+# Upgrade artefacts: binaries, node_modules, database dumps and fixtures (see README)
+/security-20261023/
+# Root-owned leftovers, not readable by the ubuntu user
+/backups/
+*.trace
+__pycache__/
+*.pyc
+*.pending

@@ -1,0 +1,13 @@
+[Unit]
+Description=Recover unfinished bounded Qwen data repairs
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/ai-news/runtime/venv/bin/python -B /home/ubuntu/cloud-maintenance/repair_guard.py --recover
+TimeoutStartSec=60
+MemoryMax=128M
+CPUQuota=25%
+UMask=0077
+NoNewPrivileges=true
+LogRateLimitIntervalSec=60s
+LogRateLimitBurst=5

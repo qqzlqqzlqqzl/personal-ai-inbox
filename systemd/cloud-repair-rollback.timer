@@ -1,0 +1,11 @@
+[Unit]
+Description=Check unfinished repairs independently of the repair process
+
+[Timer]
+OnBootSec=2s
+OnUnitInactiveSec=20s
+AccuracySec=1s
+Unit=cloud-repair-rollback.service
+
+[Install]
+WantedBy=timers.target
