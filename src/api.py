@@ -115,6 +115,24 @@ def auth_headers(request):
     }
 
 
+BACKEND_DOWN_MESSAGE = "阅读后端数据库暂时不可用（不是账号或密码错误），请稍后再试。"
+
+
+async def reader_backend_down():
+    """True when Miniflux cannot reach its database.
+
+    Miniflux reports any failure of its password lookup, including a database
+    in crash recovery, as "Invalid username or password". On 2026-11-03 a full
+    disk kept PostgreSQL restarting and every correct login was rejected as a
+    wrong password. /healthcheck pings the database, so it tells the two apart.
+    """
+    try:
+        r = await app.state.client.get(MF + "/healthcheck", timeout=3)
+    except httpx.HTTPError:
+        return True
+    return r.status_code != 200
+
+
 async def authorize(request, *, admin=False):
     if not auth_headers(request):
         raise HTTPException(401, "请先登录阅读器")
@@ -125,6 +143,8 @@ async def authorize(request, *, admin=False):
     except httpx.HTTPError:
         raise HTTPException(503, "Miniflux 尚未完成连接配置")
     if r.status_code != 200:
+        if await reader_backend_down():
+            raise HTTPException(503, BACKEND_DOWN_MESSAGE)
         raise HTTPException(401, "认证失败")
     identity = r.json()
     if admin and identity.get("is_admin") is not True:
@@ -1590,6 +1610,9 @@ async def proxy(path: str, request: Request):
             headers=headers,
             content=await request.body(),
         )
+        if r.status_code == 401 and await reader_backend_down():
+            return JSONResponse({"error_message": BACKEND_DOWN_MESSAGE}, status_code=503,
+                                headers={"Cache-Control": "no-store", "Retry-After": "30"})
         content = r.content
         content_type = r.headers.get("content-type", "application/octet-stream")
         if original_image:

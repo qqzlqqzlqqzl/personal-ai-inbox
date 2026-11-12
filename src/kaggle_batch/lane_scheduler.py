@@ -125,8 +125,13 @@ def snapshot_lanes(now,states,configs=None):
                           WHERE b.state NOT IN ('imported','retired','resolved','quarantined') AND p.next_try>?""",(now,)).fetchone()[0]
                         local_at=db.execute("SELECT MIN(p.next_try) FROM batch_progress p JOIN batches b ON b.id=p.batch_id WHERE b.state NOT IN ('imported','retired','resolved','quarantined') AND p.next_try>?",(now,)).fetchone()[0]
                         lane['local_retry_at']=local_at or 0
-            lane['ready']=lane['retry_at']<=now and lane['service_state']!='unavailable'
-            if lane['cycle'].get('recovery_required'):
+                        active_job=db.execute("SELECT b.*,COALESCE(p.next_try,0) AS task_retry_at FROM batches b LEFT JOIN batch_progress p ON p.batch_id=b.id WHERE b.state IN ('submitting','submitted','running','submit_unknown') ORDER BY b.updated LIMIT 1").fetchone()
+                        if active_job:
+                            lane['outstanding']=dict(active_job)
+                            lane['task_retry_at']=active_job['task_retry_at']
+            lane['ready']=(lane['retry_at']<=now and lane.get('task_retry_at',0)<=now
+                           and lane['service_state']!='unavailable')
+            if lane['cycle'].get('recovery_required') and lane['outstanding']:
                 lane['ready']=False
             # Only fresh read-only quota permits new work. Recovery stays eligible.
             lane['quota_gate']={'allowed':False,'state':'not_checked_active' if lane['active'] else 'quota_unknown'}

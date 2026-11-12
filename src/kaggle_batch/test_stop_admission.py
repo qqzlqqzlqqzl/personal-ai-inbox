@@ -1,5 +1,6 @@
 """Synthetic stop-policy proofs; all provider/credential/service boundaries mocked."""
 import json
+import time
 from pathlib import Path
 import sqlite3
 import sys
@@ -154,12 +155,14 @@ def test_stop_during_660_poll_sleep_never_advances_or_resets_recovery(tmp_path,m
     rec=c.root/'recovery.json';rec.write_text('{"failures":17,"retry_at":0,"at":0}')
     before=rec.read_bytes();calls=[]
     def call(path,action,*args,**kwargs):
-        calls.append(action);assert action=='prepare';return {'existing_batch':key}
+        calls.append(action)
+        if action=='prepare':return {'existing_batch':key}
+        assert action=='advance';return {'state':'running'}
     sleeps=[]
     def sleep(seconds):sleeps.append(seconds);change(path,schedule_enabled=False)
     result=cloud_cycle.drain(path,cfg,c,call=call,sleep=sleep,clock=lambda:0,
                             authorize=ConfigGuard(path,cfg))
-    assert result['state']=='schedule_disabled' and calls==['prepare']
+    assert result['state']=='schedule_disabled' and calls==['prepare','advance']
     assert sleeps==[660] and rec.read_bytes()==before
     assert claimed_entries([c.root])=={1} and c.row(key)['state']=='running'
 
@@ -241,7 +244,7 @@ def test_manual_unknown_not_found_never_retires_or_creates_absence_proof(tmp_pat
 
 def test_manual_cooldown_is_preserved_before_credentials_and_controller(tmp_path,monkeypatch,capsys):
     c,key=batch(tmp_path/'own',1,'running');path,cfg=config_file(tmp_path,c.root,False)
-    rec=c.root/'recovery.json';rec.write_text('{"failures":17,"retry_at":99999999999,"at":0}')
+    rec=c.root/'recovery.json';rec.write_text(json.dumps({'failures':17,'retry_at':time.time()+3600,'at':time.time()}))
     before=rec.read_bytes();forbidden=no_commands(monkeypatch)
     constructor=Mock(side_effect=AssertionError('no Controller during cooldown'))
     monkeypatch.setattr('batch_control.Controller',constructor)

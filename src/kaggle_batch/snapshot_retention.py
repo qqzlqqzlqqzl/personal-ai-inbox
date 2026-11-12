@@ -17,6 +17,9 @@ ROOT=Path('/home/ubuntu/ai-news')
 CAP_BYTES=5*1024**3
 MIN_HISTORY_PER_LANE=1
 YOUNG_PROTECTION_SECONDS=1800
+ORPHAN_STALE_SECONDS=6*3600
+BATCH_ARTIFACT_AGE_SECONDS=7*86400
+BATCH_ARTIFACTS=('runner.py','output/server.log','output/gpu-memory.jsonl')
 FINISHED={'imported','retired','resolved'}
 
 try:
@@ -86,6 +89,56 @@ def discover(root=ROOT):
     return snapshots
 
 
+def orphans(root=ROOT,now=None,stale_seconds=ORPHAN_STALE_SECONDS):
+    """Interrupted backup_before_import copies: never published, never reused.
+
+    Each one is as large as the whole analysis database. A new attempt always
+    writes backup-<its own pid>.partial, so an old file has no reader.
+    """
+    root=Path(root);now=time.time() if now is None else float(now)
+    found=[]
+    for lane_root in sorted((root/'state').glob('kaggle-month-*')):
+        if not lane_root.is_dir() or lane_root.is_symlink():
+            continue
+        for pattern in ('*/backup-*.partial','*/backup-*.partial-journal'):
+            for path in lane_root.glob(pattern):
+                if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
+                    continue
+                if now-path.stat().st_mtime<stale_seconds:
+                    continue
+                found.append(path)
+    return found
+
+
+def prune_batch_artifacts(root=ROOT,now=None,age_seconds=BATCH_ARTIFACT_AGE_SECONDS,dry_run=False):
+    """Drop bulky, never-reread files of long-finished batches.
+
+    runner.py is only hashed right before submit, and the two output logs are
+    diagnostics downloaded from the remote run. The manifest, receipts and
+    results that recovery and audits read are kept.
+    """
+    root=Path(root);now=time.time() if now is None else float(now)
+    count=0;freed=0
+    for lane_root in sorted((root/'state').glob('kaggle-month-*')):
+        if not lane_root.is_dir() or lane_root.is_symlink():
+            continue
+        for batch,state in _batch_states(lane_root).items():
+            if state not in FINISHED or not str(batch).startswith('qwen-inbox-') or '/' in str(batch):
+                continue
+            folder=lane_root/batch
+            if folder.is_symlink() or not folder.is_dir():
+                continue
+            for name in BATCH_ARTIFACTS:
+                path=folder/name
+                if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
+                    continue
+                if now-path.stat().st_mtime<age_seconds:
+                    continue
+                freed+=allocated_bytes(path);count+=1
+                if not dry_run:path.unlink()
+    return {'artifact_deleted_bytes':freed,'artifact_deleted_count':count}
+
+
 def _delete(item):
     file_path=item['file'];receipt=item['receipt']
     if file_path.is_symlink() or receipt.is_symlink():
@@ -102,6 +155,11 @@ def _delete(item):
 def prune(root=ROOT,cap_bytes=CAP_BYTES,min_history_per_lane=MIN_HISTORY_PER_LANE,
           young_seconds=YOUNG_PROTECTION_SECONDS,now=None,dry_run=False):
     root=Path(root);now=time.time() if now is None else float(now)
+    orphan_bytes=0;orphan_count=0
+    for path in orphans(root,now=now):
+        orphan_bytes+=allocated_bytes(path);orphan_count+=1
+        if not dry_run:path.unlink()
+    artifacts=prune_batch_artifacts(root,now=now,dry_run=dry_run)
     snapshots=discover(root)
     before=sum(item['bytes'] for item in snapshots)
     lanes=sorted({item['lane'] for item in snapshots})
@@ -110,7 +168,24 @@ def prune(root=ROOT,cap_bytes=CAP_BYTES,min_history_per_lane=MIN_HISTORY_PER_LAN
         historical.sort(key=lambda x:x['mtime'],reverse=True)
         for item in historical[:max(0,int(min_history_per_lane))]:
             item['protected']=True;item['reason']='latest_lane_history'
+    newest_extraction={}
     for item in snapshots:
+        if item['kind']=='before_extraction':
+            best=newest_extraction.get(item['lane'])
+            if best is None or item['mtime']>best['mtime']:
+                newest_extraction[item['lane']]=item
+    for item in snapshots:
+        # Young protection exists so a prune never races a copy that a live
+        # extraction or import is about to rely on. A finished batch has no
+        # live import, and a lane extracts serially, so only its newest
+        # extraction copy can be live. Protecting every young copy let a run of
+        # quickly failing batches pile up ~800 MB per batch for 30 minutes.
+        # The lane's newest finished copy keeps its post-import rollback window.
+        if (item['kind']=='before_import' and item['state'] in FINISHED
+                and item['reason']!='latest_lane_history'):
+            continue
+        if item['kind']=='before_extraction' and newest_extraction.get(item['lane']) is not item:
+            continue
         # Young protection also outranks the soft per-lane history minimum.
         if now-item['mtime']<young_seconds and (
                 not item['protected'] or item['reason']=='latest_lane_history'):
@@ -139,6 +214,8 @@ def prune(root=ROOT,cap_bytes=CAP_BYTES,min_history_per_lane=MIN_HISTORY_PER_LAN
         'deleted_bytes':sum(x['bytes'] for x in deleted),'deleted_count':len(deleted),
         'snapshot_count_before':len(snapshots),
         'protected_count':sum(1 for x in snapshots if x['protected']),
+        'orphan_deleted_bytes':orphan_bytes,'orphan_deleted_count':orphan_count,
+        **artifacts,
         'lanes':lanes,'dry_run':bool(dry_run),'at':now,
     }
     out=root/'state/kaggle-month-dispatch/snapshot-retention.json'

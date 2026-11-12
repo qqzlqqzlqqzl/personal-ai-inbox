@@ -50,9 +50,9 @@ def events(tmp_path):
 
 
 @pytest.mark.parametrize('status,category,code,cooldown', [
-    (401,'authentication_rejected','authentication',86400),
-    (403,'http_forbidden','inaccessible',86400),
-    (404,'http_not_found','inaccessible',86400),
+    (401,'authentication_rejected','authentication',3600),
+    (403,'http_forbidden','inaccessible',660),
+    (404,'http_not_found','not_found',660),
     (429,'rate_limited','rate_limited',660),
     (503,'http_5xx','provider_unavailable',660)])
 def test_cases_01_to_05_recognized_wrappers(tmp_path,monkeypatch,status,category,code,cooldown):
@@ -65,7 +65,7 @@ def test_cases_01_to_05_recognized_wrappers(tmp_path,monkeypatch,status,category
 
 
 @pytest.mark.parametrize('text,legacy', [('arbitrary rejection','provider_unavailable'),
-    ('article 404 account private','inaccessible')])
+    ('article 404 account private','provider_unavailable')])
 def test_cases_05_06_unknown_and_incidental_numbers(tmp_path,monkeypatch,text,legacy):
     c=controller(tmp_path);assert invoke(c,monkeypatch,text).code==legacy
     d=events(tmp_path)[0]['diagnostic']
@@ -144,7 +144,7 @@ def test_case_13_two_attempts_two_events_failed_proof_preserves_job(tmp_path,mon
     def run(argv,**kwargs):
         calls.append(argv[3:]);return SimpleNamespace(returncode=1,stdout='',stderr=wrapper(404))
     monkeypatch.setattr(batch_control.subprocess,'run',run)
-    with pytest.raises(ProviderError,match='^inaccessible$'):c.status(key)
+    with pytest.raises(ProviderError,match='^not_found$'):c.status(key)
     assert [a[:2] for a in calls]==[['kernels','status'],['kernels','list']]
     assert [e['diagnostic']['operation'] for e in events(tmp_path)]==['kernels.status','kernels.list']
     assert c.row(key)['state']=='submit_unknown' and claimed_entries([c.root])=={1}
@@ -175,9 +175,8 @@ def test_case_14_real_bridge_sink_wiring_and_defer_path(tmp_path,monkeypatch,cap
     monkeypatch.setattr(sys,'argv',['cloud_bridge','--config',str(path),'advance','--batch',key])
     cloud_bridge.main()
     result=json.loads(capsys.readouterr().out)
-    assert result['state']=='local_retry_scheduled' and result['gpu_resubmitted'] is False
-    assert run.call_count==1 and len(events(tmp_path))==1
-    assert events(tmp_path)[0]['event']=='provider_call_failure'
+    assert result['state']=='task_retry_scheduled' and result['scope']=='task' and result['gpu_resubmitted'] is False
+    assert run.call_count==1 and [e['event'] for e in events(tmp_path)]==['provider_call_failure','task_failure_observed']
 
 
 def test_case_15_quota_failure_stays_fail_closed(tmp_path,monkeypatch):
@@ -191,7 +190,7 @@ def test_case_15_quota_failure_stays_fail_closed(tmp_path,monkeypatch):
 @pytest.mark.parametrize('observer',[Mock(side_effect=OSError('private disk full')),lambda d:False])
 def test_case_16_sink_failure_does_not_change_failure(tmp_path,monkeypatch,observer):
     c=controller(tmp_path,observer);error=invoke(c,monkeypatch,wrapper(404))
-    assert error.code=='inaccessible' and c.last_diagnostic_retained is False
+    assert error.code=='not_found' and c.last_diagnostic_retained is False
     assert events(tmp_path)==[]
 
 

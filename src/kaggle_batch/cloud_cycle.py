@@ -43,8 +43,23 @@ def bridge(config_path,*args,timeout,expected_config_sha256=None):
                 all(type(v) in (int,float) and math.isfinite(v) and v>=0 for v in (retry,at))):
                 error.retry_record={'code':'local_state','failures':failures,'retry_at':retry,'at':at}
             raise error
-        raise ProviderError(data['recovery_error'])
+        raise ProviderError(data['recovery_error'],operation=data.get('operation','unknown'))
     return data
+
+
+def observation_poll_delay(control, batch):
+    """Only an operator-armed, hash-bound probe polls once/minute; normal jobs stay slow."""
+    try:
+        snapshot=control.manifest(batch).get('operations_review',{})
+        age=time.time()-snapshot.get('created_at',0)
+        if snapshot.get('version')==2 and 0<=age<=7200 and any(
+            (i.get('target')=='ops_canary' and i.get('allowed_actions')==['restore_logrotate_config'] or snapshot.get('protocol_revision')==4 and i.get('target','').startswith('case_') and i.get('allowed_actions') in (['repair_production_case'],['inspect_production_case']))
+            and isinstance(i.get('precondition',{}).get('state_sha256'),str)
+            for i in snapshot.get('incidents',[])):
+            return 60
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):
+        pass
+    return 660
 
 
 def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, clock=time.monotonic, *, authorize=None, recovery_batch=None):
@@ -77,6 +92,10 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
             from dispatch_policy import readonly_reconcile
             return readonly_reconcile(config)
         else:
+            from task_recovery import active_retry
+            occupied=active_retry(control)
+            if occupied:
+                return report('task_retry_scheduled',scope='task',**occupied)
             prepared=invoke('prepare','--limit',str(config['batch_limit']),
                           timeout=max(1,min(7200,int(deadline-clock()))))
         if prepared.get('state') in DispatchStopped.STATES:
@@ -97,7 +116,7 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
             if config.get('drain_queue') and retry_at:
                 report('waiting_for_retry',next_retry_at=retry_at)
                 if retry_at-time.time()<deadline-clock():
-                    sleep(min(660,max(0,deadline-clock())))
+                    sleep(min(660,max(1,retry_at-time.time()),max(0,deadline-clock())))
                     continue
                 return report('retry_after_cycle_window',next_retry_at=retry_at)
             return report('no_progress' if prepared.get('considered') else 'empty',gpu_started=False)
@@ -111,7 +130,8 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
             return report('quarantined',batch_id=batch)
         if resume_state in {'submitted','running'}:
             report('resuming',batch_id=batch)
-            sleep(min(660,max(0,deadline-clock())))
+            # Reconcile once now: the remote may have finished while we were away.
+            # Normal running polls remain spaced at the bottom of the loop.
         elif resume_state!='prepared':
             report('reconciling',batch_id=batch,previous_state=resume_state)
         while clock()<deadline:
@@ -128,6 +148,14 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
                 return report(outcome['quota_gate']['state'],batch_id=batch,
                               quota_gate=outcome['quota_gate'],gpu_started=False)
             report('processing',batch_id=batch,outcome=outcome)
+            if outcome.get('state')=='task_retry_scheduled':
+                if control.row(batch)['remote_status'] in {'COMPLETE','ERROR','CANCELLED','CANCELED'} and config.get('drain_queue'):
+                    report('batch_deferred',scope='task',batch_id=batch,retry_at=outcome['retry_at'])
+                    break
+                return report('task_retry_scheduled',scope='task',batch_id=batch,retry_at=outcome['retry_at'],code=outcome.get('code'))
+            from task_recovery import success as task_success
+            if outcome.get('state')!='local_retry_scheduled':
+                task_success(control,batch)
             if outcome.get('state')=='local_retry_scheduled':
                 if not config.get('drain_queue'):
                     return report('local_retry_scheduled',batch_id=batch,retry_at=outcome['retry_at'])
@@ -142,7 +170,7 @@ def drain_once(config_path, config, control, call=bridge, sleep=time.sleep, cloc
                 state not in ('imported','already_imported','existing_result_preserved')
                 for state in outcome.get('import_states',{})):
                 raise RuntimeError('Batch requires selective recovery')
-            sleep(min(660,max(0,deadline-clock())))
+            sleep(min(observation_poll_delay(control,batch),max(0,deadline-clock())))
         else:
             return report('observation_timeout',batch_id=batch)
         if recovery_batch or not config.get('drain_queue'):
@@ -182,7 +210,7 @@ def drain(config_path,config,control,call=bridge,sleep=time.sleep,clock=time.mon
         try:
             report=drain_once(config_path,{**config,'cycle_timeout_seconds':int(deadline-clock())},control,call,sleep,clock,authorize=authorize,recovery_batch=recovery_batch)
             authorize()
-            if report.get('state')=='quarantined':
+            if report.get('state') in {'quarantined','task_retry_scheduled'}:
                 return report  # Parking an unknown attempt is not successful recovery.
             atomic_json(recovery,{'failures':0,'retry_at':0,'at':time.time()})
             return report

@@ -8,12 +8,17 @@ controller, which retains uncertain claims until repeated evidence agrees.
 """
 import math
 
+MAX_RETRY_SECONDS = 3600
+ACCOUNT_ERRORS = frozenset({'authentication','auth','quota','capacity','rate_limit','rate_limited'})
+
 
 class ProviderError(RuntimeError):
     CODES = frozenset({'network', 'inaccessible', 'not_found', 'authentication', 'rate_limited', 'provider_unavailable','quota','capacity','rate_limit','auth','integrity','unknown','empty_output','protocol','local_state','upstream_validation'})
 
-    def __init__(self, code):
+    def __init__(self, code, *, operation='unknown'):
         self.code = code if code in self.CODES else 'provider_unavailable'
+        self.operation = operation if operation in {'kernels.status','kernels.output','kernels.push','kernels.list','quota'} else 'unknown'
+        self.scope = 'account' if self.code in ACCOUNT_ERRORS or self.operation == 'quota' else 'task'
         super().__init__(self.code)
 
 
@@ -29,23 +34,40 @@ def effective_retry_at(recovery):
         raise ValueError('invalid_retry_at') from None
     if not math.isfinite(value) or value < 0:
         raise ValueError('invalid_retry_at')
+    anchor = recovery.get('at')
+    if anchor is not None:
+        if type(anchor) not in (int,float) or not math.isfinite(anchor) or anchor < 0:
+            raise ValueError('invalid_recovery_at')
+        value = min(value, anchor + MAX_RETRY_SECONDS)
     return value
 
 
-def classify_failure(text):
+def classify_failure(text, *, operation='unknown'):
     """Inspect locally but return only a fixed code; never expose raw CLI output."""
     import re
 
-    lower = text.lower()
-    if re.search(r'\b401\b|unauthorized|unauthenticated|invalid credentials', lower):
-        return ProviderError('authentication')
-    if re.search(r'\b(?:403|404)\b|forbidden|not found|inaccessible', lower):
-        return ProviderError('inaccessible')
-    if re.search(r'\b429\b|too many requests|rate limit', lower):
-        return ProviderError('rate_limited')
+    # URL paths/query strings are not error evidence (e.g. example.invalid?token).
+    lower = re.sub(r'https?://\S+','[url]',str(text or '')[:65536].lower())
+    statuses = set(re.findall(r'(?:^|\n)(?:[\w.]*httperror:\s*)?([45]\d\d)\s+(?:client error|server error|not found|forbidden|unauthorized|too many requests|service unavailable)',lower))
+    status = next(iter(statuses)) if len(statuses)==1 else None
+    def error(code):return ProviderError(code,operation=operation)
+    if len(statuses)>1:
+        return error('protocol')
+    if status=='401' or re.search(r'unauthorized|unauthenticated|invalid credentials|invalid\s+(?:api\s+)?token', lower):
+        return error('authentication')
+    if status=='429' or re.search(r'too many requests|rate limit', lower):
+        return error('rate_limited')
+    if re.search(r'(gpu|accelerator).*?(quota|hours|allowance).*?(exceed|exhaust|insufficient|limit|reached)|quota.*?(exceed|exhaust)',lower):
+        return error('quota')
+    if re.search(r'no.*?(gpu|accelerator).*?available|accelerator.*?unavailable|too many.*?(session|kernel)',lower):
+        return error('capacity')
+    if status=='404' or re.search(r'kernel.*not found|could not find kernel',lower):
+        return error('not_found')
+    if status=='403' or re.search(r'forbidden|inaccessible|cannot access kernel|kernels\.get.*denied',lower):
+        return error('auth' if operation in {'kernels.push','quota'} else 'inaccessible')
     if any(value in lower for value in ('timeout', 'timed out', 'connection', 'network', 'name resolution')):
-        return ProviderError('network')
-    return ProviderError('provider_unavailable')
+        return error('network')
+    return error('provider_unavailable')
 
 def safe_summary(text,limit=1200):
     """Return a bounded diagnostic safe enough for private audit logs."""
@@ -84,13 +106,10 @@ def exception_code(exc):
     return 'unknown'
 
 def backoff(code,failures):
-    if code=='quota':return 6*3600
-    if code=='rate_limited':code='rate_limit'
-    if code in ('auth','authentication','inaccessible','integrity'):return 24*3600
-    # Transient and unclassified failures must not silently park a lane for six
-    # hours. The 11-minute watchdog will keep the campaign alive while bounded
-    # exponential backoff protects Kaggle from tight retry loops.
-    return min(3600,660*2**min(max(failures-1,0),3))
+    if code in {'auth','authentication','quota','capacity','integrity'}:
+        return MAX_RETRY_SECONDS
+    # Task observations are retried, never submitted again, with a bounded delay.
+    return min(MAX_RETRY_SECONDS,660*2**min(max(failures-1,0),3))
 
 def record_failure(root,code,audit,owner,now=None):
     try:from .batch_control import atomic_json
@@ -103,9 +122,12 @@ def record_failure(root,code,audit,owner,now=None):
     if not isinstance(previous,dict):previous={}
     prior=previous.get('failures',0)
     if type(prior) is not int or prior<0:prior=0
-    failures=prior+1 if previous.get('code')==code else 1
+    scope='account' if code in ACCOUNT_ERRORS else 'lane_infrastructure'
+    # A legacy task's 111 errors are not 111 failures of a new account operation.
+    failures=prior+1 if previous.get('code')==code and previous.get('scope')==scope else 1
     now=time.time() if now is None else now
-    value={'code':code,'failures':failures,'retry_at':now+backoff(code,failures),'at':now}
-    audit.append('infrastructure_backoff',owner=owner,**value)
+    value={'code':code,'failures':failures,'retry_at':now+backoff(code,failures),'at':now,
+           'scope':scope,'policy_version':2}
+    audit.append('infrastructure_backoff',owner=owner,previous_failures=prior,**value)
     atomic_json(path,value)
     return value

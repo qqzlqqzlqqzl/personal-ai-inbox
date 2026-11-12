@@ -64,7 +64,7 @@ RULES = {
     'karpathy.github.io': ('article.post-content', '', False),
     'lilianweng.github.io': ('article.post-single .post-content', '.toc', False),
     'blog.python.org': ('article.prose', 'aside,nav', False),
-    'www.nidec.com': ('section#main', '.bottom-local,.local-nav', False),
+    'www.nidec.com': ('section#main, main:not(:has(section#main))', '.bottom-local,.local-nav', False),
     'analogdevicesinc.github.io': ('div#top-anchor.bodywrapper div.body', '.sphinxsidebar,.related', False),
     'embeddedartistry.com': ('@reader:generic', '', False),
     'www.technologyreview.com': ('@reader:generic', '', False),

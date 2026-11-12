@@ -20,6 +20,7 @@ import time
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
 import httpx
+from runtime_resilience import source_retry
 from bs4 import BeautifulSoup
 
 ROOT = Path(os.environ.get("AI_NEWS_ROOT", "/home/ubuntu/ai-news"))
@@ -106,7 +107,9 @@ def allowed_url(cfg: dict, value: str) -> str | None:
     part, origin = urlsplit(url), urlsplit(cfg['origin'])
     if (part.scheme, part.netloc) != (origin.scheme, origin.netloc) or part.username:
         return None
-    if not part.path.startswith(cfg['prefix']) or part.path == cfg['prefix']:
+    legacy_path = part.path.startswith(cfg['prefix']) and part.path != cfg['prefix']
+    current_path = bool(cfg.get('article_path_pattern') and re.fullmatch(cfg['article_path_pattern'], part.path))
+    if not (legacy_path or current_path):
         return None
     if cfg['key'] == 'kickstarter' and not re.fullmatch(r'/brands/kickstarter/[a-z0-9-]+', part.path):
         return None
@@ -202,6 +205,23 @@ def newsletter_rows(cfg: dict, text: str, state: dict, fetch) -> list[dict]:
     return rows
 
 
+def legacy_article_aliases(cfg: dict, rows: list[dict], state: dict) -> dict:
+    """Keep legacy RSS GUIDs when an official site moves the same article."""
+    seen = dict(state['seen'])
+    if not cfg.get('deduplicate_legacy_articles'):
+        return seen
+    def identity(row):
+        title = re.sub(r'^\[[^\]]*\]', '', row['title']).strip()
+        slug = urlsplit(row['url']).path.rstrip('/').rsplit('/', 1)[-1]
+        return slug, title
+    previous = {identity(row): row for row in state['entries']}
+    for row in rows:
+        old = previous.get(identity(row))
+        if old and old['url'] != row['url']:
+            seen[row['url']] = seen.get(old['url'], old.get('discovered') or iso())
+    return seen
+
+
 def refresh(key: str, *, force=False, fetch=fetch_text, now=None) -> dict:
     cfg = config(key)
     now = time.time() if now is None else now
@@ -213,7 +233,7 @@ def refresh(key: str, *, force=False, fetch=fetch_text, now=None) -> dict:
             try:
                 text = fetch(cfg.get('fetch_url', cfg['url']))
                 rows = newsletter_rows(cfg, text, state, fetch) if cfg.get('kind') == 'newsletter' else parse_list(cfg, text)
-                pending, seen = [], dict(state['seen'])
+                pending, seen = [], legacy_article_aliases(cfg, rows, state)
                 for i, row in enumerate(rows):
                     if row['url'] in seen:
                         continue
@@ -225,12 +245,14 @@ def refresh(key: str, *, force=False, fetch=fetch_text, now=None) -> dict:
                     pending.reverse()
                 state.update(entries=(pending + state['entries'])[:200], seen=seen, seeded=True,
                              checkedAt=iso(now), last_success_at=now, last_attempt_at=now,
-                             next_run_at=now + INTERVAL, last_error=None, last_added=len(pending))
+                             next_run_at=now + INTERVAL, last_error=None, last_added=len(pending), consecutive_failures=0)
                 save(key, state)
                 return {'key': key, 'state': 'ok', 'found': len(rows), 'added': len(pending), 'stored': len(state['entries'])}
             except Exception as exc:
-                state.update(last_attempt_at=now, next_run_at=now + RETRY, last_error={'type': type(exc).__name__, 'at': now,
-                             'http_status': exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None})
+                failures = min(100, int(state.get('consecutive_failures', 0)) + 1)
+                retry = source_retry(exc, failures, now)
+                state.update(last_attempt_at=now, next_run_at=now + retry['delay'], consecutive_failures=failures,
+                             last_error={'type': type(exc).__name__, 'at': now, **retry})
                 save(key, state)
                 return {'key': key, 'state': 'error', 'error_type': type(exc).__name__, 'retained': len(state['entries'])}
     except BlockingIOError:

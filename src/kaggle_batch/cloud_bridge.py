@@ -95,6 +95,9 @@ def resolve_recovery(control,database,batch,replacements, *,admission=None):
     return {'batch_id':batch,'state':'resolved','coverage':coverage}
 
 
+BACKUP_DEADLINE_SECONDS=300  # 60s was too short for a ~400 MB database on a busy 2 GB host.
+
+
 def backup_before_import(database,folder):
     target=folder/'before-import.sqlite3';receipt=folder/'backup-complete.json'
     if target.exists() and receipt.exists():return
@@ -103,13 +106,21 @@ def backup_before_import(database,folder):
     if target.exists():target.rename(folder/('incomplete-backup-'+str(time.time_ns())+'.sqlite3'))
     temporary=folder/('backup-'+str(os.getpid())+'.partial')
     source=sqlite3.connect(Path(database).resolve().as_uri()+'?mode=ro',uri=True,timeout=15)
-    backup=sqlite3.connect(temporary,timeout=15);deadline=time.monotonic()+60
+    backup=sqlite3.connect(temporary,timeout=15);deadline=time.monotonic()+BACKUP_DEADLINE_SECONDS
     def progress(status,remaining,total):
         if time.monotonic()>deadline:raise TimeoutError('Database backup exceeded deadline')
     try:
-        source.backup(backup,pages=256,progress=progress,sleep=.01)
-        if backup.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('Backup integrity failure')
-    finally:backup.close();source.close()
+        try:
+            source.backup(backup,pages=256,progress=progress,sleep=.01)
+            if backup.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('Backup integrity failure')
+        finally:backup.close();source.close()
+    except BaseException:
+        # A failed or interrupted copy is worthless and as large as the whole
+        # database; every retry used to leak one until the disk filled up.
+        for leftover in (temporary,Path(str(temporary)+'-journal')):
+            try:leftover.unlink()
+            except OSError:pass
+        raise
     os.replace(temporary,target)
     atomic_json(receipt,{'completed':time.time(),'bytes':target.stat().st_size})
 
@@ -482,6 +493,10 @@ def main():
             print(json.dumps(resolve_recovery(control,config['database'],args.batch,args.replacement,admission=guard)))
             return
         if args.action=='prepare':
+            from task_recovery import active_retry
+            occupied=active_retry(control)
+            if occupied:
+                print(json.dumps({'state':'task_retry_scheduled','scope':'task','existing_batch':occupied['batch_id'],**occupied,'gpu_started':False}));return
             outstanding=control.next_pending()
             if outstanding:
                 print(json.dumps({'existing_batch':outstanding}))
@@ -520,6 +535,8 @@ def main():
             atexit.register(release_leases)
             # Lease insertion and candidate selection use one SQLite transaction.
             # Retain the per-account cycle lock; release only cross-account lock.
+            from ops_review import operator_probe_limit
+            args.limit=operator_probe_limit(args.limit,root)
             sample=asyncio.run(prepare_sample(config['source'],args.limit,claimed,allowed,config.get('analysis_only',False),config.get('independent_cards',False),lease_owner=lease_owner,on_claimed=lambda:fcntl.flock(lock,fcntl.LOCK_UN),admission=guard))
             fcntl.flock(lock,fcntl.LOCK_EX)
             guard()
@@ -558,6 +575,8 @@ def main():
             if generation:manifest['infrastructure_retry_generation']=generation
             guard()
             claimed_entries(roots)
+            from ops_review import attach_operations
+            manifest=attach_operations(manifest,root)
             try:
                 batch=control.prepare(manifest,Path(__file__).with_name('batch_runner.py').read_text(encoding='utf-8'))
             except RetiredManifest as exc:
@@ -580,6 +599,10 @@ def main():
         if row['state'] in {'imported','resolved','retired','quarantined'}:
             print(json.dumps(row))
             return
+        from task_recovery import pending as pending_task
+        waiting=pending_task(control,args.batch)
+        if waiting:
+            print(json.dumps(waiting));return
         if row['state']=='prepared':
             if recovery_only:raise DispatchStopped('manual_recovery_cannot_submit')
             guard()
@@ -604,10 +627,25 @@ def main():
             raise
         except Exception as exc:
             from recovery_policy import exception_code
-            print(json.dumps(control.defer_local(args.batch,exception_code(exc))))
+            if config.get('exception_audit_root'):
+                from task_recovery import recover as recover_task
+                from exception_audit import Audit
+                result=recover_task(control,args.batch,exc,Audit(config['exception_audit_root']))
+            else:
+                result=control.defer_local(args.batch,exception_code(exc))
+            print(json.dumps(result))
             return
         infrastructure_ids=set(evidence['missing_ids']) | {row['id'] for row in evidence['results'] if row.get('status')=='error' and row.get('error') in {'TimeoutError','ReadTimeout','ConnectTimeout','ConnectionError','RuntimeError','Batch deadline reached'}}
         manifest=control.manifest(args.batch)
+        if manifest.get('operations_only') is True:
+            from ops_review import verify_operations_campaign
+            if row['remote_status']!='COMPLETE':raise ValueError('operations_campaign_incomplete')
+            verified=verify_operations_campaign(manifest,evidence,root/args.batch/'output',time.time())
+            guard()
+            atomic_json(root/args.batch/'operations-import.json',verified)
+            control._set(args.batch,'imported')
+            print(json.dumps({'batch_id':args.batch,'state':'imported','import_states':{},**verified}))
+            return
         if not evidence['results'] and manifest['items'] and not config.get('exception_audit_root'):
             raise RuntimeError('Batch produced no results; inspect runtime before starting more GPU jobs')
         business={**manifest,'items':[item for item in manifest['items'] if item.get('kind')!='exception']}
@@ -699,17 +737,23 @@ def handle_failure(exc):
         try:check(guard)
         except DispatchStopped as stopped:return stopped.report()
         return block_with_backoff(cfg.get('state_root'),exc)
-    local_recovery=None
-    if context.get('action')=='advance' and context.get('batch') and cfg.get('state_root'):
+    from task_recovery import recover as recover_task, failure_scope
+    if (context.get('action') in {'advance','recover'} and context.get('batch')
+            and cfg.get('state_root') and cfg.get('exception_audit_root') and failure_scope(exc)=='task'):
         try:
-            guard=ConfigGuard(context['config_path'],cfg)
-            guard()
-            control=Controller(cfg['state_root'],cfg['owner'],kaggle_python=cfg['kaggle_python'],admission=guard)
-            row=control.row(context['batch'])
-            if row['remote_status'] in TERMINAL and row['state'] not in {'imported','resolved','retired'}:
-                local_recovery=control.defer_local(context['batch'],code)
-        except Exception:pass
-    return local_recovery or {'recovery_error':code,'error_type':type(exc).__name__}
+            check(guard)
+            control=Controller(cfg['state_root'],cfg['owner'],kaggle_python=cfg['kaggle_python'],
+                required_roots=required_roots(cfg),admission=guard,
+                recovery_batch=context['batch'] if context.get('action')=='recover' else None)
+            return recover_task(control,context['batch'],exc,Audit(cfg['exception_audit_root']))
+        except DispatchStopped as stopped:return stopped.report()
+        except Exception as recovery_error:
+            # Preserve the original operation and all claims; fail closed on
+            # a broken ledger, audit sink or immutable manifest.
+            return {'recovery_error':'local_state','error_type':type(recovery_error).__name__,
+                    'scope':'lane_infrastructure','operation':'task_recovery_guard'}
+    return {'recovery_error':code,'error_type':type(exc).__name__,
+            'scope':failure_scope(exc),'operation':getattr(exc,'operation','unknown')}
 
 
 if __name__=='__main__':

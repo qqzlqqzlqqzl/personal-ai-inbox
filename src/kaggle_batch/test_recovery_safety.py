@@ -39,7 +39,7 @@ def test_retry_metadata_is_fail_closed(record):
     assert effective_retry_at({'retry_at':1234})==1234
 
 
-@pytest.mark.parametrize('message,code',[('404 Not Found https://token.example/secret','inaccessible'),
+@pytest.mark.parametrize('message,code',[('404 Not Found https://token.example/secret','not_found'),
     ('401 invalid credentials secret','authentication'),('403 forbidden secret','inaccessible'),
     ('429 too many requests secret','rate_limited'),('Connection timed out secret','network'),('secret','provider_unavailable')])
 def test_error_classification_never_returns_provider_secrets(message,code):
@@ -50,7 +50,7 @@ def test_error_classification_never_returns_provider_secrets(message,code):
 
 def test_cli_failures_are_typed_without_raw_output(uncertain):
     c,_batch,_calls,_manifest=uncertain
-    with patch('batch_control.subprocess.run',return_value=SimpleNamespace(returncode=1,stdout='secret-token',stderr='404 Not Found')), pytest.raises(ProviderError,match='^inaccessible$'):
+    with patch('batch_control.subprocess.run',return_value=SimpleNamespace(returncode=1,stdout='secret-token',stderr='404 Not Found')), pytest.raises(ProviderError,match='^not_found$'):
         c._cli(['kernels','status','owner/id'],20)
     with patch('batch_control.subprocess.run',side_effect=subprocess.TimeoutExpired('secret-command',20)), pytest.raises(ProviderError,match='^network$'):
         c._cli(['kernels','status','owner/id'],20)

@@ -27,7 +27,7 @@ def content_text(html):
 def _safe_image_url(src, base_url=None):
     from urllib.parse import urljoin
 
-    src = str(src or "").strip()
+    src = str(src or "").strip().lstrip("\ufffc ").strip()
     if not src or src.startswith(("data:", "blob:")):
         return None
     if src.startswith("/mf/proxy/"):
@@ -130,6 +130,14 @@ def select_cover_from_page(raw_html, final_url, title="", prefer_social=False):
     return None, None
 
 
+def _verified_raster_prefix(raw):
+    """Recognize raster signatures only; never treat HTML or SVG as binary images."""
+    return (len(raw) >= 24 and raw.startswith(b"\x89PNG\r\n\x1a\n") and raw[12:16] == b"IHDR"
+            or len(raw) >= 10 and raw[:6] in (b"GIF87a", b"GIF89a")
+            or len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP"
+            or len(raw) >= 4 and raw[:3] == b"\xff\xd8\xff")
+
+
 async def _discover_original_cover(entry_url, title="", strict=False, *,admission=None):
     """Fetch the article page and choose its hero image; OG/Twitter is fallback."""
     check(admission)
@@ -173,8 +181,18 @@ async def _discover_original_cover(entry_url, title="", strict=False, *,admissio
                 seen.add(cover)
                 try:
                     async with external.stream("GET", cover, timeout=6) as image:
-                        if image.status_code == 200 and image.headers.get("content-type", "").lower().startswith("image/"):
-                            return cover, source
+                        if image.status_code == 200:
+                            mime = image.headers.get("content-type", "").lower().split(";", 1)[0].strip()
+                            if mime.startswith("image/"):
+                                return cover, source
+                            if mime in ("", "application/octet-stream", "binary/octet-stream"):
+                                prefix = b""
+                                async for chunk in image.aiter_bytes():
+                                    prefix += chunk[:max(0, 32-len(prefix))]
+                                    if len(prefix) >= 32:
+                                        break
+                                if _verified_raster_prefix(prefix):
+                                    return cover, source
                 except httpx.HTTPError:
                     continue
             if strict:

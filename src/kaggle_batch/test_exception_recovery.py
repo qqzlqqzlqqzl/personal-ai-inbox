@@ -34,7 +34,7 @@ class RecoveryTests(unittest.TestCase):
             ('proxy connection timed out token=secret','network')]:
             self.assertEqual(expected,classify(text))
         self.assertGreaterEqual(backoff('network',1),660)
-        self.assertEqual(21600,backoff('quota',1))
+        self.assertEqual(3600,backoff('quota',1))
         self.assertLessEqual(backoff('network',100),21600)
 
     def test_safe_summary_keeps_diagnostic_but_removes_credentials_and_url_query(self):
@@ -44,7 +44,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_persisted_cooldown_is_preserved_by_strict_policy(self):
         record={'code':'unknown','failures':9,'at':1000,'retry_at':1000+6*3600}
-        self.assertEqual(22600,effective_retry_at(record))
+        self.assertEqual(4600,effective_retry_at(record))
 
     def test_rejected_and_confirmed_missing_releases_claim_but_timeout_does_not(self):
         for code,retired in [('quota',False),('network',False)]:

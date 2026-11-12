@@ -100,6 +100,20 @@ def _manifest_claims(root, batch, expected):
     items = value.get('items')
     if not isinstance(items, list) or not items:
         raise ValueError
+    if value.get('operations_only') is True:
+        from ops_review import ops_valid_snapshot, ops_hash
+        snapshot=value.get('operations_review',{})
+        ops_valid_snapshot(snapshot,snapshot.get('created_at',-1))
+        if (snapshot.get('protocol_revision')!=4 or len(items)!=1
+                or len(snapshot['incidents'])!=10
+                or len({i['target'] for i in snapshot['incidents']})!=10
+                or any(not re.fullmatch(r'case_[0-9]{1,6}',i['target']) or
+                       i['allowed_actions'] not in (['repair_production_case'],['inspect_production_case'])
+                       for i in snapshot['incidents'])
+                or items[0].get('kind')!='operations_campaign' or items[0].get('source_refs')!=[]
+                or not items[0].get('messages') or items[0].get('input_hash')!=ops_hash(snapshot)):
+            raise ValueError
+        return set()  # Legitimate operations work has no article claims.
     claims = set()
     item_ids = set()
     for item in items:

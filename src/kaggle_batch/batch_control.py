@@ -251,7 +251,8 @@ class Controller:
         if result.returncode:
             output = str(result.stderr or '') + '\n' + str(result.stdout or '')
             self._observe_cli_failure(args, output=output)
-            raise classify_failure(output) from None
+            operation = '.'.join(args[:2]) if len(args)>1 and args[0]=='kernels' else ('quota' if args and args[0]=='quota' else 'unknown')
+            raise classify_failure(output,operation=operation) from None
         return result.stdout
 
     def _observe_cli_failure(self, args, **fields):
@@ -708,7 +709,7 @@ class Controller:
                         resume_of=batch_id,attempt=int(original.get('attempt',1))+1)
         return self.prepare(manifest,template)
 
-    def quarantine_unknown(self, batch_id, expected, reason, review_reference):
+    def quarantine_unknown(self, batch_id, expected, reason, review_reference, *, require_no_receipt=False):
         if (not isinstance(expected, dict) or set(ROW_FIELDS) - expected.keys()
                 or expected.get('id') != batch_id or expected.get('state') != 'submit_unknown'
                 or expected.get('remote_status') is not None
@@ -722,13 +723,17 @@ class Controller:
         # and absence retirement; re-read the snapshot only after taking it.
         with (self.root/batch_id/'absence.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            return self._quarantine_unknown_locked(batch_id, expected, reason, review_reference)
+            return self._quarantine_unknown_locked(batch_id, expected, reason, review_reference, require_no_receipt=require_no_receipt)
 
-    def _quarantine_unknown_locked(self, batch_id, expected, reason, review_reference):
+    def _quarantine_unknown_locked(self, batch_id, expected, reason, review_reference, *, require_no_receipt=False):
         try:
             self.manifest(batch_id)  # Existing immutable manifest hash must still verify.
         except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
             raise ProviderError('unknown') from None
+        if require_no_receipt and (expected['error'] in RECEIPT_ERRORS or any(
+                (self.root/batch_id/name).exists() or (self.root/batch_id/name).is_symlink()
+                for name in ('submit-receipt.json','submit-receipt.json.pending'))):
+            raise ProviderError('unknown')
         path = self.root/batch_id/'quarantine-reviewed.json'
         if path.is_symlink() or path.with_suffix('.json.pending').is_symlink() or path.with_suffix('.json.pending').exists():raise ProviderError('unknown')
         with self.db() as db:

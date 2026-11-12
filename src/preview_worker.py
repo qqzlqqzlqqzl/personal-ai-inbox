@@ -25,8 +25,8 @@ def is_product_entry(url):
 
 
 def pending_previews(now, limit=12, feed_id=None):
-    where = ["state <> 'removed'", "(preview_checked_at IS NULL OR (preview_error IS NOT NULL AND preview_checked_at <= ?))"]
-    values = [now - RETRY_SECONDS]
+    where = ["state <> 'removed'", "(preview_checked_at IS NULL OR (preview_error IS NOT NULL AND preview_checked_at <= ? - CASE WHEN preview_error LIKE '% HTTP 401' OR preview_error LIKE '% HTTP 403' OR preview_error LIKE '% HTTP 404' OR preview_error LIKE '% HTTP 410' THEN 604800 ELSE 21600 END))"]
+    values = [now]
     if feed_id is not None:
         where.append("feed_id=?")
         values.append(feed_id)
