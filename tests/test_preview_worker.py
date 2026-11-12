@@ -56,8 +56,29 @@ async def test_preview_failure_cooldown_does_not_change_ai_state(db, entry, monk
     assert report["failed"] == 1
     assert saved["preview_error"] == "RuntimeError"
     assert (saved["state"], saved["attempts"], saved["next_try"]) == ("ai_error", 3, 1234)
-    assert preview_worker.pending_previews(saved["preview_checked_at"] + 21599) == []
-    assert len(preview_worker.pending_previews(saved["preview_checked_at"] + 21600)) == 1
+    # A fresh article keeps the 6-hour retry.
+    checked = saved["preview_checked_at"]
+    set_published(entry["id"], checked)
+    assert preview_worker.pending_previews(checked + 21599) == []
+    assert len(preview_worker.pending_previews(checked + 21600)) == 1
+
+
+def set_published(entry_id, when):
+    with core.connect() as c:
+        c.execute("UPDATE analyses SET published_at=? WHERE entry_id=?",
+                  (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(when)), entry_id))
+
+
+def test_old_article_without_preview_retries_weekly(db, entry):
+    core.discover([entry])
+    checked = 1_800_000_000
+    set_published(entry["id"], checked - 3 * 86400)
+    core.update(entry["id"], preview_checked_at=checked, preview_error="NoPreview")
+    assert preview_worker.pending_previews(checked + 6 * 3600) == []
+    assert preview_worker.pending_previews(checked + 7 * 86400 - 1) == []
+    assert len(preview_worker.pending_previews(checked + 7 * 86400)) == 1
+    set_published(entry["id"], checked - 3600)
+    assert len(preview_worker.pending_previews(checked + 6 * 3600)) == 1
 
 
 @pytest.mark.asyncio

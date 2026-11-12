@@ -24,9 +24,17 @@ def is_product_entry(url):
     return parsed.hostname in {"producthunt.com", "www.producthunt.com"} and parsed.path.startswith("/products/")
 
 
+FRESH_SECONDS = 2 * 86400
+SLOW_RETRY_SECONDS = 7 * 86400
+
+
 def pending_previews(now, limit=12, feed_id=None):
-    where = ["state <> 'removed'", "(preview_checked_at IS NULL OR (preview_error IS NOT NULL AND preview_checked_at <= ? - CASE WHEN preview_error LIKE '% HTTP 401' OR preview_error LIKE '% HTTP 403' OR preview_error LIKE '% HTTP 404' OR preview_error LIKE '% HTTP 410' THEN 604800 ELSE 21600 END))"]
-    values = [now]
+    # Pages of fresh articles sometimes gain an og:image later, so they keep
+    # the 6-hour retry. Older articles were retried every 6 hours forever:
+    # ~800 of them produced ~3,200 fruitless fetches a day inside the web
+    # process. They now retry weekly, like permanent HTTP refusals.
+    where = ["state <> 'removed'", "(preview_checked_at IS NULL OR (preview_error IS NOT NULL AND preview_checked_at <= ? - CASE WHEN preview_error LIKE '% HTTP 401' OR preview_error LIKE '% HTTP 403' OR preview_error LIKE '% HTTP 404' OR preview_error LIKE '% HTTP 410' OR published_at < strftime('%Y-%m-%dT%H:%M:%SZ', ?, 'unixepoch') THEN " + str(SLOW_RETRY_SECONDS) + " ELSE " + str(RETRY_SECONDS) + " END))"]
+    values = [now, now - FRESH_SECONDS]
     if feed_id is not None:
         where.append("feed_id=?")
         values.append(feed_id)
