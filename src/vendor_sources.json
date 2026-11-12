@@ -106,19 +106,26 @@
     "key": "ti",
     "name": "TI 德州仪器技术与制造案例",
     "origin": "https://www.ti.com",
-    "url": "https://www.ti.com/bin/ti/newsroom?page=1&lang=en-us&categories=newsroom:blog/category/technology-and-innovation,newsroom:blog/category/manufacturing&years=none&type=blog",
-    "site": "https://www.ti.com/about-ti/behind-chip/articles.html",
+    "url": "https://www.ti.com/sitemap-cms-other-en-standard.xml",
+    "site": "https://www.ti.com/en-us/about-ti/behind-chip/articles",
     "prefix": "/about-ti/behind-chip/articles/",
-    "json": true,
     "workflow_id": "vendorDynamicti",
-    "fetch_url": "https://www.ti.com/bin/ti/newsroom?page=1&lang=en-us&categories=newsroom:blog/category/technology-and-innovation,newsroom:blog/category/manufacturing&years=none&type=blog",
+    "fetch_url": "https://www.ti.com/sitemap-cms-other-en-standard.xml",
     "legacy_path": "vendor-ti",
     "http_headers": {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36",
       "Accept-Language": "en-US,en;q=0.9",
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     },
-    "timeout_seconds": 30.0
+    "timeout_seconds": 30.0,
+    "kind": "sitemap",
+    "article_path_pattern": "/en-us/about-ti/behind-chip/articles/[a-z0-9-]+",
+    "article_sections": [
+      "Technology",
+      "Manufacturing"
+    ],
+    "max_age_days": 45,
+    "article_fetch_limit": 8
   },
   {
     "key": "renesas",

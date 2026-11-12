@@ -14,7 +14,6 @@ FIXTURES = {
  'nxp': '<h3><a dataname="Landing Page Blogs - Recent Articles Section" href="/company/about-nxp/smarter-world-blog/test">Article</a></h3>',
  'quectel': '<a class="group" href="/blog/test"><span class="text-lg">Article</span><span class="ml-auto"><p>2026-09-30</p></span></a>',
  'nidec': '<section><a href="/cn/technology/casestudy/test">Article</a></section>',
- 'ti': json.dumps([{'total':1},{'headline':'Article','path':'/about-ti/behind-chip/articles/test','date':'2026-09-30'}]),
  'renesas': '<h3 class="blog-post-title"><a href="/en/blogs/test">Article</a></h3>',
  'adi': '<a class="reference internal" href="eval-cn1234-ebz/">Article</a>',
  'microchip': '### Article\n\n[Learn More](https://www.microchip.com/en-us/tools-resources/reference-designs/test)',
@@ -168,7 +167,7 @@ def test_invalid_state_is_not_overwritten_and_other_sources_continue():
     result=v.refresh('nxp',force=True,fetch=Mock(side_effect=AssertionError()))
     assert result['state']=='error' and result['state_preserved']
     assert path.read_text()=='{broken JSON'
-    assert v.refresh('ti',force=True,fetch=lambda _:FIXTURES['ti'])['state']=='ok'
+    assert v.refresh('quectel',force=True,fetch=lambda _:FIXTURES['quectel'])['state']=='ok'
 
 
 def test_status_route_precedes_reader_catchall():
@@ -208,3 +207,70 @@ def test_cutover_put_only_changes_url_and_proxy():
 def test_corrupt_article_is_503_not_empty_feed():
     value=seed();value['entries'][0]['discovered']='not-a-date';v.save('nxp',value)
     assert client().get('/internal/vendor-feeds/nxp.xml').status_code==503
+
+
+TI_BASE = 'https://www.ti.com/en-us/about-ti/behind-chip/articles/'
+TI_NOW = 1794400000  # 2026-11-11
+
+
+def ti_sitemap(*slugs):
+    locs = ''.join(f'<url><loc>{TI_BASE}{s}</loc></url>' for s in slugs)
+    other = '<url><loc>https://www.ti.com/en-us/about-ti/newsroom</loc></url><url><loc>https://evil.example/x</loc></url>'
+    return f'<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{locs}{other}</urlset>'
+
+
+def ti_article(title, date, section):
+    ld = json.dumps({'@context': 'https://schema.org', '@type': 'Article', 'headline': title,
+                     'datePublished': date, 'articleSection': section})
+    org = json.dumps({'@type': 'Organization', 'name': 'Texas Instruments'})
+    return f'<html><script type="application/ld+json">{org}</script><script type="application/ld+json">{ld}</script></html>'
+
+
+def ti_fetch(pages, calls):
+    def fetch(url):
+        calls.append(url)
+        return pages[url]
+    return fetch
+
+
+def test_ti_sitemap_filters_section_age_and_legacy_duplicates():
+    legacy = 'https://www.ti.com/about-ti/behind-chip/articles/Already-Read.html'
+    v.save('ti', {'entries': [{'url': legacy, 'title': 'Old', 'published': None, 'discovered': '2026-09-24T00:00:00.000Z'}],
+                  'seen': {legacy: '2026-09-24T00:00:00.000Z'}, 'seeded': True})
+    cfg = v.CONFIGS['ti']
+    pages = {cfg['fetch_url']: ti_sitemap('fresh-tech', 'fresh-life', 'old-tech', 'already-read', 'no-metadata'),
+             TI_BASE + 'fresh-tech': ti_article('Fresh tech', '2026-11-01', 'Technology'),
+             TI_BASE + 'fresh-life': ti_article('Fresh life', '2026-11-01', 'Life at TI'),
+             TI_BASE + 'old-tech': ti_article('Old tech', '2023-04-04', 'Technology'),
+             TI_BASE + 'no-metadata': '<html>no json-ld</html>'}
+    calls = []
+    report = v.refresh('ti', force=True, fetch=ti_fetch(pages, calls), now=TI_NOW)
+    assert report['state'] == 'ok' and report['added'] == 1
+    state = v.load('ti')
+    assert state['entries'][0]['url'] == TI_BASE + 'fresh-tech'
+    assert state['entries'][0]['title'] == 'Fresh tech' and state['entries'][0]['published'].startswith('2026-11-01')
+    assert TI_BASE + 'already-read' not in calls  # legacy alias needs no page fetch
+    assert all(TI_BASE + s in state['seen'] for s in ('fresh-life', 'old-tech', 'already-read', 'no-metadata'))
+    calls.clear()
+    assert v.refresh('ti', force=True, fetch=ti_fetch(pages, calls), now=TI_NOW + 1)['added'] == 0
+    assert calls == [cfg['fetch_url']]  # nothing re-fetched once classified
+
+
+def test_ti_sitemap_article_fetches_are_bounded_per_run():
+    v.save('ti', {'entries': [], 'seen': {}, 'seeded': True})
+    cfg = v.CONFIGS['ti']
+    slugs = [f'a{i}' for i in range(cfg['article_fetch_limit'] + 3)]
+    pages = {cfg['fetch_url']: ti_sitemap(*slugs), **{TI_BASE + s: ti_article(s, '2026-11-01', 'Manufacturing') for s in slugs}}
+    calls = []
+    assert v.refresh('ti', force=True, fetch=ti_fetch(pages, calls), now=TI_NOW)['added'] == cfg['article_fetch_limit']
+    assert len(calls) == 1 + cfg['article_fetch_limit']
+    assert v.refresh('ti', force=True, fetch=ti_fetch(pages, calls), now=TI_NOW + 1)['added'] == 3
+
+
+def test_ti_sitemap_failure_keeps_previous_feed():
+    seed('ti')
+    before = copy.deepcopy(v.load('ti'))
+    report = v.refresh('ti', force=True, fetch=lambda _: '<html>redirected home page</html>', now=TI_NOW)
+    after = v.load('ti')
+    assert report['state'] == 'error'
+    assert after['entries'] == before['entries'] and after['seen'] == before['seen']

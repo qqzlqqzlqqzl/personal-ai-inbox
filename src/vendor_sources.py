@@ -205,6 +205,79 @@ def newsletter_rows(cfg: dict, text: str, state: dict, fetch) -> list[dict]:
     return rows
 
 
+ARTICLE_TYPES = {'Article', 'BlogPosting', 'NewsArticle', 'TechArticle'}
+
+
+def article_metadata(page: str) -> dict | None:
+    """Title, date and section from the page's schema.org Article JSON-LD."""
+    for match in re.finditer(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', page, re.S):
+        try:
+            data = json.loads(match.group(1))
+        except ValueError:
+            continue
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict) and item.get('@type') in ARTICLE_TYPES:
+                title = re.sub(r'\s+', ' ', str(item.get('headline') or item.get('name') or '')).strip()
+                if title:
+                    return {'title': title, 'published': parsed_date(item.get('datePublished')),
+                            'section': str(item.get('articleSection') or '').strip()}
+    return None
+
+
+def sitemap_rows(cfg: dict, text: str, state: dict, fetch, now: float) -> list[dict]:
+    """Official sitemap + per-article JSON-LD, for sites that dropped their list API and RSS.
+
+    TI moved to a Next.js site in 2026: the old /bin/ti/newsroom JSON endpoint now
+    redirects to the home page and its advertised RSS links redirect to HTML. The
+    sitemap (published in robots.txt) still lists every article. Each unknown
+    article page is fetched once (bounded per run) and its section/date cached, so
+    the same section filter as the old API applies and old archive pages are not
+    replayed into the inbox as new.
+    """
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        raise ValueError('invalid sitemap; previous feed retained') from None
+    pattern = cfg['article_path_pattern']
+    links = []
+    for node in root.iter():
+        if node.tag.rsplit('}', 1)[-1] == 'loc' and node.text:
+            url = allowed_url(cfg, node.text.strip())
+            if url and re.fullmatch(pattern, urlsplit(url).path):
+                links.append(url)
+    links = list(dict.fromkeys(links))
+    if not links:
+        raise ValueError('no sitemap articles; previous feed retained')
+    # Old URLs kept the authors' capitalisation (".../when-AI-generates-...-Zephyr-RTOS-....html");
+    # the redesigned site lower-cases every slug.
+    slug = lambda u: urlsplit(u).path.rstrip('/').rsplit('/', 1)[-1].removesuffix('.html').lower()
+    legacy = {slug(u) for u in state['seen']}
+    meta = {u: m for u, m in state.get('article_meta', {}).items() if u in links}
+    sections = set(cfg.get('article_sections') or [])
+    cutoff = now - float(cfg.get('max_age_days', 45)) * 86400
+    budget = int(cfg.get('article_fetch_limit', 8))
+    rows = []
+    for url in links:
+        if url in state['seen']:
+            continue
+        if slug(url) in legacy:
+            # Same article under the pre-redesign URL: already delivered once.
+            rows.append({'url': url, 'title': slug(url), 'published': None, 'selected': False})
+            continue
+        if url not in meta:
+            if budget <= 0:
+                continue  # Left unseen; classified on a later run.
+            budget -= 1
+            meta[url] = article_metadata(fetch(url)) or {'invalid': True}
+        info = meta[url]
+        published = info.get('published')
+        selected = bool(not info.get('invalid') and published and (not sections or info.get('section') in sections)
+                        and datetime.fromisoformat(published.replace('Z', '+00:00')).timestamp() >= cutoff)
+        rows.append({'url': url, 'title': info.get('title') or slug(url), 'published': published, 'selected': selected})
+    state['article_meta'] = meta
+    return rows
+
+
 def legacy_article_aliases(cfg: dict, rows: list[dict], state: dict) -> dict:
     """Keep legacy RSS GUIDs when an official site moves the same article."""
     seen = dict(state['seen'])
@@ -232,7 +305,12 @@ def refresh(key: str, *, force=False, fetch=fetch_text, now=None) -> dict:
                 return {'key': key, 'state': 'not_due'}
             try:
                 text = fetch(cfg.get('fetch_url', cfg['url']))
-                rows = newsletter_rows(cfg, text, state, fetch) if cfg.get('kind') == 'newsletter' else parse_list(cfg, text)
+                if cfg.get('kind') == 'newsletter':
+                    rows = newsletter_rows(cfg, text, state, fetch)
+                elif cfg.get('kind') == 'sitemap':
+                    rows = sitemap_rows(cfg, text, state, fetch, now)
+                else:
+                    rows = parse_list(cfg, text)
                 pending, seen = [], legacy_article_aliases(cfg, rows, state)
                 for i, row in enumerate(rows):
                     if row['url'] in seen:
