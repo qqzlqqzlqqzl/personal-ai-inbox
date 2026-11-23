@@ -218,6 +218,7 @@ const SearchAndSortBar = ({ fullWidth = false }) => {
   const sortOptions = aiList
     ? [
         ...(recommendedList ? [
+          ["fresh_desc", "综合：新鲜优先"],
           ["score_desc", "推荐分：高到低"], ["score_asc", "推荐分：低到高"],
           ["technical_desc", "技术价值：高到低"], ["technical_asc", "技术价值：低到高"],
           ["business_desc", "商业启发：高到低"], ["business_asc", "商业启发：低到高"],

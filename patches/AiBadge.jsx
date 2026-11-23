@@ -47,6 +47,12 @@ export function qualityLabels(quality) {
   return result
 }
 
+const CARD_ROUTINE_QUALITY = new Set([
+  "内容资格待核实",
+  "正文待核对 · 打开后自动检查",
+  "已核对原文正文区 · 保留原文结构",
+])
+
 export function bodyCompletenessLabel(body) {
   if (!body || body.policy_version !== 'reader-body-completeness-v1') return '正文待核对 · 打开后自动检查'
   if (body.status === 'verified' && body.structure === 'preserved')
@@ -99,7 +105,11 @@ export default function AiBadge({ entry, detailed = false }) {
   const sourcePolicyLabel = sourcePolicy(ai)
   const note = ai?.has_note ? <span className="ai-note-chip">📝 有笔记</span> : null
   const quality = qualityLabels(ai?.content_quality)
-  const qualityNote = <p className="ai-content-quality">{[...quality, bodyCompletenessLabel(ai?.body_completeness)].join("；")}</p>
+  const qualityParts = [...quality, bodyCompletenessLabel(ai?.body_completeness)]
+  // Cards only surface problems; routine "not yet checked" / "verified" states
+  // stay in the article detail view instead of repeating on every card.
+  const visibleQuality = detailed ? qualityParts : qualityParts.filter((label) => !CARD_ROUTINE_QUALITY.has(label))
+  const qualityNote = visibleQuality.length ? <p className="ai-content-quality">{visibleQuality.join("；")}</p> : null
   if (!ai || ai.state !== "done") {return <div className="ai-pending" title={waitRequired ? "" : sourcePolicyLabel || ai?.error || ""}>{note}{waitRequired ? (claimHeld ? "提交结果未确认 · 等待核实" : "处理状态未确认 · 等待核实") : sourcePolicyLabel || (Object.hasOwn(labels, ai?.state || "pending") ? labels[ai?.state || "pending"] : "处理状态待确认")}{qualityNote}<Processing processing={ai?.processing} />{detailed && ai?.error && !waitRequired && <p>处理详情：{sourcePolicyLabel || ai.error}</p>}</div>}
   const excluded = ai.content_quality?.policy_version === "reader-content-quality-v1" && ai.content_quality.recommendation_eligible === false
   return <div className={detailed ? "ai-verdict ai-verdict-detail" : "ai-verdict"}>

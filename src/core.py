@@ -448,7 +448,7 @@ def status_summary(user_id, feed_ids=None):
             c.execute(
                 """SELECT COUNT(*) AS total_articles,
                           COALESCE(SUM(CASE WHEN state='done' THEN 1 ELSE 0 END),0) AS ai_done,
-                          COALESCE(SUM(CASE WHEN source_text IS NOT NULL AND length(trim(source_text))>=120 THEN 1 ELSE 0 END),0) AS source_text_ready,
+                          COALESCE(SUM(CASE WHEN source_chars>=120 THEN 1 ELSE 0 END),0) AS source_text_ready,
                           COALESCE(SUM(CASE WHEN source_chars>=800 THEN 1 ELSE 0 END),0) AS substantial_source_text,
                           COALESCE(SUM(CASE WHEN state IN ('fetch_error','requires_fulltext_adapter','requires_model_review','requires_source_review','insufficient_content') THEN 1 ELSE 0 END),0) AS needs_attention
                    FROM analyses WHERE user_id=?""" + scope,

@@ -239,8 +239,10 @@ async def ai_status(request: Request):
     uid = await authorize(request, admin=True)
     from month_control import status as month_status
     campaign = await asyncio.to_thread(month_status)
-    summary = status_summary(uid)
-    reader_total = summary["coverage"].get("total_articles", 0)
+    # status_summary scans the analysis database; never run it on the event
+    # loop (it stalls every other inbox request) and only run it once.
+    summary = None
+    reader_total = 0
     native_total_known = False
     source_count = 0
     current_feed_ids = None
@@ -269,8 +271,10 @@ async def ai_status(request: Request):
         pass
     if current_feed_ids is not None:
         summary = await reader_work.run(status_summary, uid, feed_ids=current_feed_ids)
-        if not native_total_known:
-            reader_total = summary['coverage'].get('total_articles', 0)
+    else:
+        summary = await reader_work.run(status_summary, uid)
+    if not native_total_known:
+        reader_total = summary['coverage'].get('total_articles', 0)
     summary['counts_scope'] = 'current_subscriptions' if current_feed_ids is not None else 'historical_unverified'
     summary["coverage"] = {
         **summary["coverage"],
@@ -691,6 +695,14 @@ async def legacy_note_entries(request, uid, allowed_ids, upstream_headers, *, fe
     return {"total": total, "entries": result}
 
 
+def _fresh_order_sql():
+    from datetime import datetime, timedelta, timezone
+    local = datetime.now(timezone(timedelta(hours=8)))
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    anchor = start.timestamp() / 86400 + 2440587.5
+    return f"(score - 0.15*MAX(0, {anchor:.6f} - COALESCE(julianday(published_at), {anchor:.6f})))"
+
+
 async def ai_analysis_candidates(p, uid, minimum):
     has_note = p.get("has_note")
     where = ["user_id=?"]
@@ -761,7 +773,7 @@ async def ai_analysis_candidates(p, uid, minimum):
         sort_key = "note_updated"
     else:
         sort_key = sort_key or "score"
-    allowed_sorts = {"score", "technical", "business", "time"}
+    allowed_sorts = {"score", "technical", "business", "time", "fresh"}
     if p.get("ai_view") == "notes" or has_note == "true":
         allowed_sorts.add("note_updated")
     if sort_key not in allowed_sorts:
@@ -771,6 +783,9 @@ async def ai_analysis_candidates(p, uid, minimum):
         "technical": "technical_score",
         "business": "business_score",
         "time": "julianday(published_at)",
+        # Freshness-weighted score: -0.15 per day of age, anchored to the start of the
+        # current Asia/Shanghai day so the ranking (and ai_revision) is stable all day.
+        "fresh": _fresh_order_sql(),
         "note_updated": """COALESCE((SELECT n.updated_at FROM entry_notes n
                    WHERE n.entry_id=analyses.entry_id AND n.user_id=analyses.user_id),0)""",
     }[sort_key]
@@ -900,9 +915,11 @@ async def ai_entries(request, uid, *, feed_id=None, category_id=None, _quality_r
             by_id = {row['entry_id']: row for row in candidates}
             ranking = [[eid, *[by_id[eid][key] for key in
                        ('ai_order_value', 'score', 'technical_score', 'business_score')]] for eid in ids]
+            # ai_min may be omitted until the client has loaded settings; hash the
+            # effective threshold so omitted and explicit equal values match.
             query = sorted((key, value) for key, value in p.multi_items()
-                           if key not in {'offset', 'limit', 'ai_revision'})
-            payload = json.dumps([uid, feed_id, category_id, query, ranking], separators=(',', ':'), allow_nan=False)
+                           if key not in {'offset', 'limit', 'ai_revision', 'ai_min'})
+            payload = json.dumps([uid, feed_id, category_id, query, float(minimum), ranking], separators=(',', ':'), allow_nan=False)
             return hashlib.sha256(payload.encode()).hexdigest()
         revision = await reader_work.run(result_revision)
         if expected_revision != 'initial' and expected_revision != revision:

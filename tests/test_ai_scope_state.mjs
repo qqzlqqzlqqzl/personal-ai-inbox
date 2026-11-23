@@ -35,8 +35,13 @@ const load = (saved) => {
   assert.equal(aiFilterEnabled(), false)
   aiState.setKey("mode", "recommended")
   assert.deepEqual(getAiQuery(), {
-    ai_view:"recommended", ai_min:6, ai_sort:"score", direction:"asc", limit:24,
+    ai_view:"recommended", ai_sort:"score", direction:"asc", limit:24,
   })
+  // Explicit ai_min only once settings are known and the user's value differs.
+  aiState.set({ ...aiState.get(), hydrated:true, serverMinimum:8 })
+  assert.equal(getAiQuery().ai_min, 6)
+  aiState.set({ ...aiState.get(), serverMinimum:6 })
+  assert.equal(getAiQuery().ai_min, undefined)
   aiState.setKey("auxiliary", "notes")
   assert.equal(getAiQuery().has_note, true)
   aiState.setKey("auxiliary", "pending")
