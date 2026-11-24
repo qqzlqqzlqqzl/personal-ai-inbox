@@ -1,59 +1,94 @@
 # 个人信息箱 · Personal AI Inbox
 
-个人自用、完整自部署的网页信息收集箱。成熟的 Miniflux 负责订阅、阅读与收藏，ReactFlux 负责图文网页，RSSHub 扩展来源；独立 AI 增强层保存摘要、评分、推荐理由与处理依据，不制造第二份“AI RSS 文章”。
+自己部署的网页版信息收集箱：订阅博客、厂商动态、X 等来源，由 AI 打分并写中文卡片，只把值得看的挑出来；英文好文自动配上中文翻译。
 
-## 日常使用
+- 线上地址：<https://lylme.cn/inbox/>，用户名 `qqzl`。密码在服务器 `.private/miniflux.env`，只在自己的终端查看
+- 接手与运维：[docs/ops/HANDOFF.md](docs/ops/HANDOFF.md)
+- 全部文档索引：[docs/README.md](docs/README.md)
 
-- 默认进入 **AI 精选**：标题、真实配图、中文短摘要、技术价值、商业启发、推荐理由与标签。
-- **全部原始**保留未分析的内容；**待处理 / 异常**展示排队、抓取失败与模型错误。
-- 点击文章站内阅读，保留图片和原文链接；已读、收藏、订阅及 AI 结果存在服务器。AI 精选首批加载 24 条卡片，全文点击时再取，直接打开文章链接也会请求全文。
-- **AI 设置 · 来源 · 工具**中调整模型地址、模型 ID、提示词、分数阈值和预算，管理来源及静态快捷入口。
-- 博客先访问原网页；抓取失败不会退化成 RSS 简介后假装完成。社交适配器原帖与网页原文分开标记；超长输入明确标记截断。
+## 日常怎么用
 
-![桌面信息流](artifacts/screenshots/desktop-inbox.png)
+**三种阅读方式**（顶栏左侧的分段按钮）
 
-<details><summary>手机浏览器布局截图</summary>
+| 方式 | 内容 |
+|---|---|
+| AI 精选 | 推荐分达到门槛（默认 ≥8，顶栏可调）的文章卡片：中文摘要、推荐分、技术价值、商业启发、推荐理由 |
+| 全部原始 | 所有订阅内容，含尚未分析的 |
+| 待处理 | 排队中、抓取失败、模型出错的条目，看得到原因 |
 
-![手机信息流](artifacts/screenshots/mobile-inbox.png)
+- **排序**：新鲜优先（推荐分扣掉一点“发布天数”，新文章更靠前）、推荐分、技术价值、商业启发、发布时间，都可以正反向。
+- **读文章**：站内阅读原文和图片，保留原文链接。英文文章可切换“原文 / 中文 / 双语对照”，≥8 分的英文文章会在后台提前翻译好；文章右上角还有排版和专注模式，也可以给文章写笔记。
+- **快速跳转**：`Ctrl/⌘ K` 打开命令面板，跳到来源、分类或功能。
+- **来源与设置**：来源目录（候选来源、已订阅来源、每个来源的历史范围）、AI 设置、工具入口。
+- 已读、收藏、订阅和 AI 结果都存在服务器上，换设备也一样；手机浏览器有专门的布局。
 
-</details>
+## 系统组成
 
-## 访问入口
+```text
+来源：RSS/Atom · RSSHub（:1200） · Python 厂商适配器 · X（x-provider :17910 → x-feed :17911）
+   │  出站流量走 mihomo 代理（:17890）
+   ▼
+Miniflux 2.3.3（:8091）+ 独立 PostgreSQL（:55432）
+   │  负责订阅、条目、已读、收藏——阅读器本身不重写
+   ▼
+AI 增强层（SQLite：state/analysis.sqlite3）
+   ├─ 评分与中文卡片：Kaggle 上的 Qwen3.6-35B-A3B，5 个账号轮流跑批，每 11 分钟调度一次
+   ├─ 全文翻译：经服务器上的 New API 调用 gpt-4o-mini，滚动翻译 ≥8 分的英文文章
+   └─ 封面与正文图片：后台预热，1 GiB 共享缓存
+   ▼
+网关 src/api.py（FastAPI :8092）：提供 /inbox/ 前端，转发 /mf/ 的 Miniflux API 并加上 AI 扩展接口
+   ▼
+Nginx（/inbox/、/mf/）→ 浏览器里的 ReactFlux（固定上游版本 + 本仓库的补丁）
+```
 
-日常直接打开 **https://106.53.40.6/inbox/**，无需 SSH 隧道。运行目录 `/home/ubuntu/ai-news`；应用仍只监听 `127.0.0.1:8092`，通过现有 Nginx 443 和 IP TLS 证书提供 HTTPS，没有开放新端口。
+AI 结果存成独立的元数据，不会再生成一份“AI 版 RSS 文章”。原来按次付费的火山方舟分析通道（`src/worker.py`）仍保留，但目前在设置里关闭。
 
-ReactFlux 的构建 base、PWA manifest 与 Service Worker scope 均为 `/inbox/`；Miniflux API 保持 `/mf/`。`/news/` FreshRSS 与 `/api/` 小程序后端继续使用原路由。
+## 几条边界
 
-SSH tunnel 仅用于维护或公网故障备用。示例与主机校验要求见 [访问与备用通道](docs/ops/LOCAL_ACCESS.md)。
+- 评分是模型的判断，不保证事实正确；`evidence` 只校验引文确实出现在原文里。
+- 历史文章没有全部分析完，Kaggle 批处理按队列逐步推进。
+- 翻译有每日 Token 上限（当天文章另有保留额度），到上限就停，第二天接着翻。
+- X 用访客模式抓取，稳定性取决于对方限制；Telegram、Instagram、Facebook 目前没有接通。
+- 数据库每天在本机备份，**不是异地备份**；GitHub 只放代码和文档，不放文章数据与私有配置。
 
-用户名为 `qqzl`。实际管理员密码位于服务器 `.private/miniflux.env`，不是早期 `.private/access.json`；只在自己的终端查看，不上传聊天或 GitHub。
+## 仓库结构
 
-## 验收与运维
+| 路径 | 作用 |
+|---|---|
+| `src/api.py` | 网关：静态前端、Miniflux API 转发、AI 列表 / 状态 / 设置 / 笔记等扩展接口 |
+| `src/core.py`、`content_input.py`、`content_quality.py` | AI 元数据库、预算、原文提取与质量判断 |
+| `src/kaggle_batch/` | Kaggle Qwen 批处理：准备、提交、回收、校验、导入（[运行手册](src/kaggle_batch/RUNBOOK.md)） |
+| `src/bilingual_translation.py`、`card_translation.py` | 全文双语翻译、卡片翻译 |
+| `src/vendor_sources.py`、`x_feed_server.py`、`x_feed_prefetch.py`、`x_source.py` | 厂商网页适配器、X 订阅源 |
+| `src/reader_image_*.py`、`warm_reader_covers.py` | 图片代理、缓存与封面预热 |
+| `src/backup.py`、`diagnose.py`、`verify_deployment.py` | 备份、只读诊断、部署检查 |
+| `src/build_frontend.py`、`src/patch_*.py`、`src/install_*.py` | 给 ReactFlux 打补丁、构建、发布 |
+| `frontend-review/after/`、`patches/` | 前端补丁的完整源文件（审过的版本） |
+| `sources.catalog.json`、`x_sources.catalog.json`、`tools.catalog.json` | 候选来源、X 账号、工具入口目录 |
+| `upstream.lock.json` | 上游组件的固定版本与哈希 |
+| `tests/` | Python、Node 与浏览器测试；`tests/build_ci_reader.py` 可复现前端构建 |
 
-- [交付状态与实测边界](docs/ops/DELIVERY.md)
-- [逐项验收 Checklist](docs/ops/ACCEPTANCE-CHECKLIST.md)
-- [运维、更新、备份与恢复 SOP](docs/ops/SOP.md)
-- [HTTPS 访问与备用通道](docs/ops/LOCAL_ACCESS.md)
-- [重新构建与接手说明](docs/ops/HANDOFF.md)
-- [请求日志与只读诊断](docs/ops/LOGGING.md) · [X 无个人 Token 接入调查](docs/research/X-NO-TOKEN.md)
-- [只读 URL manifest 与续批导出](docs/ops/DOT-URL-EXPORT.md)
-- [自动化测试结果](artifacts/unit-tests.xml) · [真实接口与数据验收](artifacts/live-acceptance.json) · [真实浏览器验收](artifacts/browser-acceptance.json) · [隔离恢复验证](artifacts/restore-test.json)
+## 开发与测试
 
-## 必须知道的边界
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements.dev.lock.txt
+PYTHONPATH=src .venv/bin/python -m pytest -q
+```
 
-1. 初始导入包含大量历史条目，**并未将所有历史文章都分析完**。默认每天最多 80 次模型请求、500,000 Token（UTC 日界），在设置中可自行调整；模型失败也会计入请求预算。
-2. 当前 Telegram 公共路由实测返回 503，服务器到 t.me / telegram.me 的出站请求失败。X 已提供来源预检，分别检查适配器配置、网络可达和是否取得帖子；专用 X 订阅只有取得帖子才继续。目前仍未验证稳定的免个人 X Token 方案，第三方服务还需要独立凭据与协议适配。Instagram 仍需相应授权，Facebook 未验证。不能把“RSSHub 有适配器”说成“这些账号都已接通”。
-3. 三个 arXiv 摘要源保留在候选目录，但没有默认导入为论文全文；PDF 全文、视频理解、评论和完整讨论串不属于已验收能力。
-4. 评分是模型判断，不保证事实正确；`evidence` 校验只确认引文存在于实际输入，不证明作者陈述真实。保留配图也不意味着文本模型理解了图片。
-5. 每日数据库备份保留最近 14 份，当前仍在同一台服务器。**GitHub 不是文章数据库的异地备份**；私有配置应另行安全保存。
-6. 手机测试是 390×844 的独立 Chromium 移动会话，不是物理手机实机；Windows 已验证公网 HTTPS 返回 200；日常使用不需要隧道。
+前端构建会拉取固定版本的 ReactFlux，套上补丁后用 pnpm 11.21.0 构建：
+
+```bash
+python tests/build_ci_reader.py --prepare-only
+pnpm --dir upstream/reactflux install --frozen-lockfile --ignore-scripts
+python tests/build_ci_reader.py
+```
+
+CI 在 `.github/workflows/reader-regression.yml`，会按改动的文件挑选要跑的检查；只改 `README.md` 或 `docs/*.md` 时只跑文档检查。
 
 ## 开源组成
 
-- [Miniflux](https://github.com/miniflux/v2)：2.3.3，Apache-2.0，官方二进制不改。
-- [ReactFlux](https://github.com/electh/ReactFlux)：MIT，固定 SHA + 可复现小补丁，阅读器主体保留。
-- [RSSHub](https://github.com/DIYgod/RSSHub)：AGPL-3.0，固定 SHA，私有回环监听。
+- [Miniflux](https://github.com/miniflux/v2) 2.3.3（Apache-2.0）：订阅与阅读后端；官方源码加一个小的批量元数据接口补丁（`ops/miniflux-metadata/`），用 Go 1.27.3 编译
+- [ReactFlux](https://github.com/electh/ReactFlux)（MIT）：网页阅读器，固定提交 + 本仓库补丁
+- [RSSHub](https://github.com/DIYgod/RSSHub)（AGPL-3.0）：扩展来源，只在本机回环监听
 
-版本与哈希见 `upstream.lock.json`，研究依据见 `docs/research/`。第三方许可证保留于下载的上游源码。应用是单用户部署，不声称支持多租户隔离。源码、文档和非敏感测试证据进入本公开仓库；`.private/`、数据库、备份、日志及二进制运行目录不进入 Git。
-
-预算只约束本项目，保持不动的旧 n8n / 其他应用不在此预算内。订阅刷新配置基准为约30分钟，AI队列约90秒一轮，受原站请求和排队影响，不是秒级实时推送。
+版本与哈希见 `upstream.lock.json`，选型理由见 `docs/research/`。
