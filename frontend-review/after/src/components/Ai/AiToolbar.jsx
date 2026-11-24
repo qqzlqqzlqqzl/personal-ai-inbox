@@ -63,19 +63,23 @@ export default function AiToolbar({ source }) {
       const current=()=>active&&pending===controller&&!controller.signal.aborted
       try {
         const needsSettings = !aiState.get().hydrated
+        // Apply settings as soon as they arrive instead of waiting for the slower
+        // status request. Lists requested before this omit ai_min, so the server
+        // already used this same threshold and nothing needs to be refetched.
+        const settingsRequest = needsSettings
+          ? apiClient.get("/v1/ai/settings",{retry:0,timeout:15000,signal:controller.signal}).then((c) => {
+            if (!current() || !c || minimumDirty.current) return
+            const minimum = Number(c.minimum_score)
+            if (!Number.isFinite(minimum)) return
+            aiState.set({ ...aiState.get(), minimum, serverMinimum: minimum, hydrated: true })
+          })
+          : Promise.resolve()
         const outcomes = await Promise.allSettled([
-          needsSettings ? apiClient.get("/v1/ai/settings",{retry:0,timeout:15000,signal:controller.signal}) : Promise.resolve(null),
+          settingsRequest,
           apiClient.get("/v1/ai/status",{retry:0,timeout:15000,signal:controller.signal}),
         ])
-        const c=outcomes[0].status==='fulfilled'?outcomes[0].value:null,s=outcomes[1].status==='fulfilled'?outcomes[1].value:null
+        const s=outcomes[1].status==='fulfilled'?outcomes[1].value:null
         if (current()) setStatusUnavailable(!s)
-        if (current() && c && !minimumDirty.current) {
-          const current = aiState.get()
-          const minimum = Number(c.minimum_score)
-          const changed = current.minimum !== minimum
-          aiState.set({ ...current, minimum, hydrated: true })
-          if (changed) invalidateArticleList()
-        }
         if (current() && s) {
           const count = `${s.translations?.counts?.done || 0}:${s.counts?.done || 0}`
           if (completedCards.current !== null && completedCards.current !== count) {
@@ -96,7 +100,7 @@ export default function AiToolbar({ source }) {
   }, [])
 
   const change = (value) => {
-    aiState.set({ ...aiState.get(), ...value })
+    aiState.set({ ...aiState.get(), ...value, ...(Object.hasOwn(value, "minimum") ? { hydrated: true } : {}) })
     if (Object.hasOwn(value, "minimum")) {
       minimumDirty.current = true
       const ticket=++latestSave.current
@@ -116,7 +120,7 @@ export default function AiToolbar({ source }) {
       mode,
       auxiliary: current.auxiliary === "pending" ? "none" : current.auxiliary,
       sort: current.sort === "note_updated" && current.auxiliary !== "notes"
-        ? (mode === "recommended" ? "score" : "time")
+        ? (mode === "recommended" ? "fresh" : "time")
         : current.sort,
     })
   }
@@ -127,7 +131,7 @@ export default function AiToolbar({ source }) {
     change({
       auxiliary: next,
       ...(next !== "notes" && current.sort === "note_updated"
-        ? { sort: current.mode === "recommended" ? "score" : "time" }
+        ? { sort: current.mode === "recommended" ? "fresh" : "time" }
         : {}),
     })
   }

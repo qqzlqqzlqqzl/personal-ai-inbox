@@ -144,7 +144,7 @@ globalThis.sortApi = async (method, url) => {
   );
   requests.push({ url, query });
   const field = query.ai_sort || "score",
-    key = {time: 'published_at', note_updated: 'note_updated_at'}[field] || field;
+    key = {time: 'published_at', note_updated: 'note_updated_at', fresh: 'score'}[field] || field; // same-day fixtures: freshness order equals score order
   const sortNumber = entry => typeof entry[key] === 'string' ? Date.parse(entry[key]) : entry[key];
   return {
     total: 3,
@@ -219,6 +219,8 @@ try {
   );
   await settle();
   assert.equal(document.querySelector("output").dataset.order, "101,103,102");
+  assert.equal(requests.at(-1).query.ai_sort, "fresh", "recommended view defaults to the freshness-weighted order");
+  assert.equal(document.querySelector('select[aria-label="排序方式"]').value, "fresh_desc");
   for (const [value, expected] of [
     ["score_asc", "102,103,101"],
     ["technical_desc", "102,103,101"],

@@ -17,7 +17,7 @@ if (!process.argv[2]) {
     process.stderr.write(child.stderr || "");
     assert.equal(child.status, 0, `startup minimum ${minimum}, ${order} failed`);
   }
-  console.log("PASS: mismatched startup request stays unowned; aligned fixture accepts its first response");
+  console.log("PASS: startup request uses the server threshold and is never refetched after settings load");
   process.exit(0);
 }
 assert.ok(["6", "8"].includes(process.argv[2]));
@@ -166,7 +166,8 @@ function View(){app.useArticleList('all','',fetchEntries);return React.createEle
 const read=()=>({minimum:app.aiState.get().minimum,ready:app.contentState.get().isArticleListReady,
  count:app.dynamicCountState.get(),total:app.contentState.get().total,entryRequests:pending.length});
 await React.act(async()=>root.render(React.createElement(View)));
-assert.equal(pending.length,1);assert.equal(pending[0].query.ai_min,8);
+// The startup request omits ai_min so the server applies its saved threshold.
+assert.equal(pending.length,1);assert.equal(pending[0].query.ai_min,undefined);
 const stages={before_settings:read()};
 if(responseOrder==='entries-first'){
  await React.act(async()=>pending[0].resolve(response));
@@ -177,14 +178,10 @@ await React.act(async()=>releaseSettings({minimum_score:serverMinimum}));
 stages.after_settings=read();
 if(responseOrder==='settings-first')await React.act(async()=>pending[0].resolve(response));
 stages.after_first_response=read();
-if(serverMinimum!==8){
- assert.equal(pending.length,2);assert.equal(pending[1].query.ai_min,serverMinimum);
- assert.equal(stages.after_first_response.count,null);assert.equal(stages.after_first_response.ready,false);
- await React.act(async()=>pending[1].resolve(response));stages.after_current_response=read();
- assert.equal(stages.after_current_response.count,1965);
-}else{
- assert.equal(pending.length,1);assert.equal(stages.after_first_response.count,1965);
-}
+// Loading settings never changes the query: one request, and its response is owned.
+assert.equal(stages.after_settings.minimum,serverMinimum);
+assert.equal(pending.length,1);assert.equal(stages.after_first_response.count,1965);
+assert.equal(app.getAiQuery().ai_min,undefined);
 assert.equal(apiCalls.filter(([m])=>m!=='GET').length,0);
 console.log(JSON.stringify({kind:'actual_F_components_synthetic_response_order_not_browser',serverMinimum,responseOrder,stages,
  requests:pending.map(p=>p.query),apiCalls},null,2));

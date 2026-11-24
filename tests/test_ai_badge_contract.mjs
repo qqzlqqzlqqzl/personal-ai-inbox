@@ -28,7 +28,10 @@ try {
  assert.match(bodyCompletenessLabel({policy_version:'reader-body-completeness-v1',status:'unverified',structure:'lost'}),/纯文本回退/)
  assert.match(bodyCompletenessLabel({policy_version:'reader-body-completeness-v1',status:'verified',structure:'preserved'}),/已核对原文正文区/)
  const card=renderToStaticMarkup(React.createElement(Badge,{entry:{ai:done},detailed:false}))
- assert.match(card,/正文待核对/)
+ assert.doesNotMatch(card,/正文待核对|内容资格待核实|ai-content-quality/)
+ assert.match(renderToStaticMarkup(React.createElement(Badge,{entry:{ai:done},detailed:true})),/正文待核对/)
+ const problemCard=renderToStaticMarkup(React.createElement(Badge,{entry:{ai:{...done,body_completeness:{policy_version:'reader-body-completeness-v1',status:'incomplete'}}},detailed:false}))
+ assert.match(problemCard,/非完整正文/)
  for(const state of ['__proto__','constructor','toString','hasOwnProperty','not_a_state']) {
   const html=render({state});assert.match(html,/处理状态待确认/);
   checks.push('prototype/unknown state is safe: '+state)

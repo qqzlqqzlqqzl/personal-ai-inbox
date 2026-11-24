@@ -59,7 +59,7 @@ globalThis.lifecycleApi=async(method,url,body)=>{
 const auth={server:"https://synthetic.test/mf",token:"synthetic",username:"",password:""};
 app.setAuth(auth);
 app.settingsState.set({...app.settingsState.get(),pageSize:1,showStatus:"unread"});
-app.aiState.set({...app.aiState.get(),mode:"recommended",minimum:8,auxiliary:"none"});
+app.aiState.set({...app.aiState.get(),mode:"recommended",minimum:8,auxiliary:"none",hydrated:true}); // settings already loaded: an explicit threshold
 const getter=(status,_starred,params)=>app.getTodayEntries(status,params);
 function View(){
  app.useArticleList("today",null,getter);

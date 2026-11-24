@@ -29,7 +29,7 @@ try {
 
   const auth={server:"https://synthetic.test/mf",token:"synthetic",username:"",password:""};
   app.setAuth(auth); app.commitIdentityData({id:1,timezone:"Asia/Shanghai"});
-  app.aiState.set({...app.aiState.get(),mode:"recommended",minimum:8,auxiliary:"none"});
+  app.aiState.set({...app.aiState.get(),mode:"recommended",minimum:8,auxiliary:"none",hydrated:true}); // settings already loaded: an explicit threshold
   const calls=[],writes=[];
   const records=[
     {id:1,published_at:"2026-10-01T15:00:00Z",score:9,status:"unread"},
