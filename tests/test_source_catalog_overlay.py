@@ -184,6 +184,14 @@ class CatalogOverlayTests(unittest.TestCase):
             for value in values:
                 self.assertNotIn(value, old.get(name, []))
                 old.setdefault(name, []).append(value)
+        # Mobile polish admits only the exact deployed mobile stylesheet (d317f08..709fda9).
+        mobile = 'src/components/Ai/MobileReader.css'
+        mobile_sha = '4c60b8db65fb5476e128a353d16e82451f5d788226a5fb6dac9a278d47ba4668'
+        prior_mobile = subprocess.check_output(
+            ['git', 'show', '709fda9:frontend-review/after/' + mobile], cwd=ROOT, timeout=15)
+        self.assertEqual(hashlib.sha256(prior_mobile).hexdigest(), mobile_sha)
+        self.assertNotIn(mobile_sha, old.get(mobile, []))
+        old.setdefault(mobile, []).append(mobile_sha)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):
