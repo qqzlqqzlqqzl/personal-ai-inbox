@@ -268,14 +268,14 @@ def install_ai_pagination_revision(root, web):
                         raise RuntimeError(f'Unreviewed AI pagination recovery source: {name}')
             if name == 'src/hooks/useLoadMore.js' and before == '  const handleLoadMore = async (getEntries) => {':
                 # Reading-session applies later on a pristine install, but its
-                # exact prefetch signature is already present on repeat/upgrade.
+                # exact prefetch signatures may already be present on repeat/upgrade.
                 prefetch = '  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {'
-                signatures = [signature for signature in (before, prefetch) if signature in text]
+                retry = '  const handleLoadMore = async (getEntries, { prefetch = false, onError } = {}) => {'
+                signatures = [signature for signature in (before, prefetch, retry) if signature in text]
                 if len(signatures) != 1 or text.count(signatures[0]) != 1:
                     raise RuntimeError(f'Unreviewed AI pagination source: {name}')
-                if signatures[0] == prefetch:
-                    after = after.replace(before, prefetch, 1)
-                    before = prefetch
+                after = after.replace(before, signatures[0], 1)
+                before = signatures[0]
             if after in text:
                 continue
             if text.count(before) != 1:

@@ -26,6 +26,7 @@ STAGES = (
 
 NATIVE_LOAD_MORE = '  const handleLoadMore = async (getEntries) => {'
 PREFETCH_LOAD_MORE = '  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {'
+RETRY_LOAD_MORE = '  const handleLoadMore = async (getEntries, { prefetch = false, onError } = {}) => {'
 
 
 def _ai_revision_fixture(root, signature):
@@ -59,7 +60,7 @@ SIGNATURE
     return web, namespace['install_ai_pagination_revision']
 
 
-@pytest.mark.parametrize('signature', [NATIVE_LOAD_MORE, PREFETCH_LOAD_MORE])
+@pytest.mark.parametrize('signature', [NATIVE_LOAD_MORE, PREFETCH_LOAD_MORE, RETRY_LOAD_MORE])
 def test_ai_revision_composes_with_exact_prefetch_signature_and_repeats(tmp_path, signature):
     web, apply = _ai_revision_fixture(tmp_path, signature)
     apply(tmp_path, web)

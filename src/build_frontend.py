@@ -1,17 +1,71 @@
 """Build away from the live tree; retain old hashed chunks for existing browser tabs."""
 
-import json, os, re, shutil, subprocess, time, uuid, gzip
+import json, os, re, shutil, stat, subprocess, time, uuid, gzip
 from pathlib import Path
 
 ROOT = Path("/home/ubuntu/ai-news")
 PUBLIC_BASE = "/inbox/"
+UNCOMPRESSED_ENTRY_POINTS = ("sw.js", "registerSW.js", "index.html")
+STALE_ENTRY_POINT_SIBLINGS = (
+    *(Path(name + suffix) for name in UNCOMPRESSED_ENTRY_POINTS for suffix in (".gz", ".br")),
+    Path("manifest.webmanifest.gz"),
+)
 
 
-def publish(staging: Path, live: Path, base_path: str = "/"):
+def is_publish_link(path: Path):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or (
+        os.name == "nt" and info.st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT
+    )
+
+
+def checked_directory(path: Path, *, create=False):
+    if is_publish_link(path):
+        raise ValueError(f"Publish directory cannot be a link: {path}")
+    if create:
+        path.mkdir(exist_ok=True)
+    return path
+
+
+def remove_compressed_sibling(live: Path, sibling: Path):
+    try:
+        if os.unlink in os.supports_dir_fd:
+            # Pin each directory without following links before unlinking the leaf.
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            directory = os.open(live, flags)
+            try:
+                for part in sibling.parent.parts:
+                    child = os.open(part, flags, dir_fd=directory)
+                    os.close(directory)
+                    directory = child
+                os.unlink(sibling.name, dir_fd=directory)
+            finally:
+                os.close(directory)
+        else:
+            directory = checked_directory(live)
+            for part in sibling.parent.parts:
+                directory = checked_directory(directory / part)
+            (directory / sibling.name).unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def publish(staging: Path, live: Path, base_path: str = "/", *, stats=None):
     if not re.fullmatch(r"/(?:[A-Za-z0-9._~-]+/)*", base_path) or any(
         part in (".", "..") for part in base_path.split("/")
     ):
         raise ValueError("Invalid frontend base path")
+    checked_directory(staging)
+    files = []
+    for folder, dirs, names in os.walk(staging):
+        paths = [Path(folder) / name for name in dirs + names]
+        if any(is_publish_link(path) for path in paths):
+            raise ValueError("Build symlinks are not permitted")
+        files.extend(path for path in paths if path.is_file())
     index = staging / "index.html"
     if not index.is_file():
         raise ValueError("Build is missing index.html")
@@ -25,10 +79,13 @@ def publish(staging: Path, live: Path, base_path: str = "/"):
         p = (staging / ref[len(base_path):]).resolve()
         if not p.is_relative_to(staging.resolve()) or not p.is_file():
             raise ValueError("Build references a missing asset")
-    files = [p for p in staging.rglob("*") if p.is_file()]
-    if any(p.is_symlink() for p in files):
-        raise ValueError("Build symlinks are not permitted")
-    live.mkdir(parents=True, exist_ok=True)
+    live.parent.mkdir(parents=True, exist_ok=True)
+    checked_directory(live, create=True)
+    published_paths = {path.relative_to(staging) for path in files}
+    for relative in sorted({path.parent for path in published_paths}):
+        directory = live
+        for part in relative.parts:
+            directory = checked_directory(directory / part, create=True)
     # Publish hashed chunks first, HTML next, service worker last.
     files.sort(
         key=lambda p: (
@@ -38,7 +95,6 @@ def publish(staging: Path, live: Path, base_path: str = "/"):
     )
     for source in files:
         dest = live / source.relative_to(staging)
-        dest.parent.mkdir(parents=True, exist_ok=True)
         temp = dest.with_name(dest.name + ".new-" + uuid.uuid4().hex)
         # Reserve exclusively and hold the inode until cleanup, so a collision
         # or replacement at this name can never be mistaken for our own file.
@@ -66,6 +122,16 @@ def publish(staging: Path, live: Path, base_path: str = "/"):
                     pass  # Cleanup failure must not mask the original publish error.
         finally:
             os.close(fd)
+    stale = set(STALE_ENTRY_POINT_SIBLINGS)
+    stale.update(
+        sibling
+        for path in published_paths
+        for suffix in (".gz", ".br")
+        if (sibling := path.with_name(path.name + suffix)) not in published_paths
+    )
+    removed = sum(remove_compressed_sibling(live, sibling) for sibling in sorted(stale))
+    if stats is not None:
+        stats["stale_compressed_siblings_removed"] = removed
     return len(files)
 
 
@@ -171,11 +237,13 @@ def main():
     subprocess.run(cmd, cwd=web, env=env, check=True, timeout=600)
     validate_reader_bundle(stage)
     compressed = precompress(stage)
-    count = publish(stage, web / "build", PUBLIC_BASE)
+    stats = {}
+    count = publish(stage, web / "build", PUBLIC_BASE, stats=stats)
     report = {
         "at": time.time(),
         "files_published": count,
         "precompressed_assets": compressed,
+        **stats,
         "base_path": PUBLIC_BASE,
         "old_hashed_assets_retained": True,
         "upstream": "534eeb97723ac11025de4ec1ac56335072e3be52",

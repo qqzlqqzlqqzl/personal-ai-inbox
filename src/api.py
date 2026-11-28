@@ -1,6 +1,6 @@
 """Same-origin reader gateway and authenticated AI extension API."""
 
-import asyncio, json, os, time, contextlib, logging, uuid, mimetypes, math, re, shutil
+import asyncio, json, os, time, contextlib, logging, uuid, mimetypes, math, re, shutil, stat
 from contextlib import asynccontextmanager
 from pathlib import Path
 import httpx
@@ -1677,13 +1677,19 @@ async def frontend(path: str, request: Request):
             headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         elif path.startswith(("assets/", "fonts/")):
             headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        accepts_gzip = accepts_gzip_encoding(request.headers.get("accept-encoding", ""))
-        gz_target = target.with_name(target.name + ".gz")
-        if accepts_gzip and gz_target.is_file():
-            headers["Content-Encoding"] = "gzip"
-            headers["Vary"] = "Accept-Encoding"
-            media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-            return FileResponse(gz_target, media_type=media_type, headers=headers)
+        entry_points = {"sw.js", "registerSW.js", "manifest.webmanifest", "index.html"}
+        if (
+            accepts_gzip_encoding(request.headers.get("accept-encoding", ""))
+            and not entry_points.intersection((Path(path).name, target.name))
+        ):
+            gz_target = target.with_name(target.name + ".gz")
+            # A publish can remove the sibling while this request is checking it.
+            with contextlib.suppress(FileNotFoundError):
+                compressed = gz_target.stat()
+                if stat.S_ISREG(compressed.st_mode) and compressed.st_mtime_ns >= target.stat().st_mtime_ns:
+                    headers["Content-Encoding"] = "gzip"
+                    media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+                    return FileResponse(gz_target, media_type=media_type, headers=headers)
         return FileResponse(target, headers=headers)
     index = webroot / "index.html"
     if Path(path).suffix:

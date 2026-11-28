@@ -12,6 +12,14 @@ import { AI_COVER_PREFETCH_SLOTS, canPrefetchAiCovers, createThumbnailPreloader,
 const listSnapshot = ({ infoFrom, infoId, articleListSnapshotRevision }, sessionRevision) =>
   `${sessionRevision}:${infoFrom}:${infoId}:${articleListSnapshotRevision}`
 
+const LOAD_MORE_RETRY_DELAYS = [3000, 10000]
+const isRetryable = (error) => {
+  const status = error?.status ?? error?.response?.status
+  if (status != null) return status >= 500 && status < 600
+  // ofetch wraps transport failures in FetchError without a response.
+  return error?.name === "FetchError" && !error.response && error.cause?.name !== "AbortError"
+}
+
 /** Warm five additional pages, then retain the existing scroll/manual policy. */
 export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   const { isArticleListReady, loadMoreVisible, articleListSnapshotRevision, articleListOffset, infoFrom, infoId } = useStore(contentState, {
@@ -36,7 +44,9 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   const thumbnailsRef = useRef(null)
   const imageSettledRef = useRef(null)
   const [settled, setSettled] = useState(0)
-  latest.current = { isArticleListReady, loadMoreVisible, loadingMore, loadMoreError, snapshot, indexes, entries, handleLoadMore, getEntries }
+  const [pendingRetry, setPendingRetry] = useState(null)
+  const retry = pendingRetry?.snapshot === snapshot && pendingRetry.offset === articleListOffset ? pendingRetry : null
+  latest.current = { isArticleListReady, loadMoreVisible, loadingMore, loadMoreError, snapshot, articleListOffset, retry, indexes, entries, handleLoadMore, getEntries }
 
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false } }, [])
   // One loader for the component's lifetime: downloads already in flight keep the
@@ -78,13 +88,14 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
     if (autoRef.current.snapshot !== snapshot) autoRef.current = { snapshot, started: 0 }
   }, [snapshot, entries.length, articleListOffset, isArticleListReady])
 
-  const request = async (manual = false, observation = null) => {
+  const request = async (manual = false, observation = null, retryAttempt = null) => {
     const s = latest.current
     if (!s.isArticleListReady || !s.loadMoreVisible || s.loadingMore || inFlightRef.current?.snapshot === s.snapshot) return
-    if (!manual && s.loadMoreError) return
+    if (retryAttempt && s.retry !== retryAttempt) return
+    if (!manual && !retryAttempt && (s.loadMoreError || s.retry)) return
     const w = windowRef.current
     const key = `${s.snapshot}:${w?.count}:${w?.cursor}`
-    if (!manual && attemptRef.current === key) return
+    if (!manual && !retryAttempt && attemptRef.current === key) return
     if (observation?.reason === "startup") {
       if (!autoPrefetchDecision(w, autoRef.current.started)) return
       autoRef.current.started++
@@ -92,8 +103,18 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
     attemptRef.current = key
     const flight = { snapshot: s.snapshot }
     inFlightRef.current = flight
+    const prefetch = retryAttempt?.prefetch ?? (observation?.reason === "startup")
+    setPendingRetry(null)
     if (observation) window.dispatchEvent(new CustomEvent("inbox:prefetch", { detail: { ...observation, count: w.count, start: w.start, size: w.size, cursor: w.cursor, scope: s.snapshot } }))
-    try { await s.handleLoadMore(s.getEntries, { prefetch: observation?.reason === "startup" }) }
+    try {
+      await s.handleLoadMore(s.getEntries, { prefetch, onError: error => {
+        const index = (retryAttempt?.index ?? -1) + 1
+        if (!aliveRef.current || latest.current.snapshot !== s.snapshot ||
+            index >= LOAD_MORE_RETRY_DELAYS.length || !isRetryable(error)) return false
+        setPendingRetry({ snapshot: s.snapshot, offset: s.articleListOffset, prefetch, index })
+        return true
+      } })
+    }
     finally {
       if (inFlightRef.current === flight) {
         inFlightRef.current = null
@@ -103,6 +124,26 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   }
   const requestRef = useRef(request)
   requestRef.current = request
+
+  useEffect(() => {
+    if (!retry || !isArticleListReady || !loadMoreVisible) return
+    let due = false
+    const retryWhenVisible = () => {
+      if (!due || document.visibilityState !== "visible") return
+      due = false
+      const content = contentState.get()
+      if (content.isArticleListReady && content.loadMoreVisible && content.articleListOffset === retry.offset &&
+          listSnapshot(content, dataState.get().sessionRevision) === retry.snapshot) {
+        void requestRef.current(false, null, retry)
+      }
+    }
+    const timer = window.setTimeout(() => { due = true; retryWhenVisible() }, LOAD_MORE_RETRY_DELAYS[retry.index])
+    document.addEventListener("visibilitychange", retryWhenVisible)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener("visibilitychange", retryWhenVisible)
+    }
+  }, [retry, isArticleListReady, loadMoreVisible])
 
   useEffect(() => {
     if (!isArticleListReady || !loadMoreVisible || loadingMore || loadMoreError || inFlightRef.current?.snapshot === snapshot) return
@@ -212,8 +253,8 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
 
   if (!isArticleListReady) return null
   return <div className="load-more-container" role="status" aria-live="polite" data-prefetch-fraction="0.25" data-loaded-count={entries.length} data-more={String(loadMoreVisible)} data-cursor={articleListOffset}>
-    {!loadMoreVisible ? (entries.length ? "已加载全部条目" : null) : loadMoreError ? <Button size="small" onClick={() => void request(true)}>加载失败，点击重试</Button>
-      : loadingMore ? <><Spin style={{ paddingRight: 10 }} />正在提前加载下一批…</>
+    {!loadMoreVisible ? (entries.length ? "已加载全部条目" : null) : retry || loadingMore ? <><Spin style={{ paddingRight: 10 }} />正在提前加载下一批…</>
+      : loadMoreError ? <Button size="small" onClick={() => void request(true)}>加载失败，点击重试</Button>
       : <Button size="small" onClick={() => void request(true)}>已自动预加载前方最多 {AUTO_PREFETCH_PAGES} 页 · 继续滚动或点击加载</Button>}
   </div>
 }

@@ -27,6 +27,56 @@ def test_publish_preserves_old_lazy_chunks(tmp_path):
     assert "/assets/new.js" in (live / "index.html").read_text()
 
 
+def test_publish_removes_stale_siblings_and_keeps_staged_compression(tmp_path):
+    stage, live = tmp_path / "stage", tmp_path / "live"
+    fixture_build(stage)
+    (live / "assets").mkdir(parents=True)
+    (stage / "assets/new.js.br").write_bytes(b"current brotli")
+    (stage / "assets/kept.js").write_bytes(b"current asset")
+    (stage / "assets/kept.js.gz").write_bytes(b"current gzip")
+    (stage / "sw.js.gz").write_bytes(b"staged gzip")
+    stale = ("assets/new.js.gz", "assets/kept.js.br", "sw.js.gz", "sw.js.br",
+             "registerSW.js.gz", "registerSW.js.br", "index.html.gz", "index.html.br",
+             "manifest.webmanifest.gz")
+    for name in (*stale, "assets/old.js.gz"):
+        (live / name).write_bytes(b"old gzip")
+    outside = tmp_path / "sw.js.gz"
+    outside.write_bytes(b"outside live")
+
+    stats = {}
+    publish(stage, live, stats=stats)
+
+    assert stats["stale_compressed_siblings_removed"] == len(stale)
+    assert all(not (live / name).exists() for name in stale)
+    assert (live / "assets/kept.js.gz").read_bytes() == b"current gzip"
+    assert (live / "assets/new.js.br").read_bytes() == b"current brotli"
+    assert (live / "assets/old.js.gz").read_bytes() == b"old gzip"
+    assert (stage / "sw.js.gz").read_bytes() == b"staged gzip"
+    assert outside.read_bytes() == b"outside live"
+
+
+def test_publish_does_not_follow_symlinks(tmp_path):
+    stage, live, outside = (tmp_path / name for name in ("stage", "live", "outside"))
+    fixture_build(stage)
+    live.mkdir()
+    outside.mkdir()
+    sentinel = outside / "new.js.gz"
+    sentinel.write_bytes(b"outside live")
+    try:
+        (live / "assets").symlink_to(outside, target_is_directory=True)
+        (live / "sw.js.gz").symlink_to(sentinel)
+    except OSError as error:
+        pytest.skip(f"Symlinks unavailable: {error}")
+
+    with pytest.raises(ValueError, match="Publish directory cannot be a link"):
+        publish(stage, live)
+    assert not (outside / "new.js").exists()
+    (live / "assets").unlink()
+    publish(stage, live)
+    assert not (live / "sw.js.gz").is_symlink()
+    assert sentinel.read_bytes() == b"outside live"
+
+
 def test_broken_build_cannot_replace_live_index(tmp_path):
     stage = tmp_path / "stage"
     live = tmp_path / "live"

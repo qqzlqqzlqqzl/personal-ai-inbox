@@ -71,7 +71,8 @@ const extract=[
  'import ast,json,sys',
  'tree=ast.parse(sys.stdin.read())',
  'loop=next(n for n in ast.walk(tree) if isinstance(n,ast.For) and isinstance(n.target,ast.Tuple) and [x.id for x in n.target.elts]==["before","after"])',
- 'print(json.dumps(ast.literal_eval(loop.iter)))',
+ 'names = {n.targets[0].id: ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ("native_signature", "retry_signature")}',
+ 'print(json.dumps(ast.literal_eval(loop.iter) + [(names["native_signature"], names["retry_signature"])]))',
 ].join('\n')
 const replacements=JSON.parse(execFileSync(process.env.PYTHON||'python3',['-c',extract],{
  input:readFileSync(installer,'utf8'),encoding:'utf8',timeout:10000,
@@ -84,7 +85,7 @@ const original=[
  '    const duplicateEntries = setEntriesWithDeduplication(newEntries);',
  '    markDuplicatesAsRead(duplicateEntries)',
  '};',
- 'const handleLoadMore = async (getEntries) => {',
+ '  const handleLoadMore = async (getEntries) => {',
  '    const response=await getEntries();',
  '    if (response.entries.length > 0) {',
  '        const newEntries=response.entries;',

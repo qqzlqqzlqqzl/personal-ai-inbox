@@ -90,7 +90,7 @@
    ```
 
    发布前先备份线上的 `index.html` 和 `sw.js`。
-4. 打开 <https://lylme.cn/inbox/> 确认加载的是新入口文件。
+4. 每次发布后执行[发布后冒烟检查](SOP.md#发布后冒烟检查)，再打开 <https://lylme.cn/inbox/> 确认页面正常。
 
 ### 推送到 GitHub
 

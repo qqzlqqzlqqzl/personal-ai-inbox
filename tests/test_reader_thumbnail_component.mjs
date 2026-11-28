@@ -229,7 +229,7 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
 
     const NativeObserver=window.MutationObserver,windowSetTimeout=window.setTimeout,windowClearTimeout=window.clearTimeout
     const previousFrame=globalThis.requestAnimationFrame,previousCancel=globalThis.cancelAnimationFrame
-    const frames=new Map(),coverTimers=new Map(),observers=[]
+    const frames=new Map(),coverTimers=new Map(),retryTimers=new Map(),observers=[]
     let nextFrame=0,nextTimer=1000000,coverPages=0
     window.MutationObserver=class {
       constructor(callback){this.callback=callback;this.native=new NativeObserver(callback);this.active=false;observers.push(this)}
@@ -237,10 +237,13 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
       disconnect(){this.active=false;this.native.disconnect()}
     }
     window.setTimeout=(callback,delay,...args)=>{
+      if(delay===3000||delay===10000){
+        const id=++nextTimer;retryTimers.set(id,{callback,delay});return id
+      }
       if(delay!==2000)return windowSetTimeout.call(window,callback,delay,...args)
       const id=++nextTimer;coverTimers.set(id,callback);return id
     }
-    window.clearTimeout=id=>{if(!coverTimers.delete(id))windowClearTimeout.call(window,id)}
+    window.clearTimeout=id=>{if(!retryTimers.delete(id)&&!coverTimers.delete(id))windowClearTimeout.call(window,id)}
     globalThis.requestAnimationFrame=callback=>{const id=++nextFrame;frames.set(id,callback);return id}
     globalThis.cancelAnimationFrame=id=>frames.delete(id)
     const flushFrames=async()=>{
@@ -266,6 +269,78 @@ test('unbound Today covers issue no origin warmups while five-page lifecycle sta
     }
     const activeImages=()=>images.filter(image=>image.onload)
     try {
+      await t.test('progressive retries wait for visibility, preserve the cursor and stop at two',async()=>{
+        globalThis.__readerUseActualLoader=true
+        scroll.innerHTML='';scroll.scrollTop=0
+        let visibility='visible'
+        Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>visibility})
+        const httpError=status=>Object.assign(new Error(`HTTP ${status}`),{status})
+        const networkError=Object.assign(new Error('Network request failed'),{name:'FetchError',cause:new TypeError('Failed to fetch')})
+        const calls=[]
+        let failures=[]
+        const get=async(_status,_starred,params)=>{
+          calls.push(params.offset)
+          assert.equal(params.loadMoreRequest,true,'the page owns the transport retry budget')
+          if(failures.length)throw failures.shift()
+          return {entries:[],total:24}
+        }
+        const paint=()=>root.render(React.createElement(component.exports.default,{scrollRootRef:{current:scroll},getEntries:get}))
+        const start=async(snapshot,errors)=>{
+          await act(async()=>root.render(null))
+          failures=errors;calls.length=0
+          globalThis.__readerFixtureEntries=rows(0)
+          globalThis.__readerFixtureContent={isArticleListReady:true,loadMoreVisible:true,articleListSnapshotRevision:snapshot,articleListOffset:24,infoFrom:'today',infoId:0}
+          await act(async()=>paint())
+          await flushFrames();await flushFrames()
+          assert.deepEqual(calls,[24])
+        }
+        const fireRetry=async delay=>{
+          assert.deepEqual([...retryTimers.values()].map(timer=>timer.delay),[delay])
+          const [[id,{callback}]]=[...retryTimers];retryTimers.delete(id)
+          await act(async()=>callback())
+        }
+        const errorButton=()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='加载失败，点击重试')
+        try {
+          await start('transient-errors',[httpError(502),networkError,httpError(503),httpError(502)])
+          assert.equal(errorButton(),undefined)
+          visibility='hidden'
+          await fireRetry(3000)
+          assert.deepEqual(calls,[24],'a hidden tab cannot issue a retry')
+          visibility='visible'
+          await act(async()=>document.dispatchEvent(new window.Event('visibilitychange')))
+          assert.deepEqual(calls,[24,24])
+          assert.equal(errorButton(),undefined)
+          await fireRetry(10000)
+          assert.deepEqual(calls,[24,24,24])
+          assert.ok(errorButton())
+          assert.equal(retryTimers.size,0)
+
+          await act(async()=>errorButton().click())
+          assert.deepEqual(calls,[24,24,24,24])
+          assert.equal(errorButton(),undefined,'manual retry starts a new budget')
+          await fireRetry(3000)
+          assert.deepEqual(calls,[24,24,24,24,24])
+          assert.match(document.querySelector('.load-more-container').textContent,/已加载全部条目/)
+          assert.equal(retryTimers.size,0)
+
+          await start('client-error',[httpError(429)])
+          assert.ok(errorButton())
+          assert.equal(retryTimers.size,0)
+
+          await start('retired-retry',[httpError(502)])
+          const [{callback:retiredRetry}]=[...retryTimers.values()]
+          globalThis.__readerFixtureContent={...globalThis.__readerFixtureContent,articleListSnapshotRevision:'replacement',loadMoreVisible:false}
+          await act(async()=>paint())
+          assert.equal(retryTimers.size,0)
+          await act(async()=>retiredRetry())
+          assert.deepEqual(calls,[24],'retired snapshot cannot issue an already queued retry')
+        } finally {
+          await act(async()=>root.render(null))
+          delete document.visibilityState
+          globalThis.__readerUseActualLoader=false
+        }
+      })
+
       await t.test('mounted short first pages use only five read-only startup requests before real scrolling',async()=>{
         for(const initialCount of [1,12]){
           await act(async()=>root.render(null))

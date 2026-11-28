@@ -37,8 +37,9 @@ p.write_text(s)
 # Background lookahead must not perform the legacy duplicate-to-read mutation.
 # Preserve all existing request owner/epoch and cursor checks in this hook.
 p=WEB/'hooks/useLoadMore.js';s=p.read_text()
+prefetch_signature = '  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {'
+retry_signature = '  const handleLoadMore = async (getEntries, { prefetch = false, onError } = {}) => {'
 for before,after in [
- ('const handleLoadMore = async (getEntries) => {', 'const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {'),
  ('const updateEntries = (newEntries) => {', 'const updateEntries = (newEntries, prefetch = false) => {'),
  ('    markDuplicatesAsRead(duplicateEntries)', '    if (!prefetch) markDuplicatesAsRead(duplicateEntries)'),
  ('updateEntries(newEntries)', 'updateEntries(newEntries, prefetch)'),
@@ -48,10 +49,27 @@ for before,after in [
  else:
   assert s.count(before)==1, 'background prefetch hook anchor missing'
   s=s.replace(before,after,1)
-p.write_text(s)
+
+for before,after in [
+ ('        const filterParams = getFilterParams(contentState.get().entries)\n        if (filterString) {',
+  '        const filterParams = getFilterParams(contentState.get().entries)\n        if (onError) filterParams.loadMoreRequest = true\n        if (filterString) {'),
+ ('      Message.error(polyglot.t("article_list.load_more_error"))',
+  '      if (!onError?.(error)) Message.error(polyglot.t("article_list.load_more_error"))'),
+]:
+ if after in s:
+  assert s.count(after)==1 and before not in s, 'ambiguous load-more retry hook'
+ else:
+  assert s.count(before)==1, 'load-more retry hook anchor missing'
+  s=s.replace(before,after,1)
 
 # A retired view must not retain the current view's pagination slot. Keep the
 # existing boolean guard intact for the calendar overlay applied later.
+native_signature = '  const handleLoadMore = async (getEntries) => {'
+if retry_signature not in s:
+ assert s.count(native_signature) + s.count(prefetch_signature) == 1, 'load-more retry signature anchor missing'
+ s=s.replace(native_signature,retry_signature,1).replace(prefetch_signature,retry_signature,1)
+new_request_owner = retry_signature + '\n    const requestOwner = getLoadMoreOwner()'
+# The signature replacement also upgrades an installation with the old owner guard.
 for old_owner,new_owner in [
  ('const loadingMoreState = atom(false)', '''const getLoadMoreOwner = () => JSON.stringify([
   createArticleListRequestKey({ content: contentState.get(), settings: settingsState.get() }),
@@ -59,8 +77,7 @@ for old_owner,new_owner in [
 ])
 let loadingMoreOwner = null
 const loadingMoreState = atom(false)'''),
- ('  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {', '''  const handleLoadMore = async (getEntries, { prefetch = false } = {}) => {
-    const requestOwner = getLoadMoreOwner()
+ (retry_signature, new_request_owner + '''
     if (loadingMoreOwner !== requestOwner) {
       loadingMoreOwner = requestOwner
       setLoadingMore(false)
@@ -74,4 +91,24 @@ const loadingMoreState = atom(false)'''),
  if new_owner not in s:
   assert s.count(old_owner)==1, 'pagination owner hook anchor missing'
   s=s.replace(old_owner,new_owner,1)
+p.write_text(s)
+
+# Let the progressive list own its retry budget, including network failures
+# that ofetch would otherwise retry internally. Keep the marker out of the URL.
+p=WEB/'apis/entries.js';s=p.read_text()
+helper = '''const getEntriesPage = (baseParams, { loadMoreRequest, ...extraParams }, applyDateFilter) =>
+  apiClient.get(buildEntriesUrl(baseParams, extraParams, applyDateFilter), loadMoreRequest ? { retry: 0 } : undefined)
+
+'''
+for arguments, count in [('baseParams, extraParams', 4), ('baseParams, extraParams, applyDateFilter', 2)]:
+ before = f'  return apiClient.get(buildEntriesUrl({arguments}))'
+ after = f'  return getEntriesPage({arguments})'
+ if after in s:
+  assert s.count(after)==count and before not in s, 'unreviewed list transport for load-more retry'
+ else:
+  assert s.count(before)==count, 'list transport anchor missing'
+  s=s.replace(before,after)
+if helper not in s:
+ assert s.count('export const getAllEntries =')==1 and 'const getEntriesPage =' not in s, 'list transport helper anchor missing'
+ s=s.replace('export const getAllEntries =',helper+'export const getAllEntries =',1)
 p.write_text(s)

@@ -38,6 +38,18 @@ systemctl --user restart ai-news-web
 
 改了 `.private/ai.env` 之后也要重启 `ai-news-web` 才生效。
 
+## 发布后冒烟检查
+
+每次发布前端后，从用于发布的克隆根目录执行：
+
+```bash
+python tests/smoke_live_frontend.py --build /home/ubuntu/ai-news/upstream/reactflux/build
+```
+
+脚本用 gzip 和 identity 分别请求线上页面和 Service Worker，核对两种响应引用的入口包与本地构建一致，并确认入口包可下载。
+
+2026-11-28 排查发现，线上目录残留了 10 月的 `.gz` 文件，支持 gzip 的浏览器一直拿到旧 Service Worker，并继续加载旧入口包。此前手工检查的 `curl` 请求未启用 gzip，只看到了更新后的原文件，因此漏掉了问题。
+
 ## 条目状态的含义
 
 | 状态 | 含义 | 处理 |

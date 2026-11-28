@@ -521,6 +521,39 @@ async def test_gzip_negotiation_static_and_dynamic(browser_api, monkeypatch, db,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("path, sibling_mtime, use_sibling", [
+    ("assets/main.js", 101, True),
+    ("assets/main.js", 100, True),
+    ("assets/main.js", 99, False),
+    ("sw.js", 101, False),
+    ("registerSW.js", 101, False),
+    ("manifest.webmanifest", 101, False),
+    ("index.html", 101, False),
+    ("", 101, False),
+])
+async def test_frontend_precompressed_sibling_freshness(browser_api, monkeypatch, tmp_path, path, sibling_mtime, use_sibling):
+    import gzip
+    import os
+
+    monkeypatch.setattr(api, "ROOT", tmp_path)
+    target = tmp_path / "upstream/reactflux/build" / (path or "index.html")
+    target.parent.mkdir(parents=True)
+    compressed = target.with_name(target.name + ".gz")
+    target.write_bytes(b"plain file")
+    compressed.write_bytes(gzip.compress(b"compressed sibling"))
+    os.utime(target, (100, 100))
+    os.utime(compressed, (sibling_mtime, sibling_mtime))
+
+    result = await browser_api.get(f"/inbox/{path}", headers={"Accept-Encoding": "gzip"})
+
+    assert result.status_code == 200
+    assert result.content == (b"compressed sibling" if use_sibling else b"plain file")
+    assert result.headers.get("content-encoding") == ("gzip" if use_sibling else None)
+    if path:
+        assert result.headers["vary"] == "Accept-Encoding"
+
+
+@pytest.mark.asyncio
 async def test_single_entry_uses_captured_publisher_text_when_reader_only_has_teaser(
     browser_api, entry
 ):
