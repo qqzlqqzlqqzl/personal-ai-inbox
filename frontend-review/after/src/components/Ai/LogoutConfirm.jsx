@@ -50,8 +50,8 @@ export function confirmDraftLogout({ title, description, onConfirm }) {
     okText: !snapshot.scopeKnown ? "仍退出账号" : snapshot.count || !snapshot.storageOK ? "丢弃本地草稿并退出" : "确认退出",
     cancelText: "取消，保留会话",
     okButtonProps: { ...destructiveConfirmButtonProps, status: "danger" },
-    onOk: () => {
-      const result = clearSession({ expected })
+    onOk: async () => {
+      const result = await clearSession({ expected })
       if (result.retired) onConfirm?.(result)
     },
     afterClose: () => unsubscribe(),

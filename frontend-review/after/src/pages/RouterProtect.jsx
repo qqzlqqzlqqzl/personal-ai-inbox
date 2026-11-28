@@ -5,8 +5,9 @@ import { Navigate, Outlet, useLocation, useNavigate } from "react-router"
 
 import useLanguage, { polyglotState } from "@/hooks/useLanguage"
 import useTheme from "@/hooks/useTheme"
+import apiClient from "@/apis/ofetch"
 import { authState } from "@/store/authState"
-import { dataState, setVerifiedServer } from "@/store/dataState"
+import { dataState, getDataSessionRevision, setVerifiedServer } from "@/store/dataState"
 import { setCurrentRoutePath } from "@/store/locationState"
 import isValidAuth, { getAuthSessionKey } from "@/utils/auth"
 import hideSpinner from "@/utils/loading"
@@ -15,6 +16,7 @@ import {
   MINIMUM_MINIFLUX_VERSION,
 } from "@/utils/miniflux-compatibility"
 import { clearSession, resetSessionData } from "@/utils/session"
+import { preloadReaderIdentity } from "@/utils/reader-startup-identity"
 import { getNoteRequestStamp } from "@/utils/note-session"
 import { confirmDraftLogout } from "@/components/Ai/LogoutConfirm"
 import "./RouterProtect.css"
@@ -133,26 +135,39 @@ const RouterProtect = () => {
 
     const abortController = new AbortController()
     let isActive = true
+    let handedOffIdentity = false
     const requestSessionStamp = getNoteRequestStamp()
+    const isCurrent = () => isActive && requestSessionStamp === getNoteRequestStamp()
+    const compatibility = checkMinifluxCompatibility(
+      { password, server, token, username },
+      { signal: abortController.signal },
+    )
+    const discardIdentity = preloadReaderIdentity(authSessionKey, getDataSessionRevision(),
+      apiClient.get("/v1/me", {
+        signal: abortController.signal,
+        startupCompatibility: compatibility.then(
+          result => isCurrent() && result.status === "supported",
+          () => false,
+        ),
+      }))
 
     const checkCompatibility = async () => {
       try {
-        const result = await checkMinifluxCompatibility(
-          { password, server, token, username },
-          { signal: abortController.signal },
-        )
+        const result = await compatibility
 
-        if (!isActive || requestSessionStamp !== getNoteRequestStamp()) {
+        if (!isCurrent()) {
           return
         }
 
         if (result.status === "supported") {
+          handedOffIdentity = true
           setVerifiedServer({ authSessionKey, version: result.version })
           return
         }
 
         if (result.status === "unsupported") {
-          clearSession()
+          const { retired } = await clearSession()
+          if (!retired) return
           void navigate("/login", {
             replace: true,
             state: {
@@ -176,12 +191,13 @@ const RouterProtect = () => {
           version: result.version,
         })
       } catch (error) {
-        if (!isActive || requestSessionStamp !== getNoteRequestStamp()) {
+        if (!isCurrent()) {
           return
         }
 
         if (error?.status === 401) {
-          clearSession()
+          const { retired } = await clearSession()
+          if (!retired) return
           void navigate("/login", { replace: true, state: { from: currentLocation } })
           return
         }
@@ -203,7 +219,10 @@ const RouterProtect = () => {
 
     return () => {
       isActive = false
-      abortController.abort()
+      if (!handedOffIdentity) {
+        discardIdentity()
+        abortController.abort()
+      }
     }
   }, [
     authSessionKey,

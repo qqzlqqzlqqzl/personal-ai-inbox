@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-const root = new URL("../upstream/reactflux/src/", import.meta.url);
+import { pathToFileURL } from "node:url";
+import { resolve, sep } from "node:path";
+const root = process.env.READER_UX_SOURCE
+  ? pathToFileURL(resolve(process.env.READER_UX_SOURCE, "src") + sep)
+  : new URL("../upstream/reactflux/src/", import.meta.url);
 const source = (name) => fs.readFileSync(new URL(name, root), "utf8").replace(/^import[\s\S]*?from ["'][^"']+["']\s*$/gm, "").replace(/^export default .*$/gm, "");
 const dedupe = new Function(source("utils/deduplicate.js") + ";return removeDuplicateEntries")();
 let state = {entries: [], articleListOffset: 0, articleListSnapshotRevision: 0, infoFrom: "all", filterString: ""};
@@ -18,6 +22,7 @@ const dependencies = {
   incrementArticleListSnapshotRevision: () => {state.articleListSnapshotRevision++},
   setLoadMoreError: () => {}, aiFilterEnabled: () => true, AI_PAGE_SIZE: 24,
   createArticleListRequestKey: () => "same", getDataSessionRevision: () => 1, getReadingCalendarSnapshot: () => ({ready:true}),
+  getNoteRequestStamp: () => "test-session", getArticleSnapshotContext: () => null, matchesArticleSnapshot: () => false,
   getEntryMutationSnapshot: () => ({pendingRequests: 0}), isEntryMutationSnapshotCurrent: () => true,
   Message: {error: message => {throw Error(message)}},
 };
@@ -31,6 +36,12 @@ assert.equal(state.articleListOffset, 24);
 const {handleLoadMore} = useLoadMore();
 const offsets = [];
 const fetchPage = async (_status, _starred, params) => {offsets.push(params.offset);return {entries: records.slice(params.offset, params.offset + params.limit), total: 52}};
+state.articleListCache = {status: "refreshing"};
+await handleLoadMore(fetchPage);
+state.articleListCache = {status: "offline"};
+await handleLoadMore(fetchPage);
+assert.deepEqual(offsets, [], "cached results cannot paginate even if live readiness changes");
+delete state.articleListCache;
 await handleLoadMore(fetchPage);
 assert.equal(state.entries.length, 1);
 assert.equal(state.articleListOffset, 48);
@@ -261,3 +272,61 @@ for(const scenario of ['unchanged','manual-retry','sort','source','view']){
   assert.equal(state.loadMoreError,false);
 }
 console.log('PASS real first-page effect preserves one recovery, with normal append and view/source/sort/manual reset');
+
+// Drive the actual first-page effect with a small storage fixture and a
+// deferred live response so cached and live readiness can be observed apart.
+const snapshotContext = { owner: 'verified-user', signature: 'matching-view', isDefault: true };
+const snapshot = { ...snapshotContext, entries: [{ id: 90, title: 'Cached row' }] };
+const saves = [];
+dependencies.getArticleSnapshotContext = () => snapshotContext;
+dependencies.matchesArticleSnapshot = (cached, context) =>
+  Boolean(cached && context && cached.owner === context.owner && cached.signature === context.signature);
+dependencies.contentState.set = updated => { state = updated };
+for (const outcome of ['success', 'offline', 'live-first']) {
+  resetDynamic();
+  recoveryRefs = [];
+  recoverySlot = 0;
+  let requested = false;
+  const disk = Promise.withResolvers(), live = Promise.withResolvers();
+  dependencies.articleSnapshots = {
+    read: () => disk.promise,
+    save: (...args) => { saves.push(args) },
+  };
+  const useList = evaluate('hooks/useArticleList.js', 'useArticleList');
+  const request = useList('all', null, () => {
+    requested = true;
+    return live.promise;
+  }).fetchArticleList();
+  assert.equal(requested, true, 'storage does not delay the first network request');
+  assert.equal(state.isArticleListReady, false);
+  if (outcome !== 'live-first') {
+    disk.resolve(snapshot);
+    await Promise.resolve();
+    assert.equal(state.articleListCache.status, 'refreshing');
+    assert.deepEqual(state.articleListCache.entries.map(entry => entry.id), [90]);
+    assert.equal(state.isArticleListReady, false);
+  }
+  if (outcome === 'offline') {
+    const previousConsoleError = console.error;
+    try {
+      console.error = () => {};
+      live.reject(new Error('synthetic unavailable response'));
+      await request;
+    } finally {
+      console.error = previousConsoleError;
+    }
+    assert.equal(state.articleListCache.status, 'offline');
+    assert.equal(state.isArticleListReady, false);
+    continue;
+  }
+  live.resolve({ entries: base.slice(0, 24), total: base.length, ai_revision: revisionA });
+  await request;
+  disk.resolve(snapshot);
+  await Promise.resolve();
+  assert.equal(Boolean(state.articleListCache), false, 'the live commit wins even if storage responds later');
+  assert.equal(state.isArticleListReady, true);
+  assert.equal(state.entries.length, 24);
+  assert.equal(saves.at(-1)[2].offset, 24);
+}
+assert.equal(saves.length, 2);
+console.log('PASS cached first page, offline retention, live swap and late storage rejection');

@@ -154,6 +154,7 @@ def main():
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_scope_ai_filters.py")], check=True, env=env, timeout=60)
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_reader_detail_quality.py")], check=True, env=env, timeout=60)
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_reader_entry_defaults.py")], check=True, env=env, timeout=60)
+    subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_reader_snapshots.py")], check=True, env=env, timeout=60)
     subprocess.run([str(ROOT / "runtime/venv/bin/python"), str(ROOT / "src/patch_interaction_review.py")], check=True, env=env, timeout=60)
     from install_agent_status import install as install_agent_status
     install_agent_status(ROOT)

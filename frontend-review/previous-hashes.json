@@ -82,10 +82,18 @@
     "e695c84e70440a4b2395a6ad54766e70dc4f17f040c0ccff1014c13830a5852c"
   ],
   "src/utils/session.js": [
-    "6ac874324a1cea90243ed5fc2793eae6797024e324c5195920d4bad9c1ebf93d"
+    "6ac874324a1cea90243ed5fc2793eae6797024e324c5195920d4bad9c1ebf93d",
+    "98f4c8eb922f06ba213b994e3afbe4475053795c567d0d8f681adb89401a3183"
   ],
   "src/components/Ai/LogoutConfirm.jsx": [
-    "f80e0ee378e3b6d1b3984282ba4c01a4855fed8f7fb80b266dfd3be4f6b62e73"
+    "f80e0ee378e3b6d1b3984282ba4c01a4855fed8f7fb80b266dfd3be4f6b62e73",
+    "26966457051f595d348b3dfdd6ca585a4451728ad25bde29f164d5d448e329b3"
+  ],
+  "src/apis/ofetch.js": [
+    "9e65b3a26fc758b66b4f86092a13db8d6ce0d8542ab3e4ce383d58b0b86d16da"
+  ],
+  "src/pages/RouterProtect.jsx": [
+    "c49329f7cd7bdef94d054f34928c728d8dabf0bb48bc3671f2815e1327146d5d"
   ],
   "src/components/Ai/ReadingControls.jsx": [
     "733c5102b090d4121afaa3635342dcfe05c13fdf823ab00547215d44d554eba7",
@@ -120,7 +128,8 @@
   "src/components/HomeRedirect.jsx": [
     "7d1eaf7710294dc5cd9f3fdf53ca92d849988d00a6a969f7bd0e389e25869159",
     "ba4981906190599d87de175a95cfeef19bef891cc23467fac43b31597ca8392c",
-    "8c49d8d6b874ab06fe001cc80976b2a6af185aaac07cbc211ec513b677696611"
+    "8c49d8d6b874ab06fe001cc80976b2a6af185aaac07cbc211ec513b677696611",
+    "38537965c5ea51a8675688f63fbd560bbf9f78a9c50b6a358919528f522282e5"
   ],
   "src/components/Ai/MobileReader.css": [
     "4c60b8db65fb5476e128a353d16e82451f5d788226a5fb6dac9a278d47ba4668"

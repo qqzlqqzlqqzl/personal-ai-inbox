@@ -103,6 +103,7 @@ def test_inbox_root_restores_account_reading_state_with_all_default():
     assert 'homePage: enumSetting("all"' in settings
     assert 'target.id === "all" ? "/today"' not in home
     assert "resetInboxLandingView" not in home
-    assert 'lastReading(identity)?.target || (homeTarget.type === "view" ? { type: "view", id: "all" } : homeTarget)' in home
+    assert 'const lastTarget = lastReading(identity)?.target' in home
+    assert 'lastTarget || (homeTarget.type === "view" ? { type: "view", id: "all" } : homeTarget)' in home
     assert "restoreReading(identity)" in home
     assert "rememberReading(identity, location.pathname)" in read("components/HomePageManager.jsx")

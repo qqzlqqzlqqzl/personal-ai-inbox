@@ -37,7 +37,7 @@ def install(root):
             # os.replace consumes the file on success. Keep a failed temporary
             # write in place for inspection instead of deleting its evidence.
             pass
-    return [str(path.relative_to(web)) for path,_ in planned]
+    return [path.relative_to(web).as_posix() for path,_ in planned]
 
 
 if __name__=='__main__':

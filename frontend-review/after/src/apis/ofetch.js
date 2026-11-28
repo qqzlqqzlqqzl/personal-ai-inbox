@@ -4,7 +4,7 @@ import router from "@/routes"
 import { authState } from "@/store/authState"
 import { getDataSessionRevision } from "@/store/dataState"
 import isValidAuth from "@/utils/auth"
-import { clearSession } from "@/utils/session"
+import { clearSession, isSessionClearing } from "@/utils/session"
 import { getNoteRequestStamp } from "@/utils/note-session"
 
 const REQUEST_AUTH_SESSION_KEY = Symbol("requestAuth")
@@ -35,7 +35,7 @@ const createApiClient = () => {
       const auth = authState.get()
       const requestSession = options[REQUEST_AUTH_SESSION_KEY]
 
-      if (requestSession && !isCurrentRequestSession(requestSession, auth)) {
+      if (isSessionClearing() || (requestSession && !isCurrentRequestSession(requestSession, auth))) {
         throw new Error("Stale auth request")
       }
       if (!isValidAuth(auth)) {
@@ -62,12 +62,13 @@ const createApiClient = () => {
       const statusCode = response.status
       if (
         statusCode === 401 &&
+        (!options.startupCompatibility || (await options.startupCompatibility)) &&
         isCurrentRequestSession(options[REQUEST_AUTH_SESSION_KEY], authState.get())
       ) {
         const { location } = router.state
         const from = `${location.pathname}${location.search}${location.hash}`
-        clearSession()
-        await router.navigate("/login", { replace: true, state: { from } })
+        const { retired } = await clearSession()
+        if (retired) await router.navigate("/login", { replace: true, state: { from } })
       }
       // 处理响应错误
       const errorMessage = response._data?.error_message ?? response.statusText

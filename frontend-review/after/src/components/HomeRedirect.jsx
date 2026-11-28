@@ -1,13 +1,17 @@
 import { Button, Result, Spin } from "@arco-design/web-react"
 import { useStore } from "@nanostores/react"
-import { useLayoutEffect } from "react"
+import { useEffect, useLayoutEffect, useState } from "react"
 import { Navigate, useNavigate } from "react-router"
 
 import useAppData from "@/hooks/useAppData"
 import { polyglotState } from "@/hooks/useLanguage"
 import { lastReading, restoreReading } from "@/store/readingLandingState"
+import { contentState } from "@/store/contentState"
 import { dataState, visibleCategoriesState, visibleFeedsState } from "@/store/dataState"
 import { currentHomeTargetState, homeIdentityState } from "@/store/homePageState"
+import { settingsState } from "@/store/settingsState"
+import { articleSnapshots } from "@/utils/article-list-snapshot"
+import { getArticleSnapshotContext, matchesArticleSnapshot } from "@/utils/article-list-snapshot-context"
 import { getHomeTargetPath, isHomeTargetInCatalog } from "@/utils/home-page"
 import { confirmDraftLogout } from "@/components/Ai/LogoutConfirm"
 
@@ -41,15 +45,32 @@ const ErrorState = ({ description, logoutLabel, retryLabel, title, onLogout, onR
 const HomeRedirect = () => {
   const identity = useStore(homeIdentityState)
   const homeTarget = useStore(currentHomeTargetState)
-  const target = lastReading(identity)?.target || (homeTarget.type === "view" ? { type: "view", id: "all" } : homeTarget)
+  const lastTarget = lastReading(identity)?.target
+  const target = lastTarget || (homeTarget.type === "view" ? { type: "view", id: "all" } : homeTarget)
   const { loadState } = useStore(dataState, { keys: ["loadState"] })
   const categories = useStore(visibleCategoriesState)
   const feeds = useStore(visibleFeedsState)
   const { polyglot } = useStore(polyglotState)
   const { refreshFeedData, refreshIdentity } = useAppData()
   const navigate = useNavigate()
+  const [cachedLanding, setCachedLanding] = useState(null)
 
   useLayoutEffect(() => { if (identity) restoreReading(identity) }, [identity])
+
+  const cachedScope = lastTarget?.type
+  const cachedId = lastTarget?.id
+  const catalogReady = loadState.catalog.hasSnapshot
+  useEffect(() => {
+    if (!identity || catalogReady || !["feed", "category"].includes(cachedScope)) return
+    const info = { from: cachedScope, id: cachedId }
+    const context = getArticleSnapshotContext(contentState.get(), settingsState.get(), info)
+    if (!context) return
+    let active = true
+    void articleSnapshots.read(context.owner, context.signature).then(snapshot => {
+      if (active && snapshot) setCachedLanding(context)
+    })
+    return () => { active = false }
+  }, [cachedId, cachedScope, catalogReady, identity, loadState.identity])
 
   const handleLogout = () => {
     confirmDraftLogout({
@@ -81,6 +102,11 @@ const HomeRedirect = () => {
   }
 
   if (!loadState.catalog.hasSnapshot) {
+    if (cachedLanding && matchesArticleSnapshot(cachedLanding, getArticleSnapshotContext(
+      contentState.get(), settingsState.get(), { from: target.type, id: target.id },
+    ))) {
+      return <Navigate replace state={{ cachedReadingTarget: target }} to={getHomeTargetPath(target)} />
+    }
     if (loadState.catalog.error) {
       return (
         <ErrorState

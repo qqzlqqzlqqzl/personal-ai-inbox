@@ -201,6 +201,16 @@ class CatalogOverlayTests(unittest.TestCase):
         for name, value in previous_reader_overlays.items():
             self.assertNotIn(value, old.get(name, []))
             old.setdefault(name, []).append(value)
+        # Admit the exact reviewed sources preceding verified article snapshots.
+        for name, expected in {
+            'src/utils/session.js': '98f4c8eb922f06ba213b994e3afbe4475053795c567d0d8f681adb89401a3183',
+            'src/components/Ai/LogoutConfirm.jsx': '26966457051f595d348b3dfdd6ca585a4451728ad25bde29f164d5d448e329b3',
+            'src/apis/ofetch.js': '9e65b3a26fc758b66b4f86092a13db8d6ce0d8542ab3e4ce383d58b0b86d16da',
+            'src/pages/RouterProtect.jsx': 'c49329f7cd7bdef94d054f34928c728d8dabf0bb48bc3671f2815e1327146d5d',
+            'src/components/HomeRedirect.jsx': '38537965c5ea51a8675688f63fbd560bbf9f78a9c50b6a358919528f522282e5',
+        }.items():
+            self.assertNotIn(expected, old.get(name, []))
+            old.setdefault(name, []).append(expected)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):

@@ -425,7 +425,7 @@ for(const cancel of ['close','auth','source']){
   '@/routes': `export default {state:{location:{pathname:'/inbox/all',search:'',hash:''}},navigate:async()=>{throw Error('unexpected unauthorized redirect')}}`,
   '@/store/authState': `export const authState=F.auth`,
   '@/store/dataState': `export const getDataSessionRevision=()=>F.data.get().sessionRevision;export const isEntryScopeFullyVisible=()=>false`,
-  '@/utils/session': `export const clearSession=()=>{throw Error('unexpected session clear')}`,
+  '@/utils/session': `export const clearSession=()=>{throw Error('unexpected session clear')};export const isSessionClearing=()=>false`,
   '@/utils/note-session': `export const getNoteRequestStamp=()=> 'synthetic-loopback-session'`,
   '@/store/aiState': `export const getAiQuery=()=>({})`,
   '@/store/contentState': `export const contentState=F.content`,
