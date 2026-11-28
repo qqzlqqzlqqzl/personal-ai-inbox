@@ -83,13 +83,15 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}, {
   const timers = new Map()
   let queue = []
   let closed = false
+  // The slot count may follow a live policy (e.g. AI picks) without replacing the loader.
+  const limit = () => (typeof slots === "function" ? slots() : slots) ?? THUMBNAIL_PREFETCH_SLOTS
   const cancelImage = image => {
     image.onload = image.onerror = null
     image.removeAttribute?.("srcset")
     image.removeAttribute?.("src")
   }
   const drain = () => {
-    while (!closed && pending.size < slots && queue.length && canStart()) {
+    while (!closed && pending.size < limit() && queue.length && canStart()) {
       const item = queue.shift()
       queuedKeys.delete(item.key)
       loader.warm([null, item.entry], 0, item.width, item.origin, item.ratio)
@@ -123,7 +125,7 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}, {
       if (closed || !canStart() || lastVisible < 0 || !Number.isFinite(width) || width <= 0) return
       const candidate = [480, 960, 1600].find(value => value >= width * ratio) ?? 1600
       for (const entry of entries.slice(lastVisible + 1, lastVisible + 7)) {
-        if (pending.size >= slots) break
+        if (pending.size >= limit()) break
         const props = readerThumbnailProps(entry, origin)
         if (!props.srcSet) continue
         const key = `${props.srcSet}:${candidate}`

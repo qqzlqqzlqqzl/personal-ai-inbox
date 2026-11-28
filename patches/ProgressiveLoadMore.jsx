@@ -39,17 +39,28 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   latest.current = { isArticleListReady, loadMoreVisible, loadingMore, loadMoreError, snapshot, indexes, entries, handleLoadMore, getEntries }
 
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false } }, [])
+  // One loader for the component's lifetime: downloads already in flight keep the
+  // shared slots across snapshot changes; only work not yet started is retired.
+  const policyRef = useRef({ owns: false, slots: undefined, canStart: () => false })
   useLayoutEffect(() => {
-    if (!ownsResult) return
     const loader = createThumbnailPreloader(() => new Image(), () => imageSettledRef.current?.(), {
-      slots: isAiPicks ? AI_COVER_PREFETCH_SLOTS : undefined,
-      canStart: () => articleListResultReadyState.get() &&
-        listSnapshot(contentState.get(), dataState.get().sessionRevision) === snapshot &&
-        (!isAiPicks || canPrefetchAiCovers(navigator.connection)),
+      slots: () => policyRef.current.slots,
+      canStart: () => policyRef.current.canStart(),
     })
     thumbnailsRef.current = loader
-    offeredCoversRef.current = { snapshot, count: 0, firstPage: null }
     return () => { loader.dispose(); thumbnailsRef.current = null }
+  }, [])
+
+  useLayoutEffect(() => {
+    policyRef.current = {
+      owns: ownsResult,
+      slots: isAiPicks ? AI_COVER_PREFETCH_SLOTS : undefined,
+      canStart: () => ownsResult && articleListResultReadyState.get() &&
+        listSnapshot(contentState.get(), dataState.get().sessionRevision) === snapshot &&
+        (!isAiPicks || canPrefetchAiCovers(navigator.connection)),
+    }
+    thumbnailsRef.current?.reset()
+    offeredCoversRef.current = { snapshot, count: 0, firstPage: null }
   }, [snapshot, isAiPicks, ownsResult, layout])
 
   useLayoutEffect(() => {
@@ -115,7 +126,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       coverFrame = 0
     }
     const offerCovers = () => {
-      if (stopped || !root || !thumbnailsRef.current) return false
+      if (stopped || !root || !thumbnailsRef.current || !policyRef.current.owns) return false
       const s = latest.current
       const offered = offeredCoversRef.current
       if (!s.isArticleListReady || s.snapshot !== snapshot || offered.snapshot !== s.snapshot) return false
