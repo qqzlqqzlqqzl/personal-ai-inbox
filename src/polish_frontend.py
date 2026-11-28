@@ -12,7 +12,7 @@ def replace(path, old, new):
     s = p.read_text()
     if new in s:
         return
-    if old in s:
+    if s.count(old) == 1:
         p.write_text(s.replace(old, new, 1))
     else:
         raise RuntimeError("Missing patch anchor: " + path)
@@ -48,6 +48,25 @@ replace(
     "vite.config.js",
     "        cleanupOutdatedCaches: true,",
     "        cleanupOutdatedCaches: true,\n        clientsClaim: true,\n        navigateFallbackDenylist: [/^\\/mf(?:\\/|$)/, /^\\/(?:healthz|readyz|deployment)(?:\\/|$)/],",
+)
+replace(
+    "vite.config.js",
+    "        runtimeCaching: [\n",
+    r"""        runtimeCaching: [
+          {
+            urlPattern: ({ sameOrigin, url }) =>
+              sameOrigin &&
+              /^\/mf\/proxy\/[A-Za-z0-9_-]{43}=\/[A-Za-z0-9_=-]{1,8192}$/.test(url.pathname) &&
+              (url.search === "" || /^\?reader_width=(480|960|1600)$/.test(url.search)),
+            method: "GET",
+            handler: "CacheFirst",
+            options: {
+              cacheName: "reader-images-v1",
+              expiration: { maxEntries: 300, maxAgeSeconds: 7 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+""",
 )
 replace(
     "src/components/Sidebar/Sidebar.jsx",

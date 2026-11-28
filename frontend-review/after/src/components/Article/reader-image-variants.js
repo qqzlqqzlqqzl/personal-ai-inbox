@@ -3,6 +3,15 @@ const SIGNED_PROXY = /^\/mf\/proxy\/[A-Za-z0-9_-]{43}=\/[A-Za-z0-9_=-]{1,8192}$/
 // Keep resized natural width above the existing 768px big-image threshold.
 const WIDTHS = [960, 1600]
 const THUMBNAIL_PREFETCH_SLOTS = 6
+export const AI_COVER_PREFETCH_SLOTS = 2
+const AI_COVER_PREFETCH_LIMIT = 20
+
+export const canPrefetchAiCovers = connection =>
+  !connection?.saveData && !["slow-2g", "2g"].includes(connection?.effectiveType)
+
+export const firstAiCoverEntries = entries => entries.slice(0, AI_COVER_PREFETCH_LIMIT)
+
+export const thumbnailFallbackWidth = viewport => viewport <= 768 ? viewport - 32 : 480
 
 export function readerImageProps(props, viewport = 768, ratio = 1, origin) {
   let path = props.src
@@ -65,14 +74,22 @@ export function readerThumbnailProps(entry, origin) {
 }
 
 // Queue already-loaded covers using the mounted card's width and shared slots.
-export function createThumbnailPreloader(createImage, onSettled = () => {}, { setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+export function createThumbnailPreloader(createImage, onSettled = () => {}, {
+  slots = THUMBNAIL_PREFETCH_SLOTS, canStart = () => true,
+  setTimer = setTimeout, clearTimer = clearTimeout,
+} = {}) {
   const seen = new Set(), pending = new Set(), pendingKeys = new Set()
   const queuedKeys = new Set()
   const timers = new Map()
   let queue = []
   let closed = false
+  const cancelImage = image => {
+    image.onload = image.onerror = null
+    image.removeAttribute?.("srcset")
+    image.removeAttribute?.("src")
+  }
   const drain = () => {
-    while (!closed && pending.size < THUMBNAIL_PREFETCH_SLOTS && queue.length) {
+    while (!closed && pending.size < slots && queue.length && canStart()) {
       const item = queue.shift()
       queuedKeys.delete(item.key)
       loader.warm([null, item.entry], 0, item.width, item.origin, item.ratio)
@@ -103,10 +120,10 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}, { se
       queuedKeys.clear()
     },
     warm(entries, lastVisible, width, origin, ratio = 1) {
-      if (closed || lastVisible < 0 || !Number.isFinite(width) || width <= 0) return
+      if (closed || !canStart() || lastVisible < 0 || !Number.isFinite(width) || width <= 0) return
       const candidate = [480, 960, 1600].find(value => value >= width * ratio) ?? 1600
       for (const entry of entries.slice(lastVisible + 1, lastVisible + 7)) {
-        if (pending.size >= THUMBNAIL_PREFETCH_SLOTS) break
+        if (pending.size >= slots) break
         const props = readerThumbnailProps(entry, origin)
         if (!props.srcSet) continue
         const key = `${props.srcSet}:${candidate}`
@@ -136,7 +153,7 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}, { se
           // A hung or cancelled old download must not occupy one of the six
           // lookahead slots for the remainder of a long reading session.
           const settle = image.onerror
-          if (settle) { image.src = ""; settle() }
+          if (settle) { cancelImage(image); settle() }
         }, 15000))
       }
     },
@@ -144,7 +161,7 @@ export function createThumbnailPreloader(createImage, onSettled = () => {}, { se
       closed = true
       queue = []
       queuedKeys.clear()
-      for (const image of pending) image.onload = image.onerror = null
+      for (const image of pending) cancelImage(image)
       for (const timer of timers.values()) clearTimer(timer)
       timers.clear()
       pending.clear()

@@ -56,7 +56,9 @@ with client() as api:
             page.on('pageerror', lambda e: errors.append(str(e)))
             login(page)
             check('disabled_translation_has_no_waiting_stripe', page.locator('.card-language-status').count() == 0)
+            page.locator('.ai-status-badge').hover()
             check('active_kaggle_pipeline_explained_once_in_toolbar', 'Kaggle 持续增量处理' in page.locator('.ai-progress').inner_text())
+            page.keyboard.press('Escape')
             for option, field, direction in [
                 ('published_at_asc', 'time', 'asc'),
                 ('published_at_desc', 'time', 'desc'),

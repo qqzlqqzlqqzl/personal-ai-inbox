@@ -1,11 +1,16 @@
 import { Button, Spin } from "@arco-design/web-react"
 import { useStore } from "@nanostores/react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import useLoadMore from "@/hooks/useLoadMore"
-import { contentState, filteredEntriesState } from "@/store/contentState"
+import { aiState } from "@/store/aiState"
+import { articleListResultReadyState, contentState, filteredEntriesState } from "@/store/contentState"
 import { dataState } from "@/store/dataState"
+import { articleListLayoutState } from "@/store/settingsState"
 import { nextWindow, resumeStalledWindow, prefetchDecision, autoPrefetchDecision, scheduleAutoPrefetch, AUTO_PREFETCH_PAGES } from "@/utils/reading-session"
-import { createThumbnailPreloader } from "@/components/Article/reader-image-variants"
+import { AI_COVER_PREFETCH_SLOTS, canPrefetchAiCovers, createThumbnailPreloader, firstAiCoverEntries, thumbnailFallbackWidth } from "@/components/Article/reader-image-variants"
+
+const listSnapshot = ({ infoFrom, infoId, articleListSnapshotRevision }, sessionRevision) =>
+  `${sessionRevision}:${infoFrom}:${infoId}:${articleListSnapshotRevision}`
 
 /** Warm five additional pages, then retain the existing scroll/manual policy. */
 export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
@@ -14,9 +19,13 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   })
   const entries = useStore(filteredEntriesState)
   const { sessionRevision } = useStore(dataState, { keys: ["sessionRevision"] })
+  const { mode, auxiliary } = useStore(aiState)
+  const isAiPicks = mode === "recommended" && auxiliary !== "pending"
+  const ownsResult = useStore(articleListResultReadyState)
+  const layout = useStore(articleListLayoutState)
   const { handleLoadMore, loadMoreError, loadingMore } = useLoadMore()
   const indexes = useMemo(() => new Map(entries.map((e, i) => [String(e.id), i])), [entries])
-  const snapshot = `${sessionRevision}:${infoFrom}:${infoId}:${articleListSnapshotRevision}`
+  const snapshot = listSnapshot({ infoFrom, infoId, articleListSnapshotRevision }, sessionRevision)
   const windowRef = useRef(null)
   const attemptRef = useRef(null)
   const autoRef = useRef({ snapshot: null, started: 0 })
@@ -30,17 +39,25 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
   latest.current = { isArticleListReady, loadMoreVisible, loadingMore, loadMoreError, snapshot, indexes, entries, handleLoadMore, getEntries }
 
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false } }, [])
-  useEffect(() => {
-    thumbnailsRef.current = createThumbnailPreloader(() => new Image(), () => imageSettledRef.current?.())
-    return () => { thumbnailsRef.current.dispose(); thumbnailsRef.current = null }
-  }, [])
+  useLayoutEffect(() => {
+    if (!ownsResult) return
+    const loader = createThumbnailPreloader(() => new Image(), () => imageSettledRef.current?.(), {
+      slots: isAiPicks ? AI_COVER_PREFETCH_SLOTS : undefined,
+      canStart: () => articleListResultReadyState.get() &&
+        listSnapshot(contentState.get(), dataState.get().sessionRevision) === snapshot &&
+        (!isAiPicks || canPrefetchAiCovers(navigator.connection)),
+    })
+    thumbnailsRef.current = loader
+    offeredCoversRef.current = { snapshot, count: 0, firstPage: null }
+    return () => { loader.dispose(); thumbnailsRef.current = null }
+  }, [snapshot, isAiPicks, ownsResult, layout])
 
-  useEffect(() => {
-    if (!isArticleListReady || offeredCoversRef.current.snapshot !== snapshot) {
-      thumbnailsRef.current?.reset()
-      offeredCoversRef.current = { snapshot, count: 0 }
+  useLayoutEffect(() => {
+    const offered = offeredCoversRef.current
+    if (isAiPicks && ownsResult && offered.snapshot === snapshot && offered.firstPage === null && entries.length) {
+      offered.firstPage = firstAiCoverEntries(entries)
     }
-  }, [isArticleListReady, snapshot])
+  }, [isAiPicks, ownsResult, snapshot, entries, layout])
 
   useEffect(() => {
     if (!isArticleListReady) return
@@ -98,17 +115,24 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       coverFrame = 0
     }
     const offerCovers = () => {
-      if (stopped || !root) return false
+      if (stopped || !root || !thumbnailsRef.current) return false
       const s = latest.current
       const offered = offeredCoversRef.current
       if (!s.isArticleListReady || s.snapshot !== snapshot || offered.snapshot !== s.snapshot) return false
-      if (offered.count >= s.entries.length) { offered.count = s.entries.length; stopCoverWait(); return true }
+      const candidates = isAiPicks ? offered.firstPage ?? [] : s.entries
+      if (!candidates.length || offered.count >= candidates.length) { stopCoverWait(); return true }
+      if (isAiPicks && !canPrefetchAiCovers(navigator.connection)) {
+        offered.count = candidates.length
+        stopCoverWait()
+        return true
+      }
       const cover = root.querySelector('.grid-card-cover, .grid-card-media')
-      const width = cover?.getBoundingClientRect().width
+      const width = cover?.getBoundingClientRect().width ??
+        (isAiPicks && layout !== "card" && root.querySelector("[data-entry-id]")
+          ? thumbnailFallbackWidth(window.innerWidth) : 0)
       if (!(width > 0)) return false
-      const start = Math.min(offered.count, s.entries.length)
-      thumbnailsRef.current?.enqueue(s.entries.slice(start), width, window.location.origin, window.devicePixelRatio)
-      offered.count = s.entries.length
+      thumbnailsRef.current.enqueue(candidates.slice(offered.count), width, window.location.origin, window.devicePixelRatio)
+      offered.count = candidates.length
       stopCoverWait()
       return true
     }
@@ -134,7 +158,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
       const first = visible[0]
       const index = first ? (s.indexes.get(first.dataset.entryId) ?? -1) : -1
       const coverWidth = root.querySelector('.grid-card-cover, .grid-card-media')?.getBoundingClientRect().width
-      if (index >= 0 && coverWidth > 0) thumbnailsRef.current?.prioritize(
+      if (!isAiPicks && index >= 0 && coverWidth > 0) thumbnailsRef.current?.prioritize(
         s.entries.slice(index, index + 12), coverWidth, window.location.origin, window.devicePixelRatio)
       if (!offerCovers()) waitForCovers()
       if (!s.loadMoreVisible || s.loadingMore || s.loadMoreError || inFlightRef.current?.snapshot === s.snapshot) return
@@ -173,7 +197,7 @@ export default function ProgressiveLoadMore({ getEntries, scrollRootRef }) {
     }
     connect()
     return () => { stopped = true; stopCoverWait(); cancelAnimationFrame(frame); root?.removeEventListener('scroll', onScroll); if (imageSettledRef.current === schedule) imageSettledRef.current = null }
-  }, [isArticleListReady, snapshot, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled, scrollRootRef])
+  }, [isArticleListReady, snapshot, ownsResult, isAiPicks, layout, entries.length, articleListOffset, loadingMore, loadMoreError, loadMoreVisible, settled, scrollRootRef])
 
   if (!isArticleListReady) return null
   return <div className="load-more-container" role="status" aria-live="polite" data-prefetch-fraction="0.25" data-loaded-count={entries.length} data-more={String(loadMoreVisible)} data-cursor={articleListOffset}>

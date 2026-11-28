@@ -192,6 +192,15 @@ class CatalogOverlayTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(prior_mobile).hexdigest(), mobile_sha)
         self.assertNotIn(mobile_sha, old.get(mobile, []))
         old.setdefault(mobile, []).append(mobile_sha)
+        previous_reader_overlays = {
+            'src/components/Ai/AiToolbar.jsx': '40152cab3ed4b517a739b850375f1955f7aaedd293ee05a393e04a96ebb10e6f',
+            'src/components/Article/ArticleGridCard.jsx': '21d43985e435027b52d3e8400ab89d0989748a9c5c36d7f7662c304719c9e0ed',
+            'src/components/Article/card-summary.js': '03df4723c4962294ac42aecafdb29a4ce4349358dd7dc867ff539fc2f1488e5a',
+            'src/components/Article/reader-image-variants.js': 'd86b1cafea47621d2da853212cea97b224bf0bc0465c17a39bb74dd859aac8ac',
+        }
+        for name, value in previous_reader_overlays.items():
+            self.assertNotIn(value, old.get(name, []))
+            old.setdefault(name, []).append(value)
         self.assertEqual(old, new)
 
     def test_browser_entry_requires_explicit_sandbox_before_construction(self):

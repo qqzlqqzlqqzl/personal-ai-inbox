@@ -1,15 +1,61 @@
 import { useStore } from "@nanostores/react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useReducer, useRef, useState } from "react"
 
 import AiPanel from "./AiPanel"
 import { kaggleStatus } from "./kaggle-status"
 import NavigationPalette from "./NavigationPalette"
+import { initialStatusPopover, isStatusPopoverOpen, updateStatusPopover } from "./status-popover"
 
 import apiClient from "@/apis/ofetch"
 import { aiState } from "@/store/aiState"
 import { invalidateArticleList } from "@/store/contentState"
 import "./AiNews.css"
 import "./MobileReader.css"
+
+function DesktopStatus({ label, children }) {
+  const [state, update] = useReducer(updateStatusPopover, initialStatusPopover)
+  const expanded = isStatusPopoverOpen(state)
+  const id = useId()
+  const root = useRef(null), trigger = useRef(null)
+
+  useEffect(() => {
+    if (!expanded) return
+    const onKeyDown = event => {
+      if (event.key !== "Escape" || event.defaultPrevented) return
+      if (root.current?.contains(document.activeElement)) {
+        event.preventDefault()
+        trigger.current?.focus({ preventScroll: true })
+      }
+      update("dismiss")
+    }
+    const onPointerDown = event => {
+      if (!root.current?.contains(event.target)) update("dismiss")
+    }
+    document.addEventListener("keydown", onKeyDown)
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => {
+      document.removeEventListener("keydown", onKeyDown)
+      document.removeEventListener("pointerdown", onPointerDown)
+    }
+  }, [expanded])
+
+  return <div className="ai-desktop-status" ref={root}
+    onPointerEnter={event => { if (event.pointerType !== "touch") update("enter") }}
+    onPointerLeave={() => update("leave")}
+    onFocus={event => {
+      if (!event.currentTarget.contains(event.relatedTarget) && event.target.matches(":focus-visible")) update("focus")
+    }}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) update("blur") }}>
+    <button type="button" ref={trigger} className="ai-status-badge"
+      aria-label={"运行状态：" + label} aria-controls={id} aria-expanded={expanded}
+      onClick={() => update("toggle")}>
+      <span role="status">{label}</span>
+    </button>
+    <div id={id} role="region" aria-label="运行状态详情" className="ai-status-popover" hidden={!expanded}>
+      {expanded && children}
+    </div>
+  </div>
+}
 
 export default function AiToolbar({ source }) {
   const state = useStore(aiState)
@@ -161,7 +207,7 @@ export default function AiToolbar({ source }) {
     }}>有新内容 / 中文更新 · 点击刷新</button>}
   </>
 
-  return <div className="ai-toolbar">
+  return <div className={compact ? "ai-toolbar" : "ai-toolbar ai-toolbar-desktop"}>
     <div className="ai-modes" aria-label="阅读方式">
       {[["all", "全部原始"], ["recommended", "AI 精选"]].map(([mode, label]) =>
         <button
@@ -211,7 +257,7 @@ export default function AiToolbar({ source }) {
           <button type="button" onClick={() => { closeStatus(); navigation.current?.() }}>快速跳转</button>
         </div>
       </dialog>
-    </> : <>{diagnostics}<a className="ai-service-home" href="/">服务首页</a><button className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button></>}
+    </> : <><DesktopStatus key={source} label={statusLabel}>{diagnostics}</DesktopStatus><a className="ai-service-home" href="/">服务首页</a><button className="ai-settings-button" onClick={openConsole}>AI 设置 · 来源</button></>}
     <NavigationPalette onConsole={openConsole} launchRef={navigation} beforeLaunch={closeStatus} returnFocusRef={statusButton}
       triggerClassName={compact ? "ai-navigation-hidden" : ""} />
     {open && <AiPanel onClose={() => setOpen(false)} returnFocusRef={statusButton} />}

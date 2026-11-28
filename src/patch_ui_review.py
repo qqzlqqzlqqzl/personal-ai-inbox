@@ -39,10 +39,12 @@ patch('src/components/Article/ArticleCard.jsx',
 patch('src/components/Article/ArticleListItem.jsx',
       '      <div className="list-entry-meta">',
       '      <div className="list-entry-meta">\n        <CardLanguage entry={entry} />')
-# Compact AI lists have no body; list layout must use the already available summary too.
-patch('src/components/Article/ArticleListItem.jsx',
-      'const listSummary = getListSummary(previewContent)',
-      'const listSummary = getListSummary(entry.card?.summary || entry.ai?.summary || previewContent)')
+list_item = 'src/components/Article/ArticleListItem.jsx'
+patch(list_item, 'import "./ArticleListItem.css"',
+      'import { entryCardSummary } from "./card-summary"\nimport "./ArticleListItem.css"')
+prior_summary = 'const listSummary = getListSummary(entry.card?.summary || entry.ai?.summary || previewContent)'
+summary_anchor = prior_summary if prior_summary in (WEB / list_item).read_text() else 'const listSummary = getListSummary(previewContent)'
+patch(list_item, summary_anchor, 'const listSummary = getListSummary(entryCardSummary(entry, previewContent))')
 
 search_sort = (WEB / 'src/components/Article/SearchAndSortBar.jsx').read_text()
 if 'const aiList =' not in search_sort:

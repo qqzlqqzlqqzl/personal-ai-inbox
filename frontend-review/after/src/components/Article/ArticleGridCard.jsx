@@ -10,6 +10,7 @@ import { articleGridCardSettingsState } from "@/store/settingsState"
 import { generateReadingTime, generateRelativeTime } from "@/utils/date"
 
 import ReaderThumbnail from "./ReaderThumbnail"
+import { entryCardSummary } from "./card-summary"
 import "./ArticleGridCard.css"
 
 const MAX_CARD_SUMMARY_LENGTH = 320
@@ -61,7 +62,7 @@ const ArticleGridCard = ({ entry, previewContent }) => {
   const currentCoverState = isCurrentCover ? coverState : getInitialCoverState(entry)
   const { hasError, isReady, shouldCrop } = currentCoverState
   const hasCover = Boolean(entry.coverSource) && !hasError
-  const cardSummary = getCardSummary(entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent))
+  const cardSummary = getCardSummary(entryCardSummary(entry, previewContent))
 
   const handleCoverLoad = ({ currentTarget }) => {
     const aspectRatio = getAspectRatio(currentTarget.naturalWidth, currentTarget.naturalHeight)

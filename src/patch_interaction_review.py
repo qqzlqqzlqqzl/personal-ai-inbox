@@ -24,7 +24,7 @@ def install(root):
         if current==updated:continue
         accepted=original is not None and current==original
         accepted=accepted or (original is None and current is None)
-        accepted=accepted or (current is not None and hashlib.sha256(current).hexdigest() in history.get(str(name),[]))
+        accepted=accepted or (current is not None and hashlib.sha256(current).hexdigest() in history.get(name.as_posix(),[]))
         if not accepted:raise RuntimeError(f'Unreviewed source drift, refusing overwrite: {name}')
         planned.append((destination,updated))
     for destination,data in planned:

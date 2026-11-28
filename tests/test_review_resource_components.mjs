@@ -96,6 +96,7 @@ await test('R01 toolbar hidden intervals emit zero polls; visible refresh is bou
  const realSet=globalThis.setInterval,realClear=globalThis.clearInterval;let tick;globalThis.setInterval=fn=>(tick=fn,17);globalThis.clearInterval=()=>{}
  try{
   await act(async()=>root.render(React.createElement(AiToolbar)));assert.equal(fixture.requests.length,1);const old=request('status')
+  await act(async()=>document.querySelector('.ai-status-badge').click())
   await act(async()=>{hidden=true;document.dispatchEvent(new dom.window.Event('visibilitychange'));tick();tick();tick()});assert.equal(fixture.requests.length,1);assert.equal(old.options.signal.aborted,true)
   await act(async()=>{hidden=false;document.dispatchEvent(new dom.window.Event('visibilitychange'));document.dispatchEvent(new dom.window.Event('visibilitychange'));tick()});assert.equal(fixture.requests.length,2)
   await complete(old,{counts:{done:999},kaggle:{enabled:true}});assert.doesNotMatch(document.body.textContent,/999/)

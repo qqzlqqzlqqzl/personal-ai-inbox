@@ -55,9 +55,21 @@ for name in ['ArticleGridCard','ArticleCard','ArticleDetail']:
  path='src/components/Article/'+name+'.jsx'; text=(WEB/path).read_text()
  if 'import AiBadge ' not in text:
   backup(path); (WEB/path).write_text('import AiBadge from "@/components/Ai/AiBadge"\n'+text)
-patch('src/components/Article/ArticleGridCard.jsx','const cardSummary = getCardSummary(previewContent)','const cardSummary = getCardSummary(entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent))')
+grid_card = 'src/components/Article/ArticleGridCard.jsx'
+if (WEB / grid_card).read_text() != (ROOT / 'frontend-review/after' / grid_card).read_text():
+    patch(grid_card, 'const cardSummary = getCardSummary(previewContent)',
+          'const cardSummary = getCardSummary(entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent))')
 patch('src/components/Article/ArticleGridCard.jsx','        <div className="grid-card-footer">','        <AiBadge entry={entry} />\n        <div className="grid-card-footer">')
-patch('src/components/Article/ArticleCard.jsx','              {previewContent}','              {entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent)}')
+article_card = 'src/components/Article/ArticleCard.jsx'
+patch(article_card, 'import "./ArticleCard.css"',
+      'import { entryCardSummary } from "./card-summary"\nimport "./ArticleCard.css"')
+patch(article_card, '  const shouldRenderCover = shouldShowCover && !hasError',
+      '  const shouldRenderCover = shouldShowCover && !hasError\n  const cardSummary = entryCardSummary(entry, previewContent)')
+patch(article_card, '{summaryLines > 0 && (', '{summaryLines > 0 && cardSummary && (')
+normalize(article_card, [
+    '              {previewContent}',
+    '              {entry.card?.summary || (entry.ai?.state === "done" ? entry.ai.summary : previewContent)}',
+], '              {cardSummary}')
 patch('src/components/Article/ArticleCard.jsx','      </div>\n    </div>\n  )','      </div>\n      <AiBadge entry={entry} />\n    </div>\n  )')
 patch('src/components/Article/ArticleDetail.jsx','            <Divider />\n          </div>','            <AiBadge entry={activeContent} detailed />\n            <Divider />\n          </div>')
 patch('src/utils/entry-presentation.js','  const coverSource =\n    firstImage?.getAttribute("src") ||','  const coverSource =\n    entry.ai?.cover_url ||\n    firstImage?.getAttribute("src") ||')
@@ -279,7 +291,10 @@ def install_ai_pagination_revision(root, web):
 
 install_ai_pagination_revision(ROOT, WEB)
 patch('src/components/Article/ArticleEntry.jsx','import useEntryActions from "@/hooks/useEntryActions"','import CardLanguage from "@/components/Ai/CardLanguage"\nimport useEntryActions from "@/hooks/useEntryActions"')
-patch('src/components/Article/ArticleEntry.jsx','        <Presenter entry={entry} previewContent={previewContent} />','        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />')
+normalize('src/components/Article/ArticleEntry.jsx', [
+    '        <Presenter entry={entry} previewContent={previewContent} />',
+    '        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={entry.card?.summary || previewContent} />',
+], '        <Presenter entry={{ ...entry, title: entry.card?.title || entry.title }} previewContent={previewContent} />')
 patch('src/components/Article/ArticleEntry.jsx','{ title: entry.title })\n    : entry.title','{ title: entry.card?.title || entry.title })\n    : (entry.card?.title || entry.title)')
 shutil.copy2(ROOT/'patches/CardLanguage.jsx', WEB/'src/components/Ai/CardLanguage.jsx')
 
