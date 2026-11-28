@@ -193,6 +193,11 @@ def _historical_authoring(isolated):
         source.extractall(isolated, filter="data")
 
 
+def _historical_stages(isolated):
+    # A historical authoring tree only ran the stages it shipped (e.g. no patch_reader_snapshots.py yet).
+    return tuple(name for name in STAGES if (isolated / "src" / name).is_file())
+
+
 def _apply_authoring(isolated, stages=STAGES):
     for name in stages:
         script = isolated / "src" / name
@@ -234,7 +239,7 @@ def test_public_production_baseline_upgrade_and_unknown_drift(tmp_path, monkeypa
     monkeypatch.setenv("AI_NEWS_ROOT", str(isolated))
     if baseline_kind == "recorded-patch":
         _recorded_search_baseline(isolated, web, tmp_path / "recorded-source")
-    _apply_authoring(isolated)
+    _apply_authoring(isolated, _historical_stages(isolated))
     baseline_hashes = {
         "script": "91b9d316610966db26b5cb5e6d1278ed0b94f53bbe397c5d19955352d21a3734",
         "recorded-patch": "65a3e7ce6a2c75b31994a5442054267beea9d8e7a602d371cd9787d7a9e18977",
@@ -327,7 +332,7 @@ def test_known_closed_draft_baseline_upgrade_preserves_backups_and_equals_pristi
     with tarfile.open(fileobj=io.BytesIO(archive)) as source:
         source.extractall(isolated, filter="data")
     monkeypatch.setenv("AI_NEWS_ROOT", str(isolated))
-    _apply_authoring(isolated)
+    _apply_authoring(isolated, _historical_stages(isolated))
     expected_helper = {
         SESSION_PRIVACY_BASELINE: "632c6ee65f2ea9369bcfc89e896db490e36b3eba8c36b904e21f041c10bded51",
         "8faaefaf58fa8aff6c598bb5e29c8a3b2224784c": "726fdf1937518a6bbbd418716c8a303a406cfe4a37c0ea3184fa84310806995a",
